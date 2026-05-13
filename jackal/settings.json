@@ -1,0 +1,35 @@
+{
+  "lastChangelogVersion": "0.74.0",
+  "defaultProvider": "zai",
+  "defaultModel": "glm-5.1",
+  "defaultThinkingLevel": "medium",
+  "steeringMode": "one-at-a-time",
+  "followUpMode": "one-at-a-time",
+  "packages": [
+    {
+      "source": "npm:pi-subagents",
+      "prompts": [
+        "-prompts/gather-context-and-clarify.md",
+        "-prompts/parallel-cleanup.md",
+        "-prompts/parallel-context-build.md",
+        "-prompts/parallel-handoff-plan.md",
+        "-prompts/parallel-research.md",
+        "-prompts/parallel-review.md"
+      ]
+    }
+  ],
+  "hideThinkingBlock": false,
+  "subagents": {
+    "agentOverrides": {
+      "scout": {
+        "model": "zai/glm-4.7"
+      },
+      "planner": {
+        "model": "openai-codex/gpt-5.3-codex"
+      },
+      "worker": {
+        "model": "openai-codex/gpt-5.4-mini"
+      }
+    }
+  }
+}

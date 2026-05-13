@@ -1,0 +1,10 @@
+# Jac runtime artifacts
+.jac/
+
+# Pi isolated agent dir (jackal/): secrets and session logs
+jackal/auth.json
+jackal/sessions/
+
+# Ad-hoc session exports
+session-ses_*.md
+node_modules/

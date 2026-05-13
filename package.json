@@ -1,0 +1,40 @@
+{
+  "name": "jackal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi-powered, terminal-native Jac coding agent",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "files": [
+    "extensions",
+    "chains",
+    "skills",
+    "prompts",
+    "jackal/mcp.json"
+  ],
+  "dependencies": {
+    "@juicesharp/rpiv-ask-user-question": "^1.5.0",
+    "@juicesharp/rpiv-btw": "^1.5.0",
+    "pi-subagents": "^0.24.2"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "typescript-language-server": "^5.2.0"
+  }
+}
