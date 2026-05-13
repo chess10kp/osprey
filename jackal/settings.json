@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.74.0",
-  "defaultProvider": "zai",
-  "defaultModel": "glm-5.1",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.3-codex",
   "defaultThinkingLevel": "medium",
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
@@ -22,7 +22,7 @@
   "subagents": {
     "agentOverrides": {
       "scout": {
-        "model": "zai/glm-4.7"
+        "model": "openai-codex/gpt-5.3-codex"
       },
       "planner": {
         "model": "openai-codex/gpt-5.3-codex"
