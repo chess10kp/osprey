@@ -1,11 +1,11 @@
 ---
 name: fix-skill
-description: Iteratively fix Jac compiler errors using the Jac MCP. Use when the user runs /fix, when validate_jac returns errors, or when the user asks you to repair a .jac file.
+description: Iteratively fix the diagnosis from diagnosis-skill
 ---
 
 # Fix Workflow
 
-When fixing Jac compiler errors, follow this loop. Stop after at most **3 attempts** on the same file — if still failing, summarize what you tried and ask the user.
+When fixing Jac application errors, follow this loop. Stop after at most **3 attempts** on the same file — if still failing, summarize what you tried and ask the user.
 
 All validation, error explanation, and CLI execution comes from the **Jac MCP server** (configured in `jackal/mcp.json`). Do not shell out to `jac` yourself.
 

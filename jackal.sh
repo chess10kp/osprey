@@ -16,7 +16,7 @@ fi
 export PI_CODING_AGENT_DIR="$AGENT_DIR"
 
 # Set process name to 'jackal' for tmux window title
-exec -a jackal pi --no-extensions \
+exec -a jackal pi \
   -e "$JACKAL_DIR/extensions/jackal-toolchain.ts" \
   --skill "$JACKAL_DIR/skills" \
   --prompt-template "$JACKAL_DIR/prompts" \

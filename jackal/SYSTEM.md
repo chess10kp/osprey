@@ -11,6 +11,7 @@ When generating or modifying code:
 - Make minimal coherent edits
 - Verify changes after modification when possible
 - Surface traversal and topology implications when relevant
+- Keep file sizes small (300-500 lines)
 
 Walkers are traversal agents. Keep traversal behavior explicit. Avoid hidden mutations. Maintain coherent movement semantics.
 
