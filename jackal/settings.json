@@ -6,6 +6,8 @@
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "packages": [
+    "npm:@juicesharp/rpiv-btw",
+    "npm:pi-mcp-adapter",
     {
       "source": "npm:pi-subagents",
       "prompts": [
