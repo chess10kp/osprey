@@ -7,6 +7,15 @@
       ],
       "lifecycle": "eager",
       "directTools": true
+    },
+    "jackal-simple": {
+      "command": "jac",
+      "args": [
+        "run",
+        "./jackal/simple_mcp_server.jac"
+      ],
+      "lifecycle": "eager",
+      "directTools": true
     }
   }
 }
