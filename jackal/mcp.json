@@ -2,8 +2,11 @@
   "mcpServers": {
     "jac": {
       "command": "jac",
-      "args": ["mcp"],
-      "enabled": true
+      "args": [
+        "mcp"
+      ],
+      "lifecycle": "eager",
+      "directTools": true
     }
   }
 }
