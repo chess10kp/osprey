@@ -19,6 +19,7 @@ Jackal is a Pi-powered Jac coding agent with:
 | `/osp <desc>` | Generate OSP code (nodes, edges, walkers) |
 | `/create [name] [--use template]` | Scaffold a new Jac project via `jac create` (TUI template picker) |
 | `/refactor <desc>` | Run a safe Jac refactor workflow |
+| `/refactor-skill <desc>` | Run refactor flow seeded by https://www.claudedirectory.org/skills/refactor |
 | `list_examples` / `get_example` (MCP) | Browse curated Jac examples via the Jac MCP |
 | `/plan [prompt]` | **Toggle plan mode, or enter plan mode + send a prompt in one action** |
 | `/jac-verbose [on|off]` | Toggle verbose output |
