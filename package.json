@@ -29,6 +29,9 @@
   "dependencies": {
     "@juicesharp/rpiv-ask-user-question": "^1.5.0",
     "@juicesharp/rpiv-btw": "^1.5.0",
+    "@pi-unipi/notify": "^2.0.1",
+    "pi-lsp-extension": "^1.2.1",
+    "pi-mcp-adapter": "^2.6.0",
     "pi-subagents": "^0.24.2"
   },
   "devDependencies": {

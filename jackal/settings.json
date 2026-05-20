@@ -6,6 +6,7 @@
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "packages": [
+    "npm:pi-lsp-extension",
     "npm:@juicesharp/rpiv-btw",
     "npm:pi-mcp-adapter",
     {
