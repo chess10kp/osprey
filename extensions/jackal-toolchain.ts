@@ -30,6 +30,23 @@ import { registerCommands } from "./jackal/commands.js";
 import { registerHooks } from "./jackal/hooks.js";
 
 export default function (pi: ExtensionAPI) {
+  // ──── Register .jac in pi-lsp-extension's language map ─────────────
+  // LSP tools (diagnostics, hover, definition, etc.) need to know that
+  // .jac files map to the "jac" language ID. pi-lsp-extension doesn't
+  // include this mapping by default, so we monkey-patch it at runtime.
+  try {
+    import("pi-lsp-extension/src/shared/language-map.js").then(
+      ({ EXT_TO_LANGUAGE }) => {
+        EXT_TO_LANGUAGE[".jac"] = "jac";
+      },
+      () => {
+        // pi-lsp-extension not installed — skip silently
+      },
+    );
+  } catch {
+    // dynamic import not supported — skip silently
+  }
+
   // ──── Flags ──────────────────────────────────────────────────────────
   pi.registerFlag("jac-verbose", {
     description:
