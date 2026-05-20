@@ -1,0 +1,5 @@
+{
+  "tui.input.submit": "shift+enter",
+  "tui.input.newLine": "alt+enter",
+  "app.message.followUp": "enter"
+}
