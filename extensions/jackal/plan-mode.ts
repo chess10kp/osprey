@@ -18,6 +18,7 @@ export const JAC_PLAN_TOOLS = [
   "get_example",
   "get_ast",
   "read",
+  "bash",
 ];
 
 export const JAC_EXECUTE_TOOLS = [
