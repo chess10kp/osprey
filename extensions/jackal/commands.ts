@@ -989,7 +989,7 @@ function registerJackalShell({ pi }: CommandContext): void {
 
       // Copy shell template
       const __dirname = dirname(fileURLToPath(import.meta.url));
-      const templatePath = join(__dirname, "..", "..", "agent-next", "templates", "shell.mjs");
+      const templatePath = join(__dirname, "..", "..", "agent-next", "templates", "shell.cl.jac");
       if (!existsSync(templatePath)) {
         ctx.ui.notify(`Shell template not found: ${templatePath}`, "error");
         return;
@@ -1014,7 +1014,7 @@ function registerJackalShell({ pi }: CommandContext): void {
         },
       };
 
-      writeFileSync(join(outDir, "shell.mjs"), shellSrc, "utf-8");
+      writeFileSync(join(outDir, "shell.cl.jac"), shellSrc, "utf-8");
       writeFileSync(
         join(outDir, "package.json"),
         JSON.stringify(pkgJson, null, 2) + "\n",
@@ -1022,7 +1022,7 @@ function registerJackalShell({ pi }: CommandContext): void {
       );
 
       ctx.ui.notify(
-        `Shell scaffolded in ${outDir}\nRun: cd ${outDir} && npm install --ignore-scripts && npm start`,
+        `Shell scaffolded in ${outDir}\nCompile with: cd ${outDir} && jac jac2ink shell.cl.jac --with_pi --install --run`,
         "info",
       );
     },
