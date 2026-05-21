@@ -5,29 +5,39 @@
 // It does NOT import pi-tui or any rendering code.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { AgentStore } from "./store.js";
 import { bridgeEvents } from "./bridge.js";
+import { InkExtensionUIContext } from "./ui-context.js";
 
 export interface NextAgentResult {
   ok: boolean;
   eventTypes: string[];
   snapshotCount: number;
+  dialogCount: number;
   error?: string;
 }
 
 /**
  * Phase-0 smoke: boot a headless Pi session, run one prompt turn,
- * and verify the store + bridge work end-to-end.
+ * and verify the store + bridge + UI context work end-to-end.
  */
 export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
   const store = new AgentStore();
+  const uiContext = new InkExtensionUIContext(store);
   const eventTypes = new Set<string>();
 
-  // Track all snapshot changes
   let snapshotCount = 0;
   const unsubStore = store.subscribe(() => {
     snapshotCount++;
+  });
+
+  let uiMutations = 0;
+  const unsubUI = uiContext.subscribe(() => {
+    uiMutations++;
   });
 
   try {
@@ -35,6 +45,11 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
       cwd,
       sessionManager: SessionManager.inMemory(cwd),
       noTools: "all",
+    });
+
+    // Bind the headless UI context so extensions can call notify/select/etc.
+    await session.bindExtensions({
+      uiContext: uiContext as any,
     });
 
     const unsubEvents = session.subscribe((event: any) => {
@@ -52,39 +67,50 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
     }
 
     unsubStore();
+    unsubUI();
 
     return {
       ok: true,
       eventTypes: [...eventTypes],
       snapshotCount,
+      dialogCount: uiMutations,
     };
   } catch (err: any) {
     unsubStore();
+    unsubUI();
     return {
       ok: false,
       eventTypes: [...eventTypes],
       snapshotCount,
+      dialogCount: uiMutations,
       error: err?.message || String(err),
     };
   }
 }
 
 /**
- * Create a full adapter: Pi session wired into an AgentStore.
- * Returns the store + imperative actions for the UI layer.
+ * Create a full adapter: Pi session wired into an AgentStore + UI context.
+ * Returns the store, UI context, and imperative actions for the Ink layer.
  */
 export async function createNextAgent(cwd: string): Promise<{
   store: AgentStore;
+  uiContext: InkExtensionUIContext;
   actions: {
     send: (text: string) => Promise<void>;
+    resolveDialog: (id: string, value: any) => void;
     dispose: () => void;
   };
 }> {
   const store = new AgentStore();
+  const uiContext = new InkExtensionUIContext(store);
 
   const { session } = await createAgentSession({
     cwd,
     sessionManager: SessionManager.inMemory(cwd),
+  });
+
+  await session.bindExtensions({
+    uiContext: uiContext as any,
   });
 
   const unsubBridge = bridgeEvents(session, store);
@@ -92,10 +118,14 @@ export async function createNextAgent(cwd: string): Promise<{
 
   return {
     store,
+    uiContext,
     actions: {
       send: async (text: string) => {
         store.pushUserMessage(text);
         await session.sendUserMessage(text);
+      },
+      resolveDialog: (id: string, value: any) => {
+        uiContext.resolveDialog(id, value);
       },
       dispose: () => {
         unsubBridge();
