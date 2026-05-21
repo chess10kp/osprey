@@ -6,16 +6,14 @@
         "mcp"
       ],
       "lifecycle": "eager",
-      "directTools": true
-    },
-    "jackal-simple": {
-      "command": "jac",
-      "args": [
-        "run",
-        "./jackal/simple_mcp_server.jac"
-      ],
-      "lifecycle": "eager",
-      "directTools": true
+      "directTools": [
+        "validate_jac",
+        "check_syntax",
+        "run_jac",
+        "graph_visualize",
+        "get_ast",
+        "search_docs"
+      ]
     }
   }
 }

@@ -437,6 +437,27 @@ function registerRefactor({ pi }: CommandContext): void {
       pi.sendUserMessage(prompt);
     },
   });
+
+  pi.registerCommand("refactor-skill", {
+    description:
+      "Run refactor flow seeded by Claude Directory skill. Usage: /refactor-skill <short description>",
+    handler: async (args, ctx) => {
+      const desc = args.trim();
+      if (!desc) {
+        ctx.ui.notify("Usage: /refactor-skill <short description>", "info");
+        return;
+      }
+
+      const prompt = [
+        `Use this external refactor skill as guidance: https://www.claudedirectory.org/skills/refactor`,
+        `User request: ${desc}`,
+        "",
+        "Adapt the workflow to this Jac project: inspect code first, make minimal coherent edits, and verify with validate_jac/lint_jac after each change.",
+      ].join("\n");
+
+      pi.sendUserMessage(prompt);
+    },
+  });
 }
 
 // ──── /create ────────────────────────────────────────────────────────────

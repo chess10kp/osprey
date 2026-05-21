@@ -23,6 +23,57 @@ Pi package with:
 - `skills/` — Agent Skills (SKILL.md files) the LLM reads on-demand for Jac-specific workflows.
 - `prompts/` — reusable prompt templates
 
+## Allowed Tools
+
+The canonical set of tools Jackal may use, organized by tier.
+
+### Tier 1 — Core edit-validate-run loop (constant use)
+
+| Tool | Purpose |
+|------|---------|
+| `read` | Read file contents (text or images) — understand before touching |
+| `write` | Create or overwrite files |
+| `edit` | Targeted text replacement in existing files |
+| `bash` | Run shell commands (`jac` CLI, `git`, `find`, etc.) |
+| `jac_validate_jac` | Full type-check validation of Jac code — primary correctness gate |
+| `jac_check_syntax` | Parse-only syntax check (faster, no type checking) |
+| `jac_run_jac` | Execute Jac code and return stdout/stderr — runtime verification |
+
+### Tier 2 — Orientation & lookup (frequent use)
+
+| Tool | Purpose |
+|------|---------|
+| `jac_search_docs` | Look up Jac syntax, APIs, and patterns by keyword |
+| `code_overview` | Summarize project structure (directory tree + top-level symbols) |
+| `ast_search` | Find code matching a structural pattern (walkers, nodes, etc.) |
+| `lsp_diagnostics` | Get compilation errors/warnings from LSP |
+| `lsp_hover` | Get type info and docs for a symbol |
+| `lsp_definition` | Go to definition of a symbol |
+| `lsp_references` | Find all references to a symbol |
+| `lsp_completions` | Get completion suggestions at a position |
+
+### Tier 3 — Transformation & visualization (situational)
+
+| Tool | Purpose |
+|------|---------|
+| `code_rewrite` | Batch structural code transformations via AST matching |
+| `lsp_rename` | Rename a symbol across the project |
+| `lsp_code_actions` | Get available quick fixes / refactorings |
+| `lsp_symbols` | List symbols in a file or search workspace |
+| `jac_graph_visualize` | Visualize Jac graph output as DOT or JSON |
+| `jac_get_ast` | Parse Jac code and return AST (tree or JSON) |
+
+### Tier 4 — MCP gateway & orchestration
+
+| Tool | Purpose |
+|------|---------|
+| `mcp` | Route to Jac MCP server (85 tools: format, lint, transpile, examples, etc.) or browsermcp |
+| `subagent` | Delegate to subagents: single, chain, parallel, async execution |
+
+### Skills (loaded on demand)
+
+30 skills covering Jac language patterns, OSP, auth, fullstack, components, scaffolding, refactoring, diagnosis. Read via `read` tool when task matches description.
+
 ## Reference implementation
 
 `reference/pi-lsp-extension/` — cloned from https://github.com/samfoy/pi-lsp-extension
