@@ -960,7 +960,7 @@ function registerNextAgentSmoke({ pi }: CommandContext): void {
             ? result.eventTypes.join(", ")
             : "(no events captured)";
           ctx.ui.notify(
-            `✅ next-agent smoke passed\nEvents: ${events}`,
+            `✅ next-agent smoke passed\nEvents (${result.eventTypes.length}): ${events}\nStore mutations: ${result.snapshotCount}`,
             "info",
           );
         } else {
