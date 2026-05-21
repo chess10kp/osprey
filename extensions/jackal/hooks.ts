@@ -135,7 +135,7 @@ export function registerHooks({ pi }: HookContext): void {
 
             const execMessage =
               planMode.todos.length > 0
-                ? `Execute the plan. Start with: ${planMode.todos[0]!.text}\n\nUse the Jac MCP tools as needed (validate_jac, run_jac, format_jac, etc.). Mark steps complete with [DONE:n] tags.`
+                ? `Execute the plan. Start with: ${planMode.todos[0]!.text}\n\nUse the available Jac MCP tools as needed (validate_jac, check_syntax, run_jac, search_docs, get_ast, graph_visualize). Mark steps complete with [DONE:n] tags.`
                 : "Execute the plan you just created.";
             pi.sendMessage(
               {
