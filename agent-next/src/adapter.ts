@@ -8,10 +8,14 @@
 import {
   createAgentSession,
   SessionManager,
+  AuthStorage,
+  ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import { AgentStore } from "./store.js";
 import { bridgeEvents } from "./bridge.js";
 import { InkExtensionUIContext } from "./ui-context.js";
+import { AuthFlowStore } from "./auth-flow.js";
+import { AuthActions } from "./auth-actions.js";
 
 export interface NextAgentResult {
   ok: boolean;
@@ -19,6 +23,11 @@ export interface NextAgentResult {
   snapshotCount: number;
   dialogCount: number;
   error?: string;
+}
+
+export interface CreateNextAgentOptions {
+  authStorage?: AuthStorage;
+  modelRegistry?: ModelRegistry;
 }
 
 /**
@@ -31,14 +40,10 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
   const eventTypes = new Set<string>();
 
   let snapshotCount = 0;
-  const unsubStore = store.subscribe(() => {
-    snapshotCount++;
-  });
+  const unsubStore = store.subscribe(() => { snapshotCount++; });
 
   let uiMutations = 0;
-  const unsubUI = uiContext.subscribe(() => {
-    uiMutations++;
-  });
+  const unsubUI = uiContext.subscribe(() => { uiMutations++; });
 
   try {
     const { session } = await createAgentSession({
@@ -47,10 +52,7 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
       noTools: "all",
     });
 
-    // Bind the headless UI context so extensions can call notify/select/etc.
-    await session.bindExtensions({
-      uiContext: uiContext as any,
-    });
+    await session.bindExtensions({ uiContext: uiContext as any });
 
     const unsubEvents = session.subscribe((event: any) => {
       if (event?.type) eventTypes.add(String(event.type));
@@ -89,29 +91,40 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
 }
 
 /**
- * Create a full adapter: Pi session wired into an AgentStore + UI context.
- * Returns the store, UI context, and imperative actions for the Ink layer.
+ * Create a full adapter: Pi session wired into store + auth + UI context.
+ * Returns everything the Ink shell needs to render and interact.
  */
-export async function createNextAgent(cwd: string): Promise<{
+export async function createNextAgent(
+  cwd: string,
+  options?: CreateNextAgentOptions,
+): Promise<{
   store: AgentStore;
   uiContext: InkExtensionUIContext;
+  authFlow: AuthFlowStore;
+  authActions: AuthActions;
   actions: {
     send: (text: string) => Promise<void>;
     resolveDialog: (id: string, value: any) => void;
+    setModel: (provider: string, modelId: string) => Promise<void>;
     dispose: () => void;
   };
 }> {
   const store = new AgentStore();
   const uiContext = new InkExtensionUIContext(store);
+  const authFlow = new AuthFlowStore();
+
+  const authStorage = options?.authStorage ?? AuthStorage.create();
+  const modelRegistry = options?.modelRegistry ?? ModelRegistry.create(authStorage);
+  const authActions = new AuthActions(authStorage, modelRegistry, authFlow);
 
   const { session } = await createAgentSession({
     cwd,
+    authStorage,
+    modelRegistry,
     sessionManager: SessionManager.inMemory(cwd),
   });
 
-  await session.bindExtensions({
-    uiContext: uiContext as any,
-  });
+  await session.bindExtensions({ uiContext: uiContext as any });
 
   const unsubBridge = bridgeEvents(session, store);
   store.markReady();
@@ -119,6 +132,8 @@ export async function createNextAgent(cwd: string): Promise<{
   return {
     store,
     uiContext,
+    authFlow,
+    authActions,
     actions: {
       send: async (text: string) => {
         store.pushUserMessage(text);
@@ -127,10 +142,19 @@ export async function createNextAgent(cwd: string): Promise<{
       resolveDialog: (id: string, value: any) => {
         uiContext.resolveDialog(id, value);
       },
+      setModel: async (provider: string, modelId: string) => {
+        const models = modelRegistry.getAll();
+        const model = models.find((m: any) => m.provider === provider && m.id === modelId);
+        if (model) {
+          await session.setModel(model);
+        }
+        authFlow.setIdle();
+      },
       dispose: () => {
         unsubBridge();
         session.dispose();
         store.reset();
+        authFlow.reset();
       },
     },
   };
