@@ -24,6 +24,9 @@ import {
 } from "./settings.js";
 import { getConfig, formatConfig } from "./config.js";
 import { runNextAgentSmoke } from "../../agent-next/src/adapter.js";
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
@@ -976,6 +979,56 @@ function registerNextAgentSmoke({ pi }: CommandContext): void {
   });
 }
 
+function registerJackalShell({ pi }: CommandContext): void {
+  pi.registerCommand("jackal-shell", {
+    description:
+      "Launch the Jackal Ink TUI shell (scaffold + npm install + run).",
+    handler: async (_args, ctx) => {
+      const outDir = join(ctx.cwd, ".jac", "jackal-shell");
+      mkdirSync(outDir, { recursive: true });
+
+      // Copy shell template
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const templatePath = join(__dirname, "..", "..", "agent-next", "templates", "shell.mjs");
+      if (!existsSync(templatePath)) {
+        ctx.ui.notify(`Shell template not found: ${templatePath}`, "error");
+        return;
+      }
+
+      const shellSrc = await import("node:fs").then((fs) =>
+        fs.readFileSync(templatePath, "utf-8"),
+      );
+
+      // Write package.json
+      const pkgJson = {
+        name: "jackal-shell",
+        private: true,
+        type: "module",
+        scripts: { start: "node shell.mjs" },
+        dependencies: {
+          ink: "^7.0.3",
+          react: "^19.2.4",
+          "@earendil-works/pi-coding-agent": "0.75.4",
+          "@earendil-works/pi-agent-core": "0.75.4",
+          "@earendil-works/pi-ai": "0.75.4",
+        },
+      };
+
+      writeFileSync(join(outDir, "shell.mjs"), shellSrc, "utf-8");
+      writeFileSync(
+        join(outDir, "package.json"),
+        JSON.stringify(pkgJson, null, 2) + "\n",
+        "utf-8",
+      );
+
+      ctx.ui.notify(
+        `Shell scaffolded in ${outDir}\nRun: cd ${outDir} && npm install --ignore-scripts && npm start`,
+        "info",
+      );
+    },
+  });
+}
+
 function registerCommit({ pi }: CommandContext): void {
   pi.registerCommand("commit", {
     description:
@@ -1050,5 +1103,6 @@ export function registerCommands(ctx: CommandContext): void {
   registerJacPlan(ctx);
   registerJacSubagentModel(ctx);
   registerNextAgentSmoke(ctx);
+  registerJackalShell(ctx);
   registerCommit(ctx);
 }
