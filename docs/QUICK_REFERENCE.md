@@ -143,6 +143,7 @@ See `docs/jackal_mcp_reference.md` for full details.
 - `project-skill` — Project structure detection
 - `jackal-auth` — Authentication templates
 - `refactor-skill` — Guided refactoring workflow
+- `commit-review-skill` — Review git diffs and commit with conventional messages
 - `pi-subagents` — Subagent delegation patterns
 
 ## Common Workflows
