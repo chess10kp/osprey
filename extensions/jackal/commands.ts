@@ -23,6 +23,7 @@ import {
   pickSubagentModelSpec,
 } from "./settings.js";
 import { getConfig, formatConfig } from "./config.js";
+import { runNextAgentSmoke } from "../../agent-next/src/adapter.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -946,6 +947,35 @@ function registerJacSubagentModel({ pi }: CommandContext): void {
 
 // ──── /commit ────────────────────────────────────────────────────────────
 
+function registerNextAgentSmoke({ pi }: CommandContext): void {
+  pi.registerCommand("next-agent-smoke", {
+    description:
+      "Run Phase-0 in-process runtime smoke for the new Jackal agent.",
+    handler: async (_args, ctx) => {
+      ctx.ui.setStatus("jackal-next", "Running smoke...");
+      try {
+        const result = await runNextAgentSmoke(ctx.cwd);
+        if (result.ok) {
+          const events = result.eventTypes.length
+            ? result.eventTypes.join(", ")
+            : "(no events captured)";
+          ctx.ui.notify(
+            `✅ next-agent smoke passed\nEvents: ${events}`,
+            "info",
+          );
+        } else {
+          ctx.ui.notify(
+            `❌ next-agent smoke failed\n${result.error || "Unknown error"}`,
+            "error",
+          );
+        }
+      } finally {
+        ctx.ui.setStatus("jackal-next", "");
+      }
+    },
+  });
+}
+
 function registerCommit({ pi }: CommandContext): void {
   pi.registerCommand("commit", {
     description:
@@ -1019,5 +1049,6 @@ export function registerCommands(ctx: CommandContext): void {
   registerCreate(ctx);
   registerJacPlan(ctx);
   registerJacSubagentModel(ctx);
+  registerNextAgentSmoke(ctx);
   registerCommit(ctx);
 }
