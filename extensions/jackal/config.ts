@@ -6,6 +6,7 @@
 //
 // Supported keys:
 //   autocheck        boolean   auto-run jac check after write/edit   (default: true)
+//   autoformat       boolean   auto-run jac format after write/edit  (default: true)
 //   verbose          boolean   show full jac check output            (default: false)
 //   plan             boolean   start in plan mode                    (default: false)
 //   maxFixAttempts   number    max auto-fix retries per file         (default: 2)
@@ -47,6 +48,8 @@ const CONFIG_FILENAME_ALT = "_jackal";
 export interface JackalProjectConfig {
   /** Auto-run jac check after every write/edit of a .jac file. */
   autocheck?: boolean;
+  /** Auto-run jac format in-place after every write/edit of a .jac file. */
+  autoformat?: boolean;
   /** Show full jac check output and per-attempt detail. */
   verbose?: boolean;
   /** Start in plan mode (read-only exploration). */
@@ -69,6 +72,7 @@ export interface JackalProjectConfig {
 /** Resolved (fully-populated) config with defaults applied. */
 export interface ResolvedJackalConfig {
   autocheck: boolean;
+  autoformat: boolean;
   verbose: boolean;
   plan: boolean;
   maxFixAttempts: number;
@@ -81,6 +85,7 @@ export interface ResolvedJackalConfig {
 
 const DEFAULTS: ResolvedJackalConfig = {
   autocheck: true,
+  autoformat: true,
   verbose: false,
   plan: false,
   maxFixAttempts: 2,
@@ -171,6 +176,7 @@ export function readJackalConfig(configPath: string): JackalProjectConfig | null
 export function resolveConfig(partial: JackalProjectConfig, configPath: string | null): ResolvedJackalConfig {
   return {
     autocheck: partial.autocheck ?? DEFAULTS.autocheck,
+    autoformat: partial.autoformat ?? DEFAULTS.autoformat,
     verbose: partial.verbose ?? DEFAULTS.verbose,
     plan: partial.plan ?? DEFAULTS.plan,
     maxFixAttempts: partial.maxFixAttempts ?? DEFAULTS.maxFixAttempts,
@@ -227,6 +233,7 @@ export function formatConfig(config: ResolvedJackalConfig): string {
   const lines: string[] = [];
   lines.push(`config: ${config.configPath ?? "(no .jackal file — using defaults)"}`);
   lines.push(`  autocheck: ${config.autocheck}`);
+  lines.push(`  autoformat: ${config.autoformat}`);
   lines.push(`  verbose: ${config.verbose}`);
   lines.push(`  plan: ${config.plan}`);
   lines.push(`  maxFixAttempts: ${config.maxFixAttempts}`);

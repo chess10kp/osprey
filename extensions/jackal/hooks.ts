@@ -17,7 +17,7 @@ import {
 import { dirname } from "node:path";
 
 import { state, fingerprintErrors, getVerboseOverride } from "./types.js";
-import { findJacBinary, runJacCheck, formatDiagnostics } from "./check.js";
+import { findJacBinary, runJacCheck, runJacFormat, formatDiagnostics } from "./check.js";
 import {
   JAC_PLAN_TOOLS,
   JAC_EXECUTE_TOOLS,
@@ -43,10 +43,9 @@ function isAutocheckEnabled(pi: ExtensionAPI): boolean {
 }
 
 export function registerHooks({ pi }: HookContext): void {
-  // ──── Track edited .jac files for end-of-run auto-check ──────────────
+  // ──── Track edited .jac files for end-of-run auto-check + auto-format ─
   pi.on("tool_result", async (event: ToolResultEvent) => {
     if (event.isError) return;
-    if (!isAutocheckEnabled(pi)) return;
 
     let path: string | undefined;
     if (isWriteToolResult(event)) {
@@ -56,6 +55,24 @@ export function registerHooks({ pi }: HookContext): void {
     }
     if (!path || !path.endsWith(".jac")) return;
 
+    // ── Auto-format: run jac format in-place right after write/edit ───
+    const config = getConfig();
+    if (config.autoformat) {
+      const jacBin = findJacBinary();
+      if (jacBin) {
+        const { changed, rawOutput } = await runJacFormat(jacBin, dirname(path), [path]);
+        if (changed) {
+          pi.sendMessage({
+            customType: "jackal:autoformat",
+            content: `✨ Auto-formatted \`${path}\``,
+            display: true,
+          });
+        }
+      }
+    }
+
+    // ── Auto-check: track for end-of-run validation ─────────────────
+    if (!isAutocheckEnabled(pi)) return;
     state.workingFile = path;
     state.pendingCheckFiles.add(path);
     pi.appendEntry("jackal:working_file", { path, ts: Date.now() });
@@ -257,6 +274,7 @@ export function registerHooks({ pi }: HookContext): void {
       pi.appendEntry("jackal:config_loaded", {
         path: config.configPath,
         autocheck: config.autocheck,
+        autoformat: config.autoformat,
         verbose: config.verbose,
         plan: config.plan,
         maxFixAttempts: config.maxFixAttempts,

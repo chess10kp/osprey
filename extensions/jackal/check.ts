@@ -105,6 +105,28 @@ export function formatDiagnostics(diagnostics: JacDiagnostic[]): string {
     .join("\n");
 }
 
+/** Run `jac format` in-place on the given files. Returns true if any file was changed. */
+export async function runJacFormat(
+  jacBin: string,
+  cwd: string,
+  files: string[],
+): Promise<{ changed: boolean; rawOutput: string }> {
+  const args = ["format", ...files];
+  try {
+    const { stdout, stderr } = await execFileAsync(jacBin, args, { cwd });
+    const combined = (stdout + stderr).trim();
+    // jac format exits 0 when no changes needed, non-zero when changes were made
+    return { changed: combined.includes("changed"), rawOutput: combined };
+  } catch (err: any) {
+    const stdout = err.stdout || "";
+    const stderr = err.stderr || "";
+    const combined = (stdout + stderr).trim();
+    // Exit 1 can mean "formatted and changed files" (success) or actual parse errors
+    const changed = combined.includes("changed") && !combined.includes("FAILURES");
+    return { changed, rawOutput: combined };
+  }
+}
+
 /** Run `jac check` and return parsed diagnostics plus raw output. */
 export async function runJacCheck(
   jacBin: string,
