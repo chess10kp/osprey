@@ -22,6 +22,7 @@ import {
   subagentModelCompletions,
   pickSubagentModelSpec,
 } from "./settings.js";
+import { getConfig, formatConfig } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -60,6 +61,11 @@ function registerJacDoctor({ pi, isVerbose }: CommandContext): void {
       lines.push(
         `auto-check on write/edit: ${pi.getFlag("jac-autocheck") ? "on" : "off"}`,
       );
+
+      // Show .jackal project config
+      const config = getConfig();
+      lines.push("");
+      lines.push(formatConfig(config));
       if (state.planMode) {
         const planMode = state.planMode;
         if (planMode.enabled)
@@ -938,6 +944,69 @@ function registerJacSubagentModel({ pi }: CommandContext): void {
   });
 }
 
+// ──── /commit ────────────────────────────────────────────────────────────
+
+function registerCommit({ pi }: CommandContext): void {
+  pi.registerCommand("commit", {
+    description:
+      "Review git changes and commit with a conventional message. Usage: /commit [message]",
+    handler: async (args, ctx) => {
+      const userMessage = args.trim();
+
+      const prompt = [
+        "The user invoked `/commit" +
+          (userMessage ? ` "${userMessage}"` : "") +
+          "`. Follow the **commit-review-skill** workflow:",
+        "",
+        "## 1. Inspect changes",
+        "Run these in parallel:",
+        "  - `git diff --cached`  (staged)",
+        "  - `git diff`           (unstaged)",
+        "  - `git status`         (untracked files)",
+        "  - `git log -5 --oneline` (recent convention)",
+        "",
+        "## 2. Review checklist",
+        "Check all changes for:",
+        "  - Bugs or logic errors",
+        "  - Security issues (secrets, credentials, API keys)",
+        "  - Missing error handling",
+        "  - Incomplete implementations",
+        "  - Files that should be in .gitignore",
+        "",
+        "## 3. Commit",
+        "If no issues:",
+        "  1. Stage relevant files: `git add .` (or specific paths if only part should ship)",
+        "  2. Confirm what will commit: `git diff --cached`",
+        "  3. Commit with a descriptive message:",
+        userMessage
+          ? `     Use this message verbatim:\n     \"${userMessage}\"`
+          : "     Generate a message following project convention (feat:/fix:/docs:/refactor:/chore:/etc.)",
+        "     Pass the message via HEREDOC:",
+        "     ```",
+        "     git commit -m \"$(cat <<'EOF'",
+        "     <type>: short summary",
+        "     EOF",
+        "     )\"",
+        "     ```",
+        "  4. Show the result: `git log -1 --stat`",
+        "",
+        "If issues are found, report them clearly and ask whether to proceed. Do not commit until confirmed.",
+        "",
+        "## Safety (never unless user explicitly asks)",
+        "  - Do not update git config",
+        "  - Do not use --no-verify, --no-gpg-sign, or force push to main/master",
+        "  - Do not amend unless the user requested it and the last commit was yours and unpushed",
+        "  - Do not commit .env, credentials, or secrets — warn instead",
+        "",
+        "## After committing",
+        "Return a brief summary: commit hash, message, files changed, and any follow-up (e.g. push).",
+      ].join("\n");
+
+      pi.sendUserMessage(prompt);
+    },
+  });
+}
+
 // ──── Register all commands ──────────────────────────────────────────────
 
 export function registerCommands(ctx: CommandContext): void {
@@ -950,4 +1019,5 @@ export function registerCommands(ctx: CommandContext): void {
   registerCreate(ctx);
   registerJacPlan(ctx);
   registerJacSubagentModel(ctx);
+  registerCommit(ctx);
 }

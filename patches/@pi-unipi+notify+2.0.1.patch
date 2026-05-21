@@ -1,0 +1,35 @@
+diff --git a/node_modules/@pi-unipi/notify/events.ts b/node_modules/@pi-unipi/notify/events.ts
+index 7ab2e5c..f546f8e 100755
+--- a/node_modules/@pi-unipi/notify/events.ts
++++ b/node_modules/@pi-unipi/notify/events.ts
+@@ -59,7 +59,7 @@ export function registerEventListeners(
+     if (!eventConfig?.enabled) continue;
+ 
+     const handler = (payload: unknown) => {
+-      const title = `Pi — ${def.label}`;
++      const title = `Jackal — ${def.label}`;
+       const message = buildEventMessage(eventKey, payload);
+       // Fire-and-forget: don't block the event emitter
+       dispatchNotification(pi, title, message, eventConfig.platforms, eventKey, config, cwd).catch(
+@@ -79,7 +79,7 @@ export function registerEventListeners(
+       // Fire-and-forget: build message and dispatch in background,
+       // don't block agent_end from completing
+       const sessionName = pi.getSessionName?.();
+-      const title = `Pi — ${BUILTIN_EVENTS.agent_end.label}`;
++      const title = `Jackal — ${BUILTIN_EVENTS.agent_end.label}`;
+ 
+       if (config.recap.enabled) {
+         // Recap mode: summarize asynchronously, then dispatch
+diff --git a/node_modules/@pi-unipi/notify/tools.ts b/node_modules/@pi-unipi/notify/tools.ts
+index 5b82b5c..d9887fa 100755
+--- a/node_modules/@pi-unipi/notify/tools.ts
++++ b/node_modules/@pi-unipi/notify/tools.ts
+@@ -58,7 +58,7 @@ export function registerNotifyTools(pi: ExtensionAPI): void {
+       const config = loadConfig();
+ 
+       // Resolve title
+-      const notifTitle = title || "Pi Notification";
++      const notifTitle = title || "Jackal Notification";
+ 
+       // Resolve platforms — use params.platforms or global defaults
+       const notifPlatforms = platforms || config.defaultPlatforms;

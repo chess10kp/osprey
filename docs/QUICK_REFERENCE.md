@@ -24,6 +24,7 @@ Jackal is a Pi-powered Jac coding agent with:
 | `/plan [prompt]` | **Toggle plan mode, or enter plan mode + send a prompt in one action** |
 | `/jac-verbose [on|off]` | Toggle verbose output |
 | `/subagent-model ...` | List/set model pins for subagent roles |
+| `/commit [message]` | Review git changes and commit with a conventional message |
 | `/pi-mermaid` | Render mermaid blocks in last assistant message as ASCII |
 
 ## CLI Flags
@@ -34,6 +35,39 @@ Jackal is a Pi-powered Jac coding agent with:
 | `--jac-autocheck` | Auto-check after write/edit (default: true) |
 | `--jac-verbose` | Verbose retry output |
 | `--jac-model` | Preferred model for Jac generation |
+
+## Project Config (`.jackal`)
+
+Create a `.jackal` file in your project root to configure Jackal per-project. Values override defaults but CLI flags still win.
+
+```json
+{
+  "autocheck": true,
+  "verbose": false,
+  "plan": false,
+  "maxFixAttempts": 2,
+  "mermaid": true,
+  "notify": true,
+  "subagents": {
+    "model": "openai-codex/gpt-5.3-codex",
+    "scout": { "model": "anthropic/claude-haiku-4-5" },
+    "worker": { "model": "openai-codex/gpt-5.4-mini" }
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `autocheck` | boolean | `true` | Auto-run `jac check` after write/edit |
+| `verbose` | boolean | `false` | Show full check output and per-attempt detail |
+| `plan` | boolean | `false` | Start in plan mode |
+| `maxFixAttempts` | number | `2` | Max auto-fix retries per file |
+| `mermaid` | boolean | `true` | Enable pi-mermaid diagram rendering |
+| `notify` | boolean | `true` | Enable @pi-unipi/notify notifications |
+| `subagents.model` | string | — | Default model for all subagents |
+| `subagents.<agent>.model` | string | — | Model override per agent (scout, worker, planner) |
+
+The config file is found by walking up from CWD. `/jac-doctor` shows which file (if any) is loaded.
 
 ## Plan Mode
 
@@ -139,6 +173,7 @@ See `docs/jackal_mcp_reference.md` for full details.
 - `jac-fullstack-patterns` — Wiring main.jac as fullstack entry
 - `jac-scaffold` — Bootstrapping new Jac projects
 - `fix-skill` — Iterative error fixing workflow
+- `commit-review-skill` — Review git changes for quality and safety, then commit
 - `diagnosis-skill` — Systematic diagnosis before fixing
 - `osp-skill` — OSP code generation
 - `project-skill` — Project structure detection
@@ -173,6 +208,12 @@ See `docs/jackal_mcp_reference.md` for full details.
 ```bash
 /plan                           # Toggle plan mode on/off
 /plan "I want to refactor this walker to use typed edges"
+```
+
+### Review and commit
+```bash
+/commit                           # Review all changes, generate conventional commit message
+/commit "feat: add user auth"      # Provide the message directly
 ```
 
 ### Browse examples

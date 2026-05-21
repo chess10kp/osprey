@@ -7,6 +7,7 @@ import type { JacDiagnostic } from "./types.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { accessSync, constants } from "node:fs";
+import { join, delimiter } from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,13 +77,18 @@ export function parseJacCheckOutput(stdout: string, stderr: string): JacDiagnost
 /** Search PATH for a `jac` or `jaclang` binary. Returns the command name or null. */
 export function findJacBinary(): string | null {
   const candidates = ["jac", "jaclang"];
-  const pathDirs = (process.env.PATH || "").split(":").filter(Boolean);
+  // Windows: .cmd / .exe wrappers; POSIX: bare names
+  const isWin = process.platform === "win32";
+  const extensions = isWin ? ["", ".cmd", ".exe"] : [""];
+  const pathDirs = (process.env.PATH || "").split(delimiter).filter(Boolean);
   for (const cmd of candidates) {
     for (const dir of pathDirs) {
-      try {
-        accessSync(`${dir}/${cmd}`, constants.X_OK);
-        return cmd;
-      } catch {}
+      for (const ext of extensions) {
+        try {
+          accessSync(join(dir, `${cmd}${ext}`), constants.X_OK);
+          return cmd;
+        } catch {}
+      }
     }
   }
   return null;

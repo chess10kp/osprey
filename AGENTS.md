@@ -14,7 +14,8 @@ Pi package with:
 - `jackal/SYSTEM.md` — custom Jackal system prompt that emphasizes evidence-based decisions, spatial modeling, and OSP-first design
 - `jackal/mcp.json` — wires up the official **Jac MCP server** (`jac mcp`), which exposes the full Jac toolchain as 19 LLM-callable tools (`validate_jac`, `check_syntax`, `run_jac`, `format_jac`, `lint_jac`, `explain_error`, `list_examples`, `get_example`, `search_docs`, `get_resource`, `get_ast`, `py_to_jac`, `jac_to_py`, `jac_to_js`, `graph_visualize`, `list_commands`, `get_command`, `execute_command`, `understand_jac_and_jaseci`) plus 52 doc resources and 9 prompts.
 - `pi-mermaid` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via `/pi-mermaid` command.
-- `extensions/jackal-toolchain.ts` — registers Jackal-specific slash commands (`/jac-doctor`, `/jac-check`, `/fix`, `/jac-verbose`, `/osp`, `/create`, `/refactor`, `/plan`, `/subagent-model`) and an auto-check hook that re-validates a `.jac` file after every write/edit. **Does not** register its own jac_* tools — defers to the Jac MCP for all validation, transpilation, examples, etc.
+- `extensions/jackal-toolchain.ts` — registers Jackal-specific slash commands (`/jac-doctor`, `/jac-check`, `/fix`, `/jac-verbose`, `/osp`, `/create`, `/refactor`, `/plan`, `/subagent-model`, `/commit`) and an auto-check hook that re-validates a `.jac` file after every write/edit. **Does not** register its own jac_* tools — defers to the Jac MCP for all validation, transpilation, examples, etc.
+- **`.jackal` project config** — per-project JSON file that controls Jackal behavior. Read at session_start, walks up from CWD to find it. Keys: `autocheck`, `verbose`, `plan`, `maxFixAttempts`, `mermaid`, `notify`, `subagents`.
 - [pi-subagents](https://pi.dev/packages/pi-subagents) — installed as an npm package (`npm:pi-subagents`). Provides the `subagent` tool, chain/parallel/background execution, built-in agents (scout, planner, worker, reviewer, oracle, researcher), saved `.chain.md` workflows, and model overrides via settings. No hand-rolled subagent code.
 - `.pi/agents/` — Jac-specific subagent definitions that extend pi-subagents' builtins. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
   - `scout` — Fast Jac codebase recon (Haiku, cheap/fast)
@@ -113,7 +114,15 @@ jackal/
 │   └── mcp.json                 # registers `jac mcp` server
 ├── package.json                 # npm package with pi manifest + pi-subagents dep
 ├── extensions/
-│   └── jackal-toolchain.ts      # slash commands + autocheck hook (no LLM tools — uses Jac MCP)
+│   ├── jackal-toolchain.ts      # entry point — flags, shared context
+│   └── jackal/
+│       ├── check.ts             # local jac check helpers
+│       ├── commands.ts          # slash command registrations
+│       ├── config.ts            # .jackal project config loader
+│       ├── hooks.ts             # event handler registrations
+│       ├── plan-mode.ts         # plan mode constants & step tracking
+│       ├── settings.ts          # settings I/O & subagent model pins
+│       └── types.ts             # shared interfaces & state
 ├── .pi/
 │   └── agents/                  # Jac-specific subagent definitions
 │       ├── scout.md         # fast recon (Haiku)

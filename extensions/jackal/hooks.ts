@@ -26,17 +26,27 @@ import {
   updatePlanStatus,
 } from "./plan-mode.js";
 import { setLatestExtensionContext } from "./settings.js";
+import { loadProjectConfig, getConfig, clearConfig, formatConfig } from "./config.js";
 
 export interface HookContext {
   pi: ExtensionAPI;
   isVerbose: () => boolean;
 }
 
+/** Check if autocheck is enabled (flag or .jackal config). */
+function isAutocheckEnabled(pi: ExtensionAPI): boolean {
+  // Explicit flag override (from /jac-check toggle) wins
+  const flag = pi.getFlag("jac-autocheck");
+  if (flag !== undefined) return Boolean(flag);
+  // Fall back to .jackal config
+  return getConfig().autocheck;
+}
+
 export function registerHooks({ pi }: HookContext): void {
   // ──── Track edited .jac files for end-of-run auto-check ──────────────
   pi.on("tool_result", async (event: ToolResultEvent) => {
     if (event.isError) return;
-    if (!Boolean(pi.getFlag("jac-autocheck"))) return;
+    if (!isAutocheckEnabled(pi)) return;
 
     let path: string | undefined;
     if (isWriteToolResult(event)) {
@@ -157,7 +167,7 @@ export function registerHooks({ pi }: HookContext): void {
     }
 
     // ── Autocheck: run jac check on pending files ────────────────────
-    if (!Boolean(pi.getFlag("jac-autocheck"))) return;
+    if (!isAutocheckEnabled(pi)) return;
     if (state.pendingCheckFiles.size === 0) return;
 
     const files = [...state.pendingCheckFiles];
@@ -204,7 +214,7 @@ export function registerHooks({ pi }: HookContext): void {
     const attempts = (state.attempts.get(fingerprintKey) || 0) + 1;
     state.attempts.set(fingerprintKey, attempts);
 
-    const cap = 2;
+    const cap = getConfig().maxFixAttempts;
     if (attempts > cap) {
       pi.sendMessage({
         customType: "jackal:autocheck",
@@ -235,12 +245,30 @@ export function registerHooks({ pi }: HookContext): void {
     pi.sendUserMessage(prompt);
   });
 
-  // ──── session_start — restore plan mode, capture ctx ────────────────
+  // ──── session_start — load .jackal config, restore plan mode, capture ctx ─
   pi.on("session_start", async (_event, ctx) => {
     setLatestExtensionContext(ctx);
 
-    // Initialize plan mode from flag
-    if (pi.getFlag("plan") === true) {
+    // Load .jackal project config (walks up from cwd)
+    const config = loadProjectConfig(ctx.cwd);
+
+    // Log config source for diagnostics
+    if (config.configPath) {
+      pi.appendEntry("jackal:config_loaded", {
+        path: config.configPath,
+        autocheck: config.autocheck,
+        verbose: config.verbose,
+        plan: config.plan,
+        maxFixAttempts: config.maxFixAttempts,
+        mermaid: config.mermaid,
+        notify: config.notify,
+        ts: Date.now(),
+      });
+    }
+
+    // Initialize plan mode from .jackal config or flag (flag wins)
+    const planFromConfig = config.plan === true;
+    if (pi.getFlag("plan") === true || planFromConfig) {
       state.planMode = { enabled: true, executing: false, todos: [] };
       pi.setActiveTools(JAC_PLAN_TOOLS);
       updatePlanStatus(ctx);
@@ -296,6 +324,7 @@ export function registerHooks({ pi }: HookContext): void {
   // ──── session_shutdown — reset all state ────────────────────────────
   pi.on("session_shutdown", async () => {
     setLatestExtensionContext(null);
+    clearConfig();
     state.attempts.clear();
     state.lastErrorFingerprint.clear();
     state.pendingCheckFiles.clear();
