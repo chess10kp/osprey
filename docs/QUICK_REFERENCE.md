@@ -24,6 +24,7 @@ Jackal is a Pi-powered Jac coding agent with:
 | `/plan [prompt]` | **Toggle plan mode, or enter plan mode + send a prompt in one action** |
 | `/jac-verbose [on|off]` | Toggle verbose output |
 | `/subagent-model ...` | List/set model pins for subagent roles |
+| `/pi-mermaid` | Render mermaid blocks in last assistant message as ASCII |
 
 ## CLI Flags
 
@@ -195,9 +196,18 @@ jackal/
 
 ```bash
 cd /home/jac/repos/jackal
+npm install          # installs deps + applies patches (postinstall)
 ./jackal.sh
 /jac-doctor      # Verify setup
 ```
+
+## Patches
+
+Jackal applies a `patch-package` patch to `@pi-unipi/notify` to brand notifications as "Jackal" instead of "Pi":
+
+- `patches/@pi-unipi+notify+2.0.1.patch` — replaces `Pi —` and `Pi Notification` with `Jackal —` and `Jackal Notification`
+
+The `postinstall` script in `package.json` applies patches automatically on `npm install`.
 
 ## Help
 

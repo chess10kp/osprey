@@ -1,5 +1,9 @@
 # Jackal — Pi-powered Jac coding agent
 
+## Guidelines
+
+- Commit after each feature or bugfix
+
 ## What
 
 A Pi package that turns Pi into a specialized coding agent for Jac/Jaseci development. Installs as a local Pi package — does not touch `~/.pi/` global config.
@@ -9,6 +13,7 @@ A Pi package that turns Pi into a specialized coding agent for Jac/Jaseci develo
 Pi package with:
 - `jackal/SYSTEM.md` — custom Jackal system prompt that emphasizes evidence-based decisions, spatial modeling, and OSP-first design
 - `jackal/mcp.json` — wires up the official **Jac MCP server** (`jac mcp`), which exposes the full Jac toolchain as 19 LLM-callable tools (`validate_jac`, `check_syntax`, `run_jac`, `format_jac`, `lint_jac`, `explain_error`, `list_examples`, `get_example`, `search_docs`, `get_resource`, `get_ast`, `py_to_jac`, `jac_to_py`, `jac_to_js`, `graph_visualize`, `list_commands`, `get_command`, `execute_command`, `understand_jac_and_jaseci`) plus 52 doc resources and 9 prompts.
+- `pi-mermaid` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via `/pi-mermaid` command.
 - `extensions/jackal-toolchain.ts` — registers Jackal-specific slash commands (`/jac-doctor`, `/jac-check`, `/fix`, `/jac-verbose`, `/osp`, `/create`, `/refactor`, `/plan`, `/subagent-model`) and an auto-check hook that re-validates a `.jac` file after every write/edit. **Does not** register its own jac_* tools — defers to the Jac MCP for all validation, transpilation, examples, etc.
 - [pi-subagents](https://pi.dev/packages/pi-subagents) — installed as an npm package (`npm:pi-subagents`). Provides the `subagent` tool, chain/parallel/background execution, built-in agents (scout, planner, worker, reviewer, oracle, researcher), saved `.chain.md` workflows, and model overrides via settings. No hand-rolled subagent code.
 - `.pi/agents/` — Jac-specific subagent definitions that extend pi-subagents' builtins. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
@@ -18,6 +23,8 @@ Pi package with:
 
 - `chains/` — Saved `.chain.md` workflow files for pi-subagents:
   - `pipeline` — scout → planner → worker (full pipeline)
+- `patches/` — `patch-package` diffs applied on `npm install` via `postinstall` script:
+  - `@pi-unipi+notify+2.0.1.patch` — brands notifications as "Jackal" instead of "Pi"
   - `scout-and-design` — scout → planner (investigate + design)
 
 - `skills/` — Agent Skills (SKILL.md files) the LLM reads on-demand for Jac-specific workflows.
@@ -116,6 +123,8 @@ jackal/
 ├── chains/                      # saved subagent workflows
 │   ├── pipeline.chain.md        # scout → planner → worker
 │   └── scout-and-design.chain.md # scout → planner
+├── patches/                    # patch-package diffs (applied on npm install)
+│   └── @pi-unipi+notify+2.0.1.patch  # brands notifications as "Jackal"
 ├── skills/
 │   ├── fix-skill/
 │   ├── osp-skill/

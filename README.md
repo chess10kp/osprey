@@ -25,6 +25,8 @@ A Pi-powered, terminal-native Jac coding agent that gives Jac developers the age
 
 5. In the Pi session, run **`/jac-doctor`** to confirm `jac`, MCP, and provider setup.
 
+6. Patches are applied automatically via the `postinstall` script. If you skipped `npm install`, run `npx patch-package` manually.
+
 Use **`./jackal.sh`** from the directory you want as the agent’s working tree (for example `cd` into a Jac project first, then invoke the script with an absolute path to `jackal.sh`).
 
 ### With Docker

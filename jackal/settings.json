@@ -7,6 +7,7 @@
   "followUpMode": "one-at-a-time",
   "packages": [
     "npm:pi-lsp-extension",
+    "npm:pi-mermaid",
     "npm:@juicesharp/rpiv-btw",
     "npm:pi-mcp-adapter",
     {

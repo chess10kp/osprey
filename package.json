@@ -32,12 +32,17 @@
     "@pi-unipi/notify": "^2.0.1",
     "pi-lsp-extension": "^1.2.1",
     "pi-mcp-adapter": "^2.6.0",
+    "pi-mermaid": "^0.3.0",
     "pi-subagents": "^0.24.2"
+  },
+  "scripts": {
+    "postinstall": "patch-package"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
     "@earendil-works/pi-coding-agent": "^0.74.0",
     "@earendil-works/pi-tui": "^0.74.0",
+    "patch-package": "^8.0.1",
     "typescript-language-server": "^5.2.0"
   }
 }
