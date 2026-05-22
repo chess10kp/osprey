@@ -10,6 +10,7 @@ const state = {
   messages: [],
   streamingText: null,
   error: null,
+  authStep: { kind: "idle" },
 };
 
 let agent = null;
@@ -34,8 +35,14 @@ function renderLines(width) {
     }
   }
 
-  const statusParts = [state.status, "/abort", "/clear", "/exit"];
+  const statusParts = [state.status, "/login", "/model", "/logout", "/abort", "/clear", "/exit"];
   if (state.error) statusParts.unshift(`error: ${state.error}`);
+  if (state.authStep.kind !== "idle") {
+    lines.push("");
+    lines.push(chalk.yellow("Auth flow:"));
+    for (const line of renderAuthStep(state.authStep)) lines.push(chalk.yellow(line));
+  }
+
   lines.push(chalk.dim(`┌${"─".repeat(width - 2)}┐`));
   lines.push(chalk.dim(`│ ${statusParts.join("  |  ")} │`));
   lines.push(chalk.green("❯ ") + state.input + chalk.dim("█"));
@@ -78,6 +85,106 @@ function syncFromStore() {
   tui?.requestRender();
 }
 
+function syncAuthFlow() {
+  if (!agent) return;
+  state.authStep = agent.authFlow.state.step;
+  if (state.authStep.kind === "error") {
+    state.error = state.authStep.message;
+    state.status = "auth error";
+  }
+  tui?.requestRender();
+}
+
+function renderAuthStep(step) {
+  switch (step.kind) {
+    case "provider_picker":
+      return [
+        "Type provider id to login, or /cancel:",
+        ...step.providers.map((p) => `- ${p.id} (${p.authType}) ${p.configured ? "configured" : "not configured"}`),
+      ];
+    case "logging_in":
+      return [`${step.providerId}: ${step.status}`, "Use /cancel to abort login flow."];
+    case "browser_auth":
+      return [
+        `Open browser for ${step.providerId}:`,
+        step.url,
+        step.instructions || "Complete auth, then return here.",
+        "Use /cancel to abort login flow.",
+      ];
+    case "prompt":
+      return [`${step.providerId}: ${step.message}`, "Type response and press Enter."];
+    case "manual_code":
+      return [`${step.providerId}: paste manual auth code and press Enter."];
+    case "select":
+      return [
+        `${step.providerId}: ${step.message}`,
+        ...step.options.map((o) => `- ${o.id}: ${o.label}`),
+        "Type option id and press Enter.",
+      ];
+    case "api_key_input":
+      return [`${step.providerId}: enter API key and press Enter."];
+    case "logged_in":
+      return [`Logged in: ${step.providerId}`, "Loading model picker..."];
+    case "model_picker":
+      return [
+        "Type provider/model (e.g. anthropic/claude-sonnet-4), or /cancel:",
+        ...step.models.map((m) => `- ${m.displayName}`),
+      ];
+    case "error":
+      return [`Error: ${step.message}`, "Use /login to retry."];
+    default:
+      return [];
+  }
+}
+
+function routeAuthInput(input) {
+  const step = state.authStep;
+  if (!step || step.kind === "idle") return false;
+
+  switch (step.kind) {
+    case "provider_picker":
+      agent.authActions.loginWith(input);
+      state.status = `login: ${input}`;
+      tui.requestRender();
+      return true;
+    case "prompt":
+    case "manual_code":
+      agent.authActions.submitAuthPrompt(input);
+      state.status = "submitted auth input";
+      tui.requestRender();
+      return true;
+    case "select":
+      agent.authActions.submitAuthSelect(input);
+      state.status = "submitted auth selection";
+      tui.requestRender();
+      return true;
+    case "api_key_input":
+      agent.authActions.submitApiKey(input);
+      state.status = "submitted api key";
+      tui.requestRender();
+      return true;
+    case "model_picker": {
+      const [provider, modelId] = input.split("/");
+      if (!provider || !modelId) {
+        state.status = "enter provider/model";
+        tui.requestRender();
+        return true;
+      }
+      agent.actions.setModel(provider, modelId).then(() => {
+        state.status = `model set: ${provider}/${modelId}`;
+        tui.requestRender();
+      }).catch((err) => {
+        state.error = err?.message || String(err);
+        state.status = "error";
+        tui.requestRender();
+      });
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
 function submit() {
   const cmd = state.input.trim();
   state.input = "";
@@ -88,6 +195,13 @@ function submit() {
 
   if (cmd === "/exit" || cmd === "/quit") {
     cleanup();
+    return;
+  }
+
+  if (cmd === "/cancel") {
+    agent.authActions.cancelLogin();
+    state.status = "auth cancelled";
+    tui.requestRender();
     return;
   }
 
@@ -113,6 +227,56 @@ function submit() {
     return;
   }
 
+  if (cmd.startsWith("/login")) {
+    const provider = cmd.split(/\s+/, 2)[1];
+    if (provider) agent.authActions.loginWith(provider);
+    else agent.authActions.login();
+    state.status = "auth login";
+    tui.requestRender();
+    return;
+  }
+
+  if (cmd.startsWith("/logout")) {
+    const provider = cmd.split(/\s+/, 2)[1];
+    if (!provider) {
+      state.status = "usage: /logout <provider>";
+      tui.requestRender();
+      return;
+    }
+    agent.authActions.logout(provider);
+    state.status = `logged out ${provider}`;
+    tui.requestRender();
+    return;
+  }
+
+  if (cmd.startsWith("/model")) {
+    const value = cmd.split(/\s+/, 2)[1];
+    if (!value) {
+      const models = agent.authActions.listModels();
+      agent.authFlow.openModelPicker(models);
+      state.status = "model picker";
+      tui.requestRender();
+      return;
+    }
+    const [provider, modelId] = value.split("/");
+    if (!provider || !modelId) {
+      state.status = "usage: /model <provider/model>";
+      tui.requestRender();
+      return;
+    }
+    agent.actions.setModel(provider, modelId).then(() => {
+      state.status = `model set: ${provider}/${modelId}`;
+      tui.requestRender();
+    }).catch((err) => {
+      state.error = err?.message || String(err);
+      state.status = "error";
+      tui.requestRender();
+    });
+    return;
+  }
+
+  if (routeAuthInput(cmd)) return;
+
   state.status = "responding";
   tui.requestRender();
   agent.actions.send(cmd).catch((err) => {
@@ -132,7 +296,9 @@ async function main() {
   try {
     agent = await createNextAgent(process.cwd());
     agent.store.subscribe(syncFromStore);
+    agent.authFlow.subscribe(syncAuthFlow);
     syncFromStore();
+    syncAuthFlow();
     state.phase = "ready";
     state.status = state.modelLabel === "no model configured" ? "ready (login/model needed)" : "ready";
   } catch (err) {

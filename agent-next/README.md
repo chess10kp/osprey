@@ -18,7 +18,11 @@ npm run build:agent
 node agent-next/templates/shell.mjs
 ```
 
-Shell commands in this milestone:
+Shell commands in current milestones:
+- `/login [provider]` start auth flow (opens picker when provider omitted)
+- `/logout <provider>` logout provider
+- `/model [provider/model]` open model picker or set directly
+- `/cancel` cancel auth flow
 - `/abort` cancel active run
 - `/clear` clear rendered transcript
 - `/exit` quit and dispose session
