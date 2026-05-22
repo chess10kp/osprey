@@ -23,8 +23,7 @@ def main() {
     if not dist_dir.exists() {
         print("Building adapter...");
         result = subprocess.run(
-            ["npx", "tsc", "-p", "tsconfig.json"],
-            cwd=str(repo_dir),
+            ["npx", "tsc", "-p", "tsconfig.json"], cwd=str(repo_dir),
         );
         if result.returncode != 0 {
             print("Build failed.");
@@ -70,9 +69,7 @@ def main() {
     if not (tui_dir / "node_modules").exists() {
         print("Installing dependencies...");
         result = subprocess.run(
-            ["npm", "install", "--ignore-scripts"],
-            cwd=str(tui_dir),
-            timeout=120,
+            ["npm", "install", "--ignore-scripts"], cwd=str(tui_dir), timeout=120,
         );
         if result.returncode != 0 {
             print("npm install failed.");
@@ -88,14 +85,12 @@ def main() {
     link_dst = tui_dir.parent / "dist";
     if not link_dst.exists() {
         link_dst.symlink_to(str(repo_dir / "dist"));
+    }
 
     # Step 7: Run
     print("Starting Jackal...");
     try {
-        child = subprocess.run(
-            ["node", "runner.mjs"],
-            cwd=str(tui_dir),
-        );
+        child = subprocess.run(["node", "runner.mjs"], cwd=str(tui_dir),);
         sys.exit(child.returncode);
     } except KeyboardInterrupt {
         sys.exit(0);

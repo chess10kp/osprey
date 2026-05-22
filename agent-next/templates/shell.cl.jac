@@ -1,15 +1,6 @@
-"""Jackal TUI Shell — Ink-based coding agent.
-
-Compiles via jac-tui to an Ink terminal app.
-The custom runner.mjs injects the compiled TypeScript adapter
-as globalThis.__jackal before mounting.
-"""
+"""Jackal TUI Shell — minimal send/receive chat UI."""
 
 import from "ink" { Box, Text, useInput }
-
-
-# Global adapter reference — set by runner.mjs before mount
-glob jackal: Any = None;
 
 
 def:pub app() -> JsxElement {
@@ -17,22 +8,20 @@ def:pub app() -> JsxElement {
     has model_label: str = "no model";
     has stream_text: str = "";
     has input_text: str = "";
-    has error: str = "";
-    has msg_lines: list[str] = [];
-    has tool_count: int = 0;
-    has running_count: int = 0;
+    has status_text: str = "booting";
+    has transcript_text: str = "";
+    has clear_offset: int = 0;
 
     async can with entry {
         adapter = globalThis.__jackal;
         if not adapter {
             phase = "error";
-            error = "No adapter found. Use jackal runner.";
+            status_text = "No adapter found. Use jackal runner.";
             return;
         }
 
         store = adapter.store;
 
-        # Subscribe to store changes
         store.subscribe(
             lambda() -> None {
                 snap = store.getSnapshot();
@@ -40,22 +29,37 @@ def:pub app() -> JsxElement {
                 p = snap.provider if snap.provider else "";
                 m = snap.model if snap.model else "";
                 model_label = f"{p}/{m}" if m else "no model";
+                msgs = snap.messages if snap.messages else [];
+                if clear_offset > len(msgs) {
+                    clear_offset = len(msgs);
+                }
+                lines: list[str] = [];
+                for msg in msgs[clear_offset:] {
+                    prefix = "> " if msg.role == "user" else "";
+                    lines.append(prefix + msg.text);
+                }
+                transcript_text = "\n".join(lines);
                 stream_text = snap.streamingText if snap.streamingText else "";
-                error = snap.error if snap.error else "";
+                if snap.error {
+                    status_text = "err: " + snap.error[:80];
+                } else {
+                    status_text = phase;
+                }
             }
         );
 
-        # Auto-select a known working model (GitHub Copilot OAuth)
+        # Best-effort default model
         try {
             adapter.actions.setModel("github-copilot", "claude-haiku-4.5");
         } except Any {
-            None;
+            status_text = "No default model auth. Use configured provider.";
         }
 
         phase = "ready";
+        status_text = "ready";
     }
 
-    def do_submit() -> None {
+    def submit_input() -> None {
         cmd = input_text.strip();
         if not cmd {
             return;
@@ -66,26 +70,29 @@ def:pub app() -> JsxElement {
             globalThis.process.exit(0);
             return;
         }
+
         if cmd == "/clear" {
-            msg_lines = [];
+            adapter = globalThis.__jackal;
+            if adapter {
+                snap = adapter.store.getSnapshot();
+                msgs = snap.messages if snap.messages else [];
+                clear_offset = len(msgs);
+                transcript_text = "";
+                stream_text = "";
+                status_text = "cleared";
+            }
             return;
         }
 
         adapter = globalThis.__jackal;
-        if not adapter {
-            return;
+        if adapter {
+            adapter.actions.send(cmd);
         }
-
-        new_lines: list[str] = msg_lines.copy();
-        new_lines.append("> " + cmd);
-        new_lines.append("");
-        msg_lines = new_lines;
-        adapter.actions.send(cmd);
     }
 
     useInput(
         lambda (ch: str, key: Any) -> None { if key.return {
-            do_submit();
+            submit_input();
         } elif key.backspace or key.delete {
             input_text = input_text[:-1];
         } elif key.escape {
@@ -102,26 +109,9 @@ def:pub app() -> JsxElement {
         }   }
     );
 
-    # ──── Render ───────────────────────────────────────────────────
     phase_color: str = "green"
         if phase == "streaming"
         else ("red" if phase == "error" else "cyan");
-
-    # Build message output — return a list of JsxElements
-    # We render the last 20 lines as individual <Text> elements
-    visible = msg_lines[-20:];
-
-    # Streaming line
-    stream_el: Any = <Text/>;
-    if stream_text {
-        stream_el = <Text color="green">{stream_text}</Text>;
-    }
-
-    # Status
-    status: str = phase;
-    if error {
-        status = "err: " + error[:60];
-    }
 
     return
         <Box flexDirection="column" padding={0}>
@@ -131,51 +121,14 @@ def:pub app() -> JsxElement {
                 <Text dimColor>{model_label}</Text>
             </Box>
             <Text color="gray">{"─" * 60}</Text>
-            <Box flexDirection="column">
-                {visible[0] if len(visible) > 0 else <Text/>}{visible[1]
-                    if len(visible) > 1
-                    else <Text/>}{visible[2] if len(visible) > 2 else <Text/>}{visible[
-                    3
-                ]
-                    if len(visible) > 3
-                    else <Text/>}{visible[4] if len(visible) > 4 else <Text/>}{visible[
-                    5
-                ]
-                    if len(visible) > 5
-                    else <Text/>}{visible[6] if len(visible) > 6 else <Text/>}{visible[
-                    7
-                ]
-                    if len(visible) > 7
-                    else <Text/>}{visible[8] if len(visible) > 8 else <Text/>}{visible[
-                    9
-                ]
-                    if len(visible) > 9
-                    else <Text/>}{visible[10] if len(visible) > 10 else <Text/>}{visible[
-                    11
-                ]
-                    if len(visible) > 11
-                    else <Text/>}{visible[12] if len(visible) > 12 else <Text/>}{visible[
-                    13
-                ]
-                    if len(visible) > 13
-                    else <Text/>}{visible[14] if len(visible) > 14 else <Text/>}{visible[
-                    15
-                ]
-                    if len(visible) > 15
-                    else <Text/>}{visible[16] if len(visible) > 16 else <Text/>}{visible[
-                    17
-                ]
-                    if len(visible) > 17
-                    else <Text/>}{visible[18] if len(visible) > 18 else <Text/>}{visible[
-                    19
-                ]
-                    if len(visible) > 19
-                    else <Text/>}{stream_el}
+            <Box flexDirection="column" paddingX={1}>
+                <Text>{transcript_text}</Text>
+                <Text color="green">{stream_text}</Text>
             </Box>
             <Box borderStyle="single" borderColor="gray" paddingX={1}>
-                <Text dimColor>{status + "  |  Esc=abort"}</Text>
+                <Text dimColor>{status_text + "  |  /clear /exit"}</Text>
             </Box>
-            <Box>
+            <Box paddingX={1}>
                 <Text color="green" bold>{"> "}</Text>
                 <Text>{input_text}</Text>
                 <Text dimColor>{"_"}</Text>
