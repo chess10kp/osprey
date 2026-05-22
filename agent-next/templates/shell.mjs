@@ -30,8 +30,9 @@ function renderToolTimeline() {
   const lines = [chalk.magenta("Tools:")];
   for (const exec of execs.slice(-10)) {
     const icon = exec.status === "running" ? "⏳" : "✓";
-    const result = exec.result ? ` → ${truncate(exec.result, 80)}` : "";
-    lines.push(chalk.magenta(`${icon} ${exec.toolName} [${exec.status}]${result}`));
+    const input = exec.input ? ` in:${truncate(JSON.stringify(exec.input), 60)}` : "";
+    const result = exec.result ? ` out:${truncate(exec.result, 80)}` : "";
+    lines.push(chalk.magenta(`${icon} ${exec.toolName} [${exec.status}]${input}${result}`));
   }
   return lines;
 }

@@ -7,6 +7,16 @@
 
 import type { AgentStore } from "./store.js";
 
+function formatToolPayload(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /**
  * Subscribe a store to a Pi AgentSession event stream.
  * Returns an unsubscribe function.
@@ -82,7 +92,8 @@ export function bridgeEvents(
           toolCallId: String(event.toolCallId ?? ""),
           toolName: String(event.toolName ?? "unknown"),
           status: "done",
-          result: event.result ? String(event.result) : undefined,
+          input: event.input,
+          result: formatToolPayload(event.result),
         });
         break;
 
