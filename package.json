@@ -43,7 +43,9 @@
     "@earendil-works/pi-ai": "^0.74.0",
     "@earendil-works/pi-coding-agent": "^0.74.0",
     "@earendil-works/pi-tui": "^0.74.0",
+    "ink": "^7.0.3",
     "patch-package": "^8.0.1",
+    "react": "^19.2.6",
     "typescript-language-server": "^5.2.0"
   }
 }

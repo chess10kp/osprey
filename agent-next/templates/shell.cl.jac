@@ -1,156 +1,189 @@
-"""Jackal TUI Shell — Ink-based coding agent TUI.
+"""Jackal TUI Shell — Ink-based coding agent.
 
-Self-contained shell that boots a Pi AgentSession, renders messages,
-streaming text, tool calls, and runs a full prompt loop.
-Compile with: jac jac2ink shell.cl.jac --with_pi
+Compiles via jac-tui to an Ink terminal app.
+The custom runner.mjs injects the compiled TypeScript adapter
+as globalThis.__jackal before mounting.
 """
 
-import from "@jac/runtime" { JsxElement }
+import from "ink" { Box, Text, useInput }
 
-# ──── Helper ──────────────────────────────────────────────────────────────
-def truncate(s: str, max_len: int = 120) -> str {
-    if not s {
-        return "";
-    }
-    flat: str = s.replace("\n", "↵");
-    if len(flat) > max_len {
-        return flat[:max_len] + "…";
-    }
-    return flat;
-}
 
-# ──── Header ──────────────────────────────────────────────────────────────
-def:pub Header(phase: str, provider: str, model: str) -> JsxElement {
+# Global adapter reference — set by runner.mjs before mount
+glob jackal: Any = None;
+
+
+def:pub app() -> JsxElement {
+    has phase: str = "booting";
+    has model_label: str = "no model";
+    has stream_text: str = "";
+    has input_text: str = "";
+    has error: str = "";
+    has msg_lines: list[str] = [];
+    has tool_count: int = 0;
+    has running_count: int = 0;
+
+    async can with entry {
+        adapter = globalThis.__jackal;
+        if not adapter {
+            phase = "error";
+            error = "No adapter found. Use jackal runner.";
+            return;
+        }
+
+        store = adapter.store;
+
+        # Subscribe to store changes
+        store.subscribe(
+            lambda() -> None {
+                snap = store.getSnapshot();
+                phase = snap.phase if snap.phase else "ready";
+                p = snap.provider if snap.provider else "";
+                m = snap.model if snap.model else "";
+                model_label = f"{p}/{m}" if m else "no model";
+                stream_text = snap.streamingText if snap.streamingText else "";
+                error = snap.error if snap.error else "";
+            }
+        );
+
+        # Auto-select first configured model
+        auth_actions = adapter.authActions;
+        providers = auth_actions.listProviders();
+        if len(providers) > 0 {
+            first = providers[0];
+            models = auth_actions.listModels(first.id);
+            if len(models) > 0 {
+                fm = models[0];
+                adapter.actions.setModel(first.id, fm.modelId);
+            }
+        }
+
+        phase = "ready";
+    }
+
+    def do_submit() -> None {
+        cmd = input_text.strip();
+        if not cmd {
+            return;
+        }
+        input_text = "";
+
+        if cmd == "/exit" or cmd == "/quit" {
+            globalThis.process.exit(0);
+            return;
+        }
+        if cmd == "/clear" {
+            msg_lines = [];
+            return;
+        }
+
+        adapter = globalThis.__jackal;
+        if not adapter {
+            return;
+        }
+
+        new_lines: list[str] = msg_lines.copy();
+        new_lines.append("> " + cmd);
+        new_lines.append("");
+        msg_lines = new_lines;
+        adapter.actions.send(cmd);
+    }
+
+    useInput(
+        lambda (ch: str, key: Any) -> None { if key.return {
+            do_submit();
+        } elif key.backspace or key.delete {
+            input_text = input_text[:-1];
+        } elif key.escape {
+            adapter = globalThis.__jackal;
+            if adapter {
+                try {
+                    adapter.actions.abort();
+                } except Any {
+                    pass;
+                }
+            }
+        } elif ch and not key.ctrl and not key.meta {
+            input_text = input_text + ch;
+        }   }
+    );
+
+    # ──── Render ───────────────────────────────────────────────────
     phase_color: str = "green"
         if phase == "streaming"
-        else (
-            "red"
-                if phase == "error"
-                else (
-                    "yellow"
-                        if phase == "compacting"
-                        else ("magenta" if phase == "retrying" else "cyan")
-                )
-        );
-    model_label: str = f"{provider}/{model}" if model else "no model";
+        else ("red" if phase == "error" else "cyan");
 
-    return
-        <box flexDirection="row" justifyContent="space-between" paddingX={1}>
-            <text bold={true} color="magenta">{"🐺 Jackal"}</text>
-            <text color={phase_color}>{phase}</text>
-            <text dimColor={true}>{model_label}</text>
-        </box>;
-}
+    # Build message output — return a list of JsxElements
+    # We render the last 20 lines as individual <Text> elements
+    visible = msg_lines[-20:];
 
-# ──── ToolCall ────────────────────────────────────────────────────────────
-def:pub ToolCall(
-    tool_id: str, name: str, status: str, input_json: str, result_text: str
-) -> JsxElement {
-    icon: str = "⏳" if status == "running" else "✓";
-    color: str = "yellow" if status == "running" else "green";
-    input_preview: str = truncate(input_json, 80) if input_json else "";
-    result_preview: str = truncate(result_text, 100) if result_text else "";
-
-    return
-        <box flexDirection="column" marginLeft={2} marginY={0}>
-            <text>
-                <text color={color}>{icon + " "}</text>
-                <text bold={true}>{name}</text>
-                {<text dimColor={true}>{" " + input_preview}</text>
-                    if input_preview
-                    else <text/>}
-            </text>
-            {<box marginLeft={2}>
-                <text dimColor={true} color="gray">{"→ " + result_preview}</text>
-            </box>
-                if result_preview
-                else <text/>}
-        </box>;
-}
-
-# ──── StatusBar ───────────────────────────────────────────────────────────
-def:pub StatusBar(
-    phase: str, error: str, tool_count: int, running_count: int
-) -> JsxElement {
-    parts: list[str] = [];
-    if phase == "streaming" {
-        parts.append("⏳ streaming");
+    # Streaming line
+    stream_el: Any = <Text/>;
+    if stream_text {
+        stream_el = <Text color="green">{stream_text}</Text>;
     }
-    if phase == "compacting" {
-        parts.append("🗑 compacting");
-    }
-    if phase == "retrying" {
-        parts.append("🔄 retrying");
-    }
+
+    # Status
+    status: str = phase;
     if error {
-        parts.append("❌ " + error);
+        status = "err: " + error[:60];
     }
-    if tool_count > 0 {
-        detail: str = f" ({running_count} running)" if running_count > 0 else "";
-        parts.append(f"🔧 {tool_count} tools{detail}");
-    }
-    if len(parts) == 0 {
-        parts.append("ready");
-    }
-    parts.append("Esc=abort");
 
     return
-        <box
-            borderStyle="single"
-            borderColor="gray"
-            paddingX={1}
-            justifyContent="space-between"
-        >
-            <text dimColor={true}>{" │ ".join(parts[:-1])}</text>
-            <text dimColor={true} color="gray">{parts[-1]}</text>
-        </box>;
-}
-
-# ──── HelpOverlay ─────────────────────────────────────────────────────────
-def:pub HelpOverlay() -> JsxElement {
-    return
-        <box
-            flexDirection="column"
-            borderStyle="round"
-            borderColor="yellow"
-            paddingX={1}
-        >
-            <text bold={true} color="yellow">{"Commands:"}</text>
-            <text>{"  /help        Show this help"}</text>
-            <text>{"  /model       Show current model"}</text>
-            <text>{"  /clear       Clear messages"}</text>
-            <text>{"  /tools       Show tool execution log"}</text>
-            <text>{"  /exit, /quit Exit Jackal"}</text>
-            <text>{"  Esc          Abort streaming"}</text>
-        </box>;
-}
-
-# ──── MessageLine ─────────────────────────────────────────────────────────
-def:pub MessageLine(role: str, text: str) -> JsxElement {
-    prefix: str = "> " if role == "user" else "";
-    color: str = "cyan" if role == "user" else "white";
-    return
-        <text color={color}>{prefix + text}</text>;
-}
-
-# ──── StreamLine ──────────────────────────────────────────────────────────
-def:pub StreamLine(text: str) -> JsxElement {
-    return
-        <text color="green">{text}</text>;
-}
-
-# ──── Separator ───────────────────────────────────────────────────────────
-def:pub Separator(width: int = 60) -> JsxElement {
-    return
-        <text color="gray">{"─" * width}</text>;
-}
-
-# ──── Prompt ──────────────────────────────────────────────────────────────
-def:pub Prompt(input_text: str) -> JsxElement {
-    return
-        <box marginTop={0}>
-            <text color="green" bold={true}>{"❯ "}</text>
-            <text>{input_text}</text>
-            <text dimColor={true}>{"█"}</text>
-        </box>;
+        <Box flexDirection="column" padding={0}>
+            <Box flexDirection="row" justifyContent="space-between" paddingX={1}>
+                <Text bold color="magenta">{"Jackal"}</Text>
+                <Text color={phase_color}>{phase}</Text>
+                <Text dimColor>{model_label}</Text>
+            </Box>
+            <Text color="gray">{"─" * 60}</Text>
+            <Box flexDirection="column">
+                {visible[0] if len(visible) > 0 else <Text/>}{visible[1]
+                    if len(visible) > 1
+                    else <Text/>}{visible[2] if len(visible) > 2 else <Text/>}{visible[
+                    3
+                ]
+                    if len(visible) > 3
+                    else <Text/>}{visible[4] if len(visible) > 4 else <Text/>}{visible[
+                    5
+                ]
+                    if len(visible) > 5
+                    else <Text/>}{visible[6] if len(visible) > 6 else <Text/>}{visible[
+                    7
+                ]
+                    if len(visible) > 7
+                    else <Text/>}{visible[8] if len(visible) > 8 else <Text/>}{visible[
+                    9
+                ]
+                    if len(visible) > 9
+                    else <Text/>}{visible[10] if len(visible) > 10 else <Text/>}{visible[
+                    11
+                ]
+                    if len(visible) > 11
+                    else <Text/>}{visible[12] if len(visible) > 12 else <Text/>}{visible[
+                    13
+                ]
+                    if len(visible) > 13
+                    else <Text/>}{visible[14] if len(visible) > 14 else <Text/>}{visible[
+                    15
+                ]
+                    if len(visible) > 15
+                    else <Text/>}{visible[16] if len(visible) > 16 else <Text/>}{visible[
+                    17
+                ]
+                    if len(visible) > 17
+                    else <Text/>}{visible[18] if len(visible) > 18 else <Text/>}{visible[
+                    19
+                ]
+                    if len(visible) > 19
+                    else <Text/>}{stream_el}
+            </Box>
+            <Box borderStyle="single" borderColor="gray" paddingX={1}>
+                <Text dimColor>{status + "  |  Esc=abort"}</Text>
+            </Box>
+            <Box>
+                <Text color="green" bold>{"> "}</Text>
+                <Text>{input_text}</Text>
+                <Text dimColor>{"_"}</Text>
+            </Box>
+        </Box>;
 }
