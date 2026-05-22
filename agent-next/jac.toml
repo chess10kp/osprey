@@ -7,3 +7,4 @@ entry-point = "templates/shell.cl.jac"
 [dependencies.npm]
 ink = "^7.0.3"
 react = "^19.2.4"
+ink-ui = "*"

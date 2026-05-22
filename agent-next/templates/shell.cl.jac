@@ -1,6 +1,7 @@
 """Jackal TUI Shell — Ink shell wired to the headless Pi adapter via @jac/pi."""
 
 import from "ink" { Box, Text, useInput }
+import from "ink-ui" { TextInput }
 import from "@jac/pi" {
     usePiBoot,
     usePiSession,
@@ -301,11 +302,11 @@ def:pub HelpPanel() -> JsxElement {
             <Text>{"/model [p/m]   open picker or set"}</Text>
             <Text>{"/cancel        cancel auth flow"}</Text>
             <Text>{"/abort         cancel active run"}</Text>
-            <Text>{"/clear         new session"}</Text>
-            <Text>{"/multiline     toggle multiline (Shift+Enter)"}</Text>
+            <Text>{"/clear,/new    new session"}</Text>
+            <Text>{"/multiline     toggle multiline mode"}</Text>
             <Text>{"/exit          quit"}</Text>
             <Text dimColor>
-                {"PgUp/PgDn = scroll  Esc = abort/cancel  Ctrl+C = abort/exit"}
+                {"PgUp/PgDn = scroll  Esc = abort/cancel  Ctrl+D = submit multiline  Ctrl+C = abort/exit"}
             </Text>
         </Box>
     );
@@ -347,7 +348,7 @@ def:pub app() -> JsxElement {
             show_help = not show_help;
             return;
         }
-        if cmd == "/clear" {
+        if cmd == "/clear" or cmd == "/new" {
             if session {
                 session.clearSession();
             }
@@ -539,6 +540,12 @@ def:pub app() -> JsxElement {
                     return;
                 }
             }
+            if key.ctrl and ch == "d" {
+                if multiline {
+                    handle_submit();
+                    return;
+                }
+            }
             if key.ctrl and ch == "c" {
                 if streaming or (snap and to_str(snap.phase) == "streaming") {
                     if session {
@@ -552,18 +559,6 @@ def:pub app() -> JsxElement {
                 }
                 return;
             }
-            if key.return {
-                if multiline and key.shift {
-                    input_text = input_text + "\n";
-                } else {
-                    handle_submit();
-                }
-                return;
-            }
-            if key.backspace or key.delete {
-                input_text = input_text[:-1];
-                return;
-            }
             if key.pageUp {
                 scroll_offset = scroll_offset + 10;
                 return;
@@ -572,8 +567,12 @@ def:pub app() -> JsxElement {
                 scroll_offset = max(0, scroll_offset - 10);
                 return;
             }
-            if ch and not key.ctrl and not key.meta {
-                input_text = input_text + ch;
+            if key.tab {
+                completion_items: list = list(completions) if completions else [];
+                if len(completion_items) > 0 {
+                    input_text = to_str(completion_items[0].value);
+                    return;
+                }
             }
         }
     );
@@ -713,8 +712,18 @@ def:pub app() -> JsxElement {
             </Box>
             <Box paddingX={1}>
                 <Text color="green" bold>{prompt_marker}</Text>
-                <Text>{input_text}</Text>
-                <Text dimColor>{"_"}</Text>
+                <TextInput
+                    value={input_text}
+                    placeholder={"Type a message" if not multiline else "Multiline mode (Ctrl+D to send)"}
+                    onChange={lambda (v: str) -> None { input_text = v; }}
+                    onSubmit={lambda (_v: str) -> None {
+                        if multiline {
+                            input_text = input_text + "\n";
+                        } else {
+                            handle_submit();
+                        }
+                    }}
+                />
             </Box>
         </Box>
     );
