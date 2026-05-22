@@ -8,11 +8,17 @@ This directory contains the in-repo implementation of the new Jac-inspired codin
 - Build incrementally with verifiable checkpoints.
 
 ## Current Phase
-- Phase 0: headless runtime spike + architecture seam verification.
-- Phase 1: dependency wiring and runtime adapter scaffolding.
+- Phase 5/6 hardening: stabilize shell loop, auth/model overlays, tool timeline, persistence.
 
-## Immediate tasks
-1. Add a runtime spike script under `docs/`.
-2. Define adapter API in `src/`.
-3. Add template emitters in `templates/`.
-4. Integrate with existing extension entrypoint after smoke tests pass.
+## Milestone 1 smoke run
+Build the adapter and launch the shell:
+
+```bash
+npm run build:agent
+node agent-next/templates/shell.mjs
+```
+
+Shell commands in this milestone:
+- `/abort` cancel active run
+- `/clear` clear rendered transcript
+- `/exit` quit and dispose session

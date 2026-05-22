@@ -34,7 +34,7 @@ function renderLines(width) {
     }
   }
 
-  const statusParts = [state.status, "/clear", "/exit"];
+  const statusParts = [state.status, "/abort", "/clear", "/exit"];
   if (state.error) statusParts.unshift(`error: ${state.error}`);
   lines.push(chalk.dim(`┌${"─".repeat(width - 2)}┐`));
   lines.push(chalk.dim(`│ ${statusParts.join("  |  ")} │`));
@@ -99,6 +99,20 @@ function submit() {
     return;
   }
 
+  if (cmd === "/abort") {
+    state.status = "aborting";
+    tui.requestRender();
+    agent.actions.abort().then(() => {
+      state.status = "aborted";
+      tui.requestRender();
+    }).catch((err) => {
+      state.error = err?.message || String(err);
+      state.status = "error";
+      tui.requestRender();
+    });
+    return;
+  }
+
   state.status = "responding";
   tui.requestRender();
   agent.actions.send(cmd).catch((err) => {
@@ -130,7 +144,10 @@ async function main() {
   tui.start();
 }
 
+let _cleaned = false;
 function cleanup() {
+  if (_cleaned) return;
+  _cleaned = true;
   try { agent?.actions.dispose(); } catch {}
   try { tui?.stop(); } catch {}
   process.exit(0);

@@ -104,6 +104,7 @@ export async function createNextAgent(
   authActions: AuthActions;
   actions: {
     send: (text: string) => Promise<void>;
+    abort: () => Promise<void>;
     resolveDialog: (id: string, value: any) => void;
     setModel: (provider: string, modelId: string) => Promise<void>;
     dispose: () => void;
@@ -138,6 +139,9 @@ export async function createNextAgent(
       send: async (text: string) => {
         store.pushUserMessage(text);
         await session.sendUserMessage(text);
+      },
+      abort: async () => {
+        await session.abort();
       },
       resolveDialog: (id: string, value: any) => {
         uiContext.resolveDialog(id, value);
