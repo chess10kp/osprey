@@ -156,7 +156,19 @@ export class InkExtensionUIContext {
   // ──── Theme stubs (return safe defaults) ────────────────────────────
 
   get theme(): any {
-    return { colors: {} };
+    return {
+      colors: {},
+      fg: (s: string) => s,
+      bg: (_s: string) => "",
+      dim: (s: string) => s,
+      bold: (s: string) => s,
+      red: (s: string) => s,
+      green: (s: string) => s,
+      yellow: (s: string) => s,
+      blue: (s: string) => s,
+      magenta: (s: string) => s,
+      cyan: (s: string) => s,
+    };
   }
 
   getAllThemes(): any[] {

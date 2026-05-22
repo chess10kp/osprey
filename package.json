@@ -36,7 +36,8 @@
     "pi-subagents": "^0.24.2"
   },
   "scripts": {
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "build:agent": "tsc -p agent-next/tsconfig.json"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
