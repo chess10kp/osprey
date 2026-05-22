@@ -45,16 +45,11 @@ def:pub app() -> JsxElement {
             }
         );
 
-        # Auto-select first configured model
-        auth_actions = adapter.authActions;
-        providers = auth_actions.listProviders();
-        if len(providers) > 0 {
-            first = providers[0];
-            models = auth_actions.listModels(first.id);
-            if len(models) > 0 {
-                fm = models[0];
-                adapter.actions.setModel(first.id, fm.modelId);
-            }
+        # Auto-select a known working model (GitHub Copilot OAuth)
+        try {
+            adapter.actions.setModel("github-copilot", "claude-haiku-4.5");
+        } except Any {
+            None;
         }
 
         phase = "ready";
@@ -99,7 +94,7 @@ def:pub app() -> JsxElement {
                 try {
                     adapter.actions.abort();
                 } except Any {
-                    pass;
+                    None;
                 }
             }
         } elif ch and not key.ctrl and not key.meta {
