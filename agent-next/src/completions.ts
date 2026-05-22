@@ -3,6 +3,7 @@ export interface CompletionContext {
   providers: string[];
   models: string[];
   authOptions: string[];
+  filePaths?: string[];
 }
 
 export interface Suggestion {
@@ -17,6 +18,7 @@ const COMMANDS = [
   "/model",
   "/abort",
   "/clear",
+  "/new",
   "/multiline",
   "/exit",
   "/cancel",
@@ -41,7 +43,76 @@ function sortAndMap(input: string, values: string[]): Suggestion[] {
     .map((x) => ({ label: x.v, value: x.v }));
 }
 
+function getCurrentFileMention(input: string): { mention: string; start: number; end: number } | null {
+  const pos = input.length;
+  let start = -1;
+  for (let i = pos - 1; i >= 0; i--) {
+    const ch = input[i];
+    if (ch === "@") {
+      start = i;
+      break;
+    }
+    if (ch === " " || ch === "\t" || ch === "\n") break;
+  }
+  if (start < 0) return null;
+
+  let end = pos;
+  for (let i = pos; i < input.length; i++) {
+    const ch = input[i];
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "@") break;
+    end = i + 1;
+  }
+
+  const mention = input.slice(start + 1, end).replace(/:\d+(-\d+)?$/, "");
+  return { mention, start, end };
+}
+
+function rankFile(query: string, filePath: string): number {
+  const q = query.toLowerCase();
+  const p = filePath.toLowerCase();
+  const name = filePath.split("/").pop() ?? "";
+  const n = name.toLowerCase();
+
+  if (!q) return 50;
+  if (p === q) return 1000;
+  if (n === q) return 900;
+  if (p.endsWith(q)) return 850;
+  if (n.startsWith(q)) return 800;
+  if (p.startsWith(q)) return 750;
+  if (n.includes(q)) return 700;
+  if (p.includes(q)) return 600;
+
+  let pi = 0;
+  let qi = 0;
+  while (pi < p.length && qi < q.length) {
+    if (p[pi] === q[qi]) qi++;
+    pi++;
+  }
+  return qi === q.length ? 500 : -1;
+}
+
+function getFileSuggestions(input: string, filePaths: string[]): Suggestion[] {
+  const mention = getCurrentFileMention(input);
+  if (!mention) return [];
+
+  const scored = [...new Set(filePaths)]
+    .map((path) => ({ path, score: rankFile(mention.mention, path) }))
+    .filter((x) => x.score >= 0)
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, 8);
+
+  return scored.map(({ path }) => ({
+    label: path,
+    value: `${input.slice(0, mention.start)}@${path}${input.slice(mention.end)}`,
+  }));
+}
+
 export function getSuggestions(input: string, ctx: CompletionContext): Suggestion[] {
+  const fileSuggestions = getFileSuggestions(input, ctx.filePaths ?? []);
+  if (fileSuggestions.length > 0) {
+    return fileSuggestions;
+  }
+
   const trimmed = input.trim();
 
   if (ctx.authStepKind === "select") {

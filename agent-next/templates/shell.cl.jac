@@ -236,7 +236,13 @@ def:pub DialogOverlay(props: any) -> JsxElement {
 
 def:pub CompletionsList(props: any) -> JsxElement {
     items: list = list(props.items)[:6];
-    rows: list = [<Text dimColor>{"  " + to_str(s.label)} </Text> for s in items];
+    selected_index: int = int(props.selected_index) if props.selected_index is not None else 0;
+    rows: list = [
+        <Text color={"cyan" if i == selected_index else "gray"}>
+            {("▸ " if i == selected_index else "  ") + to_str(s.label)}
+        </Text>
+        for (i, s) in enumerate(items)
+    ];
     return (
         <Box
             flexDirection="column"
@@ -244,6 +250,7 @@ def:pub CompletionsList(props: any) -> JsxElement {
             borderColor="gray"
             paddingX={1}
         >
+            <Text dimColor>{"Suggestions (↑/↓ navigate, Tab accept)"}</Text>
             {rows}
         </Box>
     );
@@ -328,6 +335,7 @@ def:pub app() -> JsxElement {
     has multiline: bool = False;
     has show_help: bool = False;
     has scroll_offset: int = 0;
+    has selected_completion_index: int = 0;
 
     completions: any = useCompletions(input_text);
 
@@ -567,12 +575,25 @@ def:pub app() -> JsxElement {
                 scroll_offset = max(0, scroll_offset - 10);
                 return;
             }
-            if key.tab {
-                completion_items: list = list(completions) if completions else [];
-                if len(completion_items) > 0 {
-                    input_text = to_str(completion_items[0].value);
-                    return;
+
+            completion_items: list = list(completions) if completions else [];
+            completion_count: int = len(completion_items);
+
+            if key.upArrow and completion_count > 0 {
+                selected_completion_index = (selected_completion_index - 1 + completion_count) % completion_count;
+                return;
+            }
+            if key.downArrow and completion_count > 0 {
+                selected_completion_index = (selected_completion_index + 1) % completion_count;
+                return;
+            }
+            if key.tab and completion_count > 0 {
+                idx: int = selected_completion_index;
+                if idx < 0 or idx >= completion_count {
+                    idx = 0;
                 }
+                input_text = to_str(completion_items[idx].value);
+                return;
             }
         }
     );
@@ -633,7 +654,10 @@ def:pub app() -> JsxElement {
     dialogs_list: list = list(ui.dialogs) if ui.dialogs else [];
     has_dialog: bool = len(dialogs_list) > 0;
     completions_list: list = list(completions) if completions else [];
-    show_completions: bool = (len(completions_list) > 0) and input_text.startswith("/");
+    show_completions: bool = len(completions_list) > 0;
+    if selected_completion_index >= len(completions_list) and len(completions_list) > 0 {
+        selected_completion_index = 0;
+    }
 
     status_line: str = phase + "  |  msgs=" + str(total) + "  tools_running=" + str(
         len(running_tools)
@@ -706,7 +730,7 @@ def:pub app() -> JsxElement {
                     <Text color="cyan">{"⟳ " + to_str(ui.workingMessage)}</Text>
                 </Box>
             )}
-            {show_completions and <CompletionsList items={completions_list}/>}
+            {show_completions and <CompletionsList items={completions_list} selected_index={selected_completion_index}/>}
             <Box borderStyle="single" borderColor="gray" paddingX={1}>
                 <Text dimColor>{status_line}</Text>
             </Box>
@@ -715,7 +739,10 @@ def:pub app() -> JsxElement {
                 <TextInput
                     value={input_text}
                     placeholder={"Type a message" if not multiline else "Multiline mode (Ctrl+D to send)"}
-                    onChange={lambda (v: str) -> None { input_text = v; }}
+                    onChange={lambda (v: str) -> None {
+                        input_text = v;
+                        selected_completion_index = 0;
+                    }}
                     onSubmit={lambda (_v: str) -> None {
                         if multiline {
                             input_text = input_text + "\n";

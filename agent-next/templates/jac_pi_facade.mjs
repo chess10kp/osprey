@@ -19,6 +19,49 @@ const ADAPTER_PATH =
     import.meta.url,
   ).pathname;
 
+let __fileListCache = { at: 0, cwd: "", files: [] };
+
+async function listProjectFiles(cwd) {
+  const now = Date.now();
+  if (
+    __fileListCache.cwd === cwd &&
+    now - __fileListCache.at < 5000 &&
+    Array.isArray(__fileListCache.files)
+  ) {
+    return __fileListCache.files;
+  }
+
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const out = [];
+  const skip = new Set([".git", "node_modules", ".jac", "dist", "build"]);
+
+  async function walk(dir, depth) {
+    if (depth > 6 || out.length > 3000) return;
+    let entries = [];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (skip.has(e.name)) continue;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(abs, depth + 1);
+      } else if (e.isFile()) {
+        const rel = path.relative(cwd, abs).split(path.sep).join("/");
+        out.push(rel);
+      }
+      if (out.length > 3000) break;
+    }
+  }
+
+  await walk(cwd, 0);
+  __fileListCache = { at: now, cwd, files: out };
+  return out;
+}
+
 // ── Singleton adapter state ────────────────────────────────────────────────
 
 const state = {
@@ -188,11 +231,13 @@ function useCompletions(input) {
         const models = a ? a.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`) : [];
         let authOptions = [];
         if (step.kind === "select") authOptions = step.options.map((o) => o.id);
+        const filePaths = await listProjectFiles(process.cwd());
         const ctx = {
           authStepKind: step.kind,
           providers,
           models,
           authOptions,
+          filePaths,
         };
         const sugg = mod.getSuggestions(input ?? "", ctx);
         setList(sugg);
