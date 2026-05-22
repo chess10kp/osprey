@@ -1,5 +1,7 @@
 # Immediate Plan — Simple Working TUI (Send/Receive Only)
 
+## check out reference/nanocoder for a reference implemenation of an agent using ink
+
 ## Scope (for now)
 Build only a minimal terminal UI that:
 1. accepts typed input
@@ -14,38 +16,38 @@ Everything related to Pi interop polish (auth overlays, model picker UX, tool re
 ## MVP Tasks
 
 ### 1) Keep shell minimal
-- Keep `agent-next/templates/shell.cl.jac` focused on:
+- [x] Runtime shell simplified in `agent-next/templates/shell.mjs`:
   - header
   - message output area
   - single-line input
   - status line
-- Remove/avoid extra UI branches not needed for send/receive.
+- [x] Extra command/overlay branches removed from runtime path.
 
 ### 2) Keep runner minimal
-- `agent-next/templates/runner.mjs` should only:
-  - boot adapter
-  - inject `globalThis.__jackal`
-  - mount app
-  - handle SIGINT/SIGTERM cleanup
+- [x] `agent-next/bin/jackal_shell.jac` now only:
+  - builds adapter JS (`npm run -s build:agent`)
+  - launches shell (`node agent-next/templates/shell.mjs`)
+  - handles interrupt cleanly
+- [ ] `agent-next/templates/runner.mjs` alignment still pending (currently not used by runtime path).
 
 ### 3) Basic commands only
-- `/exit` or `/quit` → quit process
-- `/clear` → clear local transcript
-- all other text → send via `adapter.actions.send()`
+- [x] `/exit` or `/quit` → quit process
+- [x] `/clear` → clear local transcript
+- [x] all other text → send via `adapter.actions.send()`
 
 ### 4) Stable default model behavior
-- If model is available/authenticated, set one default.
-- If not, show clear status text instead of crashing.
+- [x] If no model is configured/authenticated, show explicit status (`no model configured`, `ready (login/model needed)`).
+- [x] Shell startup no longer crashes in no-model state.
 
 ---
 
 ## Verification (required)
 Run in a real TTY:
-1. `jac lint agent-next/templates/shell.cl.jac`
-2. `jac run agent-next/bin/jackal_shell.jac`
-3. Send test prompt: `Say pong`
-4. Confirm assistant response is shown.
-5. Confirm `/clear` and `/exit` work.
+1. `jac lint agent-next/templates/shell.cl.jac` ✅ (warnings only)
+2. `jac run agent-next/bin/jackal_shell.jac` ✅ (boots; verify interactively)
+3. Send test prompt: `Say pong` ⏳ pending manual interactive check
+4. Confirm assistant response is shown ⏳ pending manual interactive check
+5. Confirm `/clear` and `/exit` work ⏳ pending manual interactive check
 
 ---
 
