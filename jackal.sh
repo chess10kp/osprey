@@ -61,8 +61,8 @@ if [[ ! -d "$TUI_OUT/node_modules" ]]; then
 fi
 
 # Ensure readline-capable input component is available in the generated Ink app.
-if [[ ! -d "$TUI_OUT/node_modules/ink-ui" ]]; then
-  (cd "$TUI_OUT" && npm install --ignore-scripts ink-ui)
+if [[ ! -d "$TUI_OUT/node_modules/@inkjs/ui" ]]; then
+  (cd "$TUI_OUT" && npm install --ignore-scripts @inkjs/ui)
 fi
 
 exec -a jackal node "$TUI_OUT/runner.mjs" "$@"

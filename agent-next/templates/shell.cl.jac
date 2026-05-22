@@ -1,7 +1,7 @@
 """Jackal TUI Shell — Ink shell wired to the headless Pi adapter via @jac/pi."""
 
 import from "ink" { Box, Text, useInput }
-import from "ink-ui" { TextInput }
+import from "@inkjs/ui" { TextInput }
 import from "@jac/pi" {
     usePiBoot,
     usePiSession,
