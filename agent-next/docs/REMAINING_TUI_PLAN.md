@@ -1,62 +1,73 @@
-# Immediate Plan — Simple Working TUI (Send/Receive Only)
+# Remaining TUI Plan (Agent-Next)
 
-## check out reference/nanocoder for a reference implemenation of an agent using ink
+## Goal
+Ship a **daily-usable Ink TUI** for Jackal with reliable send/receive, auth/model UX, tool visibility, and session persistence.
 
-## Scope (for now)
-Build only a minimal terminal UI that:
-1. accepts typed input
-2. sends a prompt
-3. displays streaming/final assistant response
-4. supports `/exit` and `/clear`
+## Guardrails
+- Use `reference/nanocoder` for Ink interaction patterns.
+- Do **not** copy UI patterns from `reference/pi` (different framework).
+- Keep adapter logic in `src/*.ts`; keep UI orchestration in `templates/shell.mjs`.
+- Reuse installed Pi SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`) rather than custom reimplementations.
 
-Everything related to Pi interop polish (auth overlays, model picker UX, tool rendering, extension integration) is deferred.
+## Milestone 1 — Stabilize core chat loop
+1. Confirm `npm run build:agent` outputs clean `agent-next/dist/*.js`.
+2. Ensure `shell.mjs` can:
+   - send prompt,
+   - stream assistant output,
+   - abort active run,
+   - cleanly dispose session.
+3. Add smoke command (`node agent-next/templates/shell.mjs`) to docs.
 
----
+**Acceptance:** 3 prompt/response cycles with no crashes or orphaned sessions.
 
-## MVP Tasks
+## Milestone 2 — Auth + model overlays
+1. Render provider picker overlay from `authActions.listProviders()`.
+2. Implement `/login`, `/logout`, `/model` command paths.
+3. Render model picker overlay from `authActions.listModels()` and apply via `setModel()`.
+4. Surface auth errors inline (not only in logs).
 
-### 1) Keep shell minimal
-- [x] Runtime shell simplified in `agent-next/templates/shell.mjs`:
-  - header
-  - message output area
-  - single-line input
-  - status line
-- [x] Extra command/overlay branches removed from runtime path.
+**Acceptance:** login + model switch + successful prompt on selected model.
 
-### 2) Keep runner minimal
-- [x] `agent-next/bin/jackal_shell.jac` now only:
-  - builds adapter JS (`npm run -s build:agent`)
-  - launches shell (`node agent-next/templates/shell.mjs`)
-  - handles interrupt cleanly
-- [ ] `agent-next/templates/runner.mjs` alignment still pending (currently not used by runtime path).
+## Milestone 3 — Tool call timeline
+1. Render tool executions in message stream:
+   - tool name,
+   - running/done/error state,
+   - duration,
+   - truncated args/result preview.
+2. Add compact status summary in footer (running tools, last error).
 
-### 3) Basic commands only
-- [x] `/exit` or `/quit` → quit process
-- [x] `/clear` → clear local transcript
-- [x] all other text → send via `adapter.actions.send()`
+**Acceptance:** user can follow a multi-tool turn without opening debug logs.
 
-### 4) Stable default model behavior
-- [x] If no model is configured/authenticated, show explicit status (`no model configured`, `ready (login/model needed)`).
-- [x] Shell startup no longer crashes in no-model state.
+## Milestone 4 — Session persistence
+1. Switch from in-memory session manager to disk-backed session storage.
+2. Restore recent conversation on startup.
+3. Add `/clear` to reset local session safely.
 
----
+**Acceptance:** restart shell and continue prior session context.
 
-## Verification (required)
-Run in a real TTY:
-1. `jac lint agent-next/templates/shell.cl.jac` ✅ (warnings only)
-2. `jac run agent-next/bin/jackal_shell.jac` ✅ (boots; verify interactively)
-3. Send test prompt: `Say pong` ⏳ pending manual interactive check
-4. Confirm assistant response is shown ⏳ pending manual interactive check
-5. Confirm `/clear` and `/exit` work ⏳ pending manual interactive check
+## Milestone 5 — Command UX + polish
+1. Add `/help` command palette output.
+2. Add multiline input mode (explicit toggle or shortcut).
+3. Improve scrolling/pagination for long chats.
+4. Add graceful messaging for SIGINT/SIGTERM shutdown.
 
----
+**Acceptance:** long-session usability without input or rendering dead-ends.
 
-## Deferred Until Later
-- Provider login flows and overlays
-- Model picker UI
-- Tool call rendering
-- Session persistence
-- Extension-level Pi interop features
-- Launcher/packaging polish
+## Milestone 6 — Launch integration
+1. Wire launcher (`jackal.sh` and/or `/jackal-shell`) to run built shell by default.
+2. Ensure extension loading and MCP discovery still work in this path.
+3. Update README with exact startup and troubleshooting commands.
 
-This keeps the next milestone strictly: **a simple, reliable chat TUI**.
+**Acceptance:** one-command launch into working TUI from repo root.
+
+## Verification checklist (run each milestone)
+- `npm run build:agent`
+- targeted runtime smoke test (`node agent-next/templates/shell.mjs`)
+- basic prompt/tool turn
+- auth/model flow (where applicable)
+- restart persistence check (where applicable)
+
+## Suggested execution order
+M1 → M2 → M3 → M4 → M5 → M6
+
+This preserves a working shell at every step and avoids blocking on polish before core reliability.
