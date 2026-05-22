@@ -16,6 +16,8 @@ const state = {
   suggestions: [],
   suggestionIndex: 0,
   suggestionsDismissed: false,
+  multiline: false,
+  scrollOffset: 0,
 };
 
 let agent = null;
@@ -76,12 +78,19 @@ function cycleSuggestion(dir = 1) {
   state.suggestionIndex = (state.suggestionIndex + dir + n) % n;
 }
 
+function addLocalMessage(text) {
+  state.messages = [...state.messages, { role: "assistant", text }];
+}
+
 function renderLines(width) {
   const lines = [];
   lines.push(`🐺 Jackal    ${chalk.cyan(state.phase)}    ${chalk.dim(state.modelLabel)}`);
   lines.push(chalk.gray("─".repeat(width)));
 
-  const shown = state.messages.slice(-60);
+  const viewSize = 60;
+  const end = Math.max(0, state.messages.length - state.scrollOffset);
+  const start = Math.max(0, end - viewSize);
+  const shown = state.messages.slice(start, end);
   if (shown.length === 0 && !state.streamingText) {
     lines.push(chalk.dim("No messages yet. Type a prompt and press Enter."));
   } else {
@@ -108,7 +117,7 @@ function renderLines(width) {
   }
 
   const runningTools = Object.values(state.toolExecutions || {}).filter((t) => t.status === "running").length;
-  const statusParts = [state.status, `tools:${runningTools}`, "/login", "/model", "/logout", "/abort", "/clear", "/exit"];
+  const statusParts = [state.status, `tools:${runningTools}`, `scroll:${state.scrollOffset}`, state.multiline ? "multiline:on" : "multiline:off", "/help"];
   if (state.toolLastError) statusParts.unshift(`tool-error: ${truncate(state.toolLastError, 60)}`);
   if (state.error) statusParts.unshift(`error: ${truncate(state.error, 60)}`);
 
@@ -120,7 +129,13 @@ function renderLines(width) {
     );
     lines.push(chalk.dim(`↳ ${chips.join(" ")}  ${chalk.dim("Tab accept · ↑/↓ select · Esc dismiss")}`));
   }
-  lines.push(chalk.green("❯ ") + state.input + chalk.dim("█"));
+  lines.push(chalk.green(state.multiline ? "❯❯ " : "❯ ") + state.input + chalk.dim("█"));
+  if (state.multiline) {
+    lines.push(chalk.dim("multiline mode: Enter=newline, Ctrl+D=send, /multiline to toggle"));
+  }
+  if (state.scrollOffset > 0) {
+    lines.push(chalk.dim("scrolling history: PgUp/PgDn to navigate, End to jump latest"));
+  }
   return lines;
 }
 
@@ -130,7 +145,28 @@ class ShellApp {
   }
 
   handleInput(data) {
+    if (data === "\x1b[5~") {
+      state.scrollOffset = Math.min(state.messages.length, state.scrollOffset + 10);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[6~") {
+      state.scrollOffset = Math.max(0, state.scrollOffset - 10);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[F") {
+      state.scrollOffset = 0;
+      tui.requestRender();
+      return;
+    }
     if (data === "\r") {
+      if (state.multiline) {
+        state.input += "\n";
+        refreshSuggestions();
+        tui.requestRender();
+        return;
+      }
       submit();
       return;
     }
@@ -166,6 +202,16 @@ class ShellApp {
     if (data === "\x1b") {
       state.suggestionsDismissed = true;
       refreshSuggestions();
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x04" && state.multiline) {
+      submit();
+      return;
+    }
+    if (data === "\x16") {
+      state.multiline = !state.multiline;
+      state.status = state.multiline ? "multiline enabled" : "multiline disabled";
       tui.requestRender();
       return;
     }
@@ -315,7 +361,34 @@ function submit() {
   }
 
   if (cmd === "/help") {
-    state.status = "commands: /help /login /logout /model /abort /clear /exit /cancel";
+    addLocalMessage([
+      "Commands:",
+      "- /help",
+      "- /login [provider]",
+      "- /logout <provider>",
+      "- /model [provider/model]",
+      "- /abort",
+      "- /clear",
+      "- /multiline",
+      "- /cancel",
+      "- /exit",
+      "",
+      "Keys:",
+      "- Tab accept suggestion",
+      "- ↑/↓ cycle suggestions",
+      "- PgUp/PgDn scroll history",
+      "- End jump to latest",
+      "- Ctrl+V toggle multiline",
+      "- Ctrl+D send (multiline mode)",
+    ].join("\n"));
+    state.status = "help";
+    tui.requestRender();
+    return;
+  }
+
+  if (cmd === "/multiline") {
+    state.multiline = !state.multiline;
+    state.status = state.multiline ? "multiline enabled" : "multiline disabled";
     tui.requestRender();
     return;
   }
@@ -415,6 +488,7 @@ function submit() {
   if (routeAuthInput(cmd)) return;
 
   state.status = "responding";
+  state.scrollOffset = 0;
   tui.requestRender();
   agent.actions.send(cmd).catch((err) => {
     state.error = err?.message || String(err);
@@ -448,6 +522,7 @@ async function main() {
 }
 
 let _cleaned = false;
+let _shuttingDown = false;
 function cleanup() {
   if (_cleaned) return;
   _cleaned = true;
@@ -456,8 +531,20 @@ function cleanup() {
   process.exit(0);
 }
 
-process.on("SIGINT", cleanup);
-process.on("SIGTERM", cleanup);
+function gracefulShutdown(signal) {
+  if (_shuttingDown) {
+    cleanup();
+    return;
+  }
+  _shuttingDown = true;
+  state.status = `shutting down (${signal})`;
+  addLocalMessage(`Received ${signal}. Closing Jackal session...`);
+  try { tui?.requestRender(); } catch {}
+  setTimeout(() => cleanup(), 120);
+}
+
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
 main().catch((err) => {
   console.error("Jackal failed to start:", err);

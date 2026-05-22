@@ -25,6 +25,8 @@ Shell commands in current milestones:
 - `/cancel` cancel auth flow
 - `/abort` cancel active run
 - `/clear` start a new persisted session (clears local transcript)
+- `/multiline` toggle multiline input mode
+- `/help` show command palette
 - `/exit` quit and dispose session
 
 Shell also renders a live tool timeline (running/done + truncated result preview) and footer tool counters.
@@ -34,4 +36,10 @@ Autocomplete is enabled for commands/providers/models:
 - `↑/↓` cycle suggestions
 - `Esc` dismiss suggestions
 
-Session history is now disk-backed via Pi SessionManager and restored on startup.
+Long-session UX:
+- `PgUp`/`PgDn` scroll transcript history
+- `End` jump to latest output
+- multiline mode: `Enter` newline, `Ctrl+D` send, `Ctrl+V` quick toggle
+
+Session history is disk-backed via Pi SessionManager and restored on startup.
+Shell now handles SIGINT/SIGTERM with graceful shutdown messaging.

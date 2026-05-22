@@ -17,6 +17,7 @@ const COMMANDS = [
   "/model",
   "/abort",
   "/clear",
+  "/multiline",
   "/exit",
   "/cancel",
 ];
