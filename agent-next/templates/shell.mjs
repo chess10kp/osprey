@@ -114,7 +114,7 @@ function renderAuthStep(step) {
     case "prompt":
       return [`${step.providerId}: ${step.message}`, "Type response and press Enter."];
     case "manual_code":
-      return [`${step.providerId}: paste manual auth code and press Enter."];
+      return [`${step.providerId}: paste manual auth code and press Enter.`];
     case "select":
       return [
         `${step.providerId}: ${step.message}`,
@@ -122,7 +122,7 @@ function renderAuthStep(step) {
         "Type option id and press Enter.",
       ];
     case "api_key_input":
-      return [`${step.providerId}: enter API key and press Enter."];
+      return [`${step.providerId}: enter API key and press Enter.`];
     case "logged_in":
       return [`Logged in: ${step.providerId}`, "Loading model picker..."];
     case "model_picker":
