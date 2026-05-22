@@ -44,18 +44,27 @@ export function bridgeEvents(
 
       // ── Messages ──────────────────────────────────────────────────
       case "message_start":
-        store.beginStreaming();
+        // Only stream assistant messages, not user echoes
+        if (event.message?.role === "assistant" || !event.message) {
+          store.beginStreaming();
+        }
         break;
 
       case "message_update":
-        // Text delta
-        if (event.text) {
+        // Text delta — Pi SDK puts text in assistantMessageEvent.delta
+        // for text_delta events, or event.text for simpler flows
+        if (event.assistantMessageEvent?.type === "text_delta" && event.assistantMessageEvent.delta) {
+          store.appendStreamText(String(event.assistantMessageEvent.delta));
+        } else if (event.text) {
           store.appendStreamText(String(event.text));
         }
         break;
 
       case "message_end":
-        store.finalizeStreaming();
+        // Only finalize if we were streaming (assistant message)
+        if (store.getSnapshot().streamingText !== null) {
+          store.finalizeStreaming();
+        }
         break;
 
       // ── Tool executions ───────────────────────────────────────────
