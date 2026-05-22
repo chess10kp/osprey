@@ -1,4 +1,4 @@
-import { createNextAgent } from "../dist/index.js";
+import { createNextAgent, getSuggestions } from "../dist/index.js";
 import { TUI, ProcessTerminal } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
@@ -13,6 +13,9 @@ const state = {
   authStep: { kind: "idle" },
   toolExecutions: {},
   toolLastError: null,
+  suggestions: [],
+  suggestionIndex: 0,
+  suggestionsDismissed: false,
 };
 
 let agent = null;
@@ -35,6 +38,42 @@ function renderToolTimeline() {
     lines.push(chalk.magenta(`${icon} ${exec.toolName} [${exec.status}]${input}${result}`));
   }
   return lines;
+}
+
+function refreshSuggestions() {
+  if (!agent || state.suggestionsDismissed) {
+    state.suggestions = [];
+    state.suggestionIndex = 0;
+    return;
+  }
+
+  const providers = agent.authActions.listProviders().map((p) => p.id);
+  const models = agent.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`);
+  const authStep = state.authStep || { kind: "idle" };
+  const authOptions = authStep.kind === "select" ? authStep.options.map((o) => o.id) : [];
+
+  state.suggestions = getSuggestions(state.input, {
+    authStepKind: authStep.kind,
+    providers,
+    models,
+    authOptions,
+  });
+
+  if (state.suggestionIndex >= state.suggestions.length) state.suggestionIndex = 0;
+}
+
+function applySuggestion() {
+  const s = state.suggestions[state.suggestionIndex];
+  if (!s) return;
+  state.input = s.value;
+  state.suggestionsDismissed = false;
+  refreshSuggestions();
+}
+
+function cycleSuggestion(dir = 1) {
+  if (!state.suggestions.length) return;
+  const n = state.suggestions.length;
+  state.suggestionIndex = (state.suggestionIndex + dir + n) % n;
 }
 
 function renderLines(width) {
@@ -75,6 +114,12 @@ function renderLines(width) {
 
   lines.push(chalk.dim(`┌${"─".repeat(width - 2)}┐`));
   lines.push(chalk.dim(`│ ${statusParts.join("  |  ")} │`));
+  if (state.suggestions.length) {
+    const chips = state.suggestions.slice(0, 5).map((s, i) =>
+      i === state.suggestionIndex ? chalk.black.bgCyan(` ${s.label} `) : chalk.dim(`[${s.label}]`),
+    );
+    lines.push(chalk.dim(`↳ ${chips.join(" ")}  ${chalk.dim("Tab accept · ↑/↓ select · Esc dismiss")}`));
+  }
   lines.push(chalk.green("❯ ") + state.input + chalk.dim("█"));
   return lines;
 }
@@ -89,13 +134,52 @@ class ShellApp {
       submit();
       return;
     }
+    if (data === "\t") {
+      applySuggestion();
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[A") {
+      cycleSuggestion(-1);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[B") {
+      cycleSuggestion(1);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[Z") {
+      cycleSuggestion(-1);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[C") {
+      const s = state.suggestions[state.suggestionIndex];
+      if (s && s.value.startsWith(state.input)) {
+        state.input = s.value;
+      }
+      refreshSuggestions();
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b") {
+      state.suggestionsDismissed = true;
+      refreshSuggestions();
+      tui.requestRender();
+      return;
+    }
     if (data === "\x7f" || data === "\b") {
       state.input = state.input.slice(0, -1);
+      state.suggestionsDismissed = false;
+      refreshSuggestions();
       tui.requestRender();
       return;
     }
     if (data.length === 1 && data.charCodeAt(0) >= 32) {
       state.input += data;
+      state.suggestionsDismissed = false;
+      refreshSuggestions();
       tui.requestRender();
     }
   }
@@ -115,6 +199,7 @@ function syncFromStore() {
   state.toolLastError = doneWithError?.result || null;
   state.modelLabel = snap.model ? `${snap.provider}/${snap.model}` : "no model configured";
   state.status = snap.phase === "streaming" ? "responding" : "ready";
+  refreshSuggestions();
   tui?.requestRender();
 }
 
@@ -125,6 +210,7 @@ function syncAuthFlow() {
     state.error = state.authStep.message;
     state.status = "auth error";
   }
+  refreshSuggestions();
   tui?.requestRender();
 }
 
@@ -221,7 +307,15 @@ function routeAuthInput(input) {
 function submit() {
   const cmd = state.input.trim();
   state.input = "";
+  state.suggestionsDismissed = false;
+  refreshSuggestions();
   if (!cmd) {
+    tui.requestRender();
+    return;
+  }
+
+  if (cmd === "/help") {
+    state.status = "commands: /help /login /logout /model /abort /clear /exit /cancel";
     tui.requestRender();
     return;
   }

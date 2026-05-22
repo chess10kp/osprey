@@ -8,3 +8,5 @@ export type { DialogRequest, Notification, InkUIState } from "./ui-context.js";
 export { AuthFlowStore } from "./auth-flow.js";
 export type { AuthFlowStep, ProviderEntry, ModelEntry, SelectOption, PromiseResolvers, AuthFlowState } from "./auth-flow.js";
 export { AuthActions } from "./auth-actions.js";
+export { getSuggestions } from "./completions.js";
+export type { CompletionContext, Suggestion } from "./completions.js";

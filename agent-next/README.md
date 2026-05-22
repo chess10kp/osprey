@@ -29,4 +29,9 @@ Shell commands in current milestones:
 
 Shell also renders a live tool timeline (running/done + truncated result preview) and footer tool counters.
 
+Autocomplete is enabled for commands/providers/models:
+- `Tab` accept suggestion
+- `↑/↓` cycle suggestions
+- `Esc` dismiss suggestions
+
 Session history is now disk-backed via Pi SessionManager and restored on startup.
