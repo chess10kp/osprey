@@ -1,32 +1,41 @@
 # Plan: Jackal Agent-Next to Working TUI
 
-## Current State
+## Current State (2026-05-22)
 
-What works (verified, compiles clean):
+What works (verified, runs):
 - `src/adapter.ts` — `createNextAgent()` boots a Pi session with auth, store, bridge
 - `src/store.ts` — immutable snapshot store
 - `src/bridge.ts` — Pi events → store mutations
 - `src/ui-context.ts` — headless ExtensionUIContext (dialogs, notify)
 - `src/auth-flow.ts` — login state machine
 - `src/auth-actions.ts` — drives AuthStorage/ModelRegistry
+- `src/completions.ts` — slash-command autocomplete
 
-What exists in jac-tui (`~/repos/jac-tui`):
-- **jac-ink** — compiles `.cl.jac` → Ink app (`.jac/tui/runner.mjs`)
-- Phase 1 `@jac/pi` dependency wiring (`--with_pi`, shims, pinned Pi deps)
-- Design doc: `docs/pi-interop-plan.md`
+What works in jac-ink (`~/repos/jac-tui`):
+- **jac-ink bypasses Vite** — uses plain `ClientBundleBuilder` for Ink apps
+- **`@jac/pi` import injection** — detects hook usage and adds the import
+- **Real Pi shim** — boots headless adapter, exposes all React hooks
+- `--with_pi` flag injects Pi deps into package.json
 
-What is next:
-- Wire `shell.cl.jac` to the adapter via `@jac/pi` hooks (jac-ink Phase 2+)
-- Port adapter-backed features into Ink components
-- Fold TS adapter into jac-ink's `jac_pi_adapter.mjs` (upstream)
+What runs:
+- `jac tui templates/shell.cl.jac --with_pi` → compiles, installs, starts
+- Ink renders the shell UI with all components
+- Requires an interactive terminal (raw mode for input)
 
-## Decision: jac-ink (Ink)
+## Upstream patches applied (site-packages)
 
-**jac-ink is the UI stack because:**
-- **`~/repos/jac-tui` has the Ink renderer** (jac-ink plugin)
-- Jackal is Jac-first — shell UI belongs in `.cl.jac`, compiled with `jac tui`
-- Headless TS adapter (`createNextAgent`, store, auth) maps to `@jac/pi` facade
-- Ink owns 100% of terminal rendering
+1. `jac_client/plugin/src/impl/compiler.impl.jac` — fixed `.cl.jac` stem bug
+   - `module_path.stem` returns `shell.cl` but compiled JS is `shell.js`
+   - Added `_js_module_stem()` helper that strips `.cl.jac` correctly
+
+2. `jaclang/runtimelib/impl/client_bundle.impl.jac` — skip `@jac/pi` bundling
+   - `@jac/pi` is a virtual import resolved by jac-ink's shim, not a real module
+   - Prevents the import from being stripped during bundle processing
+
+3. `jac-tui/jac-ink/jac_ink/plugin/cli.jac` — three changes:
+   - Use `ClientBundleBuilder` instead of Vite (Ink runs in Node, not browser)
+   - `_ensure_pi_import()` adds `@jac/pi` import when hooks are detected
+   - Real shim with adapter boot + React hooks (replaces Phase 1 stubs)
 
 ## Phases
 
@@ -36,35 +45,48 @@ Compiled `agent-next/src/*.ts` → `agent-next/dist/*.js`
 ### Phase B: Headless adapter ✅
 Store, bridge, auth, ExtensionUIContext — no rendering layer
 
-### Phase C: jac-ink shell (current)
-**Goal:** `jac tui templates/shell.cl.jac --with_pi` boots Jackal
+### Phase C: jac-ink compilation pipeline ✅
+`jac tui templates/shell.cl.jac --with_pi` compiles and runs
 
-Tasks:
-1. Expand `shell.cl.jac` `app()` — Ink layout (header, messages, input, status)
-2. Connect to adapter via `@jac/pi` hooks (or interim import of `dist/index.js`)
-3. Keyboard/commands: send, abort, /login, /model, /clear, /exit
-4. Subscribe to store snapshots for streaming + tool timeline
+### Phase D: Interactive shell (current)
+**Goal:** Full interactive prompt/response through the Ink shell
 
-Deliverable: prompt/response through jac-ink
-
-### Phase D: Auth + tool overlays (Ink)
-Auth flow UI and tool timeline as Ink components
+Remaining:
+1. Test with real Pi credentials (auth flow)
+2. Verify streaming text renders correctly
+3. Verify tool execution timeline
+4. Test /login, /model, /abort commands
+5. Test multiline input
 
 ### Phase E: Integration
 1. `jackal.sh` / `jackal_shell.jac` launch `jac tui`
 2. Fold TS adapter into jac-ink's `jac_pi_adapter.mjs` (upstream)
 
+## How to run
+
+```bash
+# Build the adapter
+cd /home/jac/repos/jackal
+npm run build:agent
+
+# Run the shell (interactive terminal required)
+cd agent-next
+jac tui templates/shell.cl.jac --with_pi
+```
+
 ## File map
 
 ```
 agent-next/
-├── dist/                  # compiled adapter (interim)
-├── src/                   # headless adapter
+├── dist/                  # compiled adapter
+├── src/                   # headless adapter (TS)
 ├── templates/
-│   └── shell.cl.jac       # Ink runtime (jac-ink)
+│   ├── shell.cl.jac       # Ink shell UI
+│   └── jac_pi_facade.mjs  # Reference adapter (now inlined in jac-ink shim)
 └── bin/
     └── jackal_shell.jac   # jac tui launcher
 
 ~/repos/jac-tui/
-└── jac-ink/               # compiler + @jac/pi shims + jac_pi_adapter (Phase 2+)
+└── jac-ink/               # compiler + @jac/pi shims
+    └── jac_ink/plugin/cli.jac  # patched: Vite bypass + Pi import injection
 ```
