@@ -2,7 +2,7 @@
 // Adapter — creates a headless Pi AgentSession wired into the AgentStore.
 //
 // This is the glue between Pi's SDK and Jackal's store/bridge layer.
-// It does NOT import pi-tui or any rendering code.
+// It does NOT import any rendering code.
 // ────────────────────────────────────────────────────────────────────────────
 
 import {

@@ -41,4 +41,23 @@ if [[ ! -f "$JACKAL_DIR/agent-next/dist/index.js" ]]; then
   (cd "$JACKAL_DIR" && npm run build:agent >/dev/null)
 fi
 
-exec -a jackal node "$JACKAL_DIR/agent-next/templates/shell.mjs" "$@"
+# Expose adapter dist path + the user's launch cwd to the facade.
+export JACKAL_AGENT_DIST="$JACKAL_DIR/agent-next/dist/index.js"
+export JACKAL_AGENT_CWD="${JACKAL_AGENT_CWD:-$PWD}"
+
+# Compile-only first so we can swap the jac-ink @jac/pi stub for our real facade.
+TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/agent-next/.jac/tui}"
+(
+  cd "$JACKAL_DIR/agent-next" \
+    && jac tui templates/shell.cl.jac --with_pi --out "$TUI_OUT" --no_run
+)
+
+# Overwrite the jac-ink-emitted stub with our real adapter facade.
+cp "$JACKAL_DIR/agent-next/templates/jac_pi_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+
+# Install deps if needed, then launch.
+if [[ ! -d "$TUI_OUT/node_modules" ]]; then
+  (cd "$TUI_OUT" && npm install --ignore-scripts)
+fi
+
+exec -a jackal node "$TUI_OUT/runner.mjs" "$@"

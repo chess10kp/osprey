@@ -6,10 +6,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Container, SelectList, Text } from "@earendil-works/pi-tui";
 
 import { state, getVerboseOverride, setVerboseOverride } from "./types.js";
 import { findJacBinary, formatDiagnostics, runJacCheck } from "./check.js";
@@ -746,56 +744,16 @@ function registerCreate({ pi }: CommandContext): void {
           const typed = manual.trim();
           if (typed) useTemplate = typed;
         } else {
-          const items = templates.map((t) => ({
-            value: t.name,
-            label: t.name,
-            description: t.description,
-          }));
-
-          const picked = await ctx.ui.custom<string | undefined>(
-            (tui, theme, _kb, done) => {
-              const container = new Container();
-              container.addChild(
-                new Text(theme.bold("Scaffold a new Jac project"), 0, 0),
-              );
-              container.addChild(
-                new Text(
-                  theme.fg("dim", "↑/↓ navigate · Enter select · Esc cancel"),
-                  0,
-                  0,
-                ),
-              );
-              container.addChild(new Text("", 0, 0));
-
-              const list = new SelectList(
-                items,
-                items.length,
-                getSelectListTheme(),
-              );
-              list.onSelect = (item: { value: string }) => done(item.value);
-              list.onCancel = () => done(undefined);
-              container.addChild(list);
-
-              return {
-                render(width: number) {
-                  return container.render(width);
-                },
-                invalidate() {
-                  container.invalidate();
-                },
-                handleInput(data: string) {
-                  list.handleInput(data);
-                  tui.requestRender();
-                },
-              };
-            },
+          const options = templates.map((t) =>
+            t.description ? `${t.name} — ${t.description}` : t.name,
           );
+          const picked = await ctx.ui.select("Scaffold a new Jac project", options);
 
           if (picked === undefined) {
             ctx.ui.notify("Create cancelled.", "info");
             return;
           }
-          useTemplate = picked;
+          useTemplate = picked.split(" — ")[0]!.trim();
         }
       }
 
@@ -982,7 +940,7 @@ function registerNextAgentSmoke({ pi }: CommandContext): void {
 function registerJackalShell({ pi }: CommandContext): void {
   pi.registerCommand("jackal-shell", {
     description:
-      "Launch the Jackal Ink TUI shell (scaffold + npm install + run).",
+      "Launch Jackal Ink shell via jac-ink (jac tui shell.cl.jac --with_pi).",
     handler: async (_args, ctx) => {
       const outDir = join(ctx.cwd, ".jac", "jackal-shell");
       mkdirSync(outDir, { recursive: true });
@@ -1004,7 +962,7 @@ function registerJackalShell({ pi }: CommandContext): void {
         name: "jackal-shell",
         private: true,
         type: "module",
-        scripts: { start: "node shell.mjs" },
+        scripts: { start: "jac tui shell.cl.jac --with_pi --run" },
         dependencies: {
           ink: "^7.0.3",
           react: "^19.2.4",
@@ -1022,7 +980,7 @@ function registerJackalShell({ pi }: CommandContext): void {
       );
 
       ctx.ui.notify(
-        `Shell scaffolded in ${outDir}\nCompile with: cd ${outDir} && jac jac2ink shell.cl.jac --with_pi --install --run`,
+        `Shell template: ${outDir}/shell.cl.jac\nRun: cd agent-next && jac tui templates/shell.cl.jac --with_pi --install --run`,
         "info",
       );
     },

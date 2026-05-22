@@ -3,43 +3,52 @@
 This directory contains the in-repo implementation of the new Jac-inspired coding agent.
 
 ## Goals
-- Replace current behavior with an Ink/TUI-driven agent runtime flow.
-- Keep Pi/Jac interoperability, but make Jackal the first-class host.
+- Replace current behavior with a **jac-ink / Ink** agent runtime flow.
+- Keep Pi/Jac interoperability via `@jac/pi` and the headless TS adapter.
 - Build incrementally with verifiable checkpoints.
 
-## Current Phase
-- Phase 5/6 hardening: stabilize shell loop, auth/model overlays, tool timeline, persistence.
+## UI stack
 
-## Milestone 1 smoke run
-Build the adapter and launch the shell:
+**Renderer:** [jac-tui](https://github.com/jaseci/jac-tui) (`~/repos/jac-tui`) — the **jac-ink**
+plugin compiles `.cl.jac` into an Ink + React terminal app (`jac tui`, `jac jac2ink --with_pi`).
+
+**Shell UI:** `templates/shell.cl.jac` exports `app()` and owns all terminal rendering.
+
+**Agent runtime:** `src/*.ts` → `dist/*.js` — headless Pi session, store, auth, and event bridge.
+Wires into jac-ink via `@jac/pi` (see jac-tui `docs/pi-interop-plan.md`).
+
+| Layer | Location | Notes |
+|-------|----------|-------|
+| Ink UI | `templates/shell.cl.jac` | Runtime — `app()` + Ink components |
+| Pi adapter | `src/*.ts` → `dist/*.js` | Headless session/store/auth |
+| jac-ink | `~/repos/jac-tui/jac-ink` | Compiler, `--with_pi`, runtime shims |
+
+## Current Phase
+- Phase 6: wire `shell.cl.jac` to the adapter via `@jac/pi`; launch via `jackal.sh`.
+
+## Smoke run
 
 ```bash
 npm run build:agent
-node agent-next/templates/shell.mjs
+cd agent-next && jac tui templates/shell.cl.jac --with_pi --install --run
 ```
 
-Shell commands in current milestones:
-- `/login [provider]` start auth flow (opens picker when provider omitted)
+Or from repo root:
+
+```bash
+./jackal.sh
+```
+
+Shell commands (implement in `shell.cl.jac`):
+- `/login [provider]` start auth flow
 - `/logout <provider>` logout provider
-- `/model [provider/model]` open model picker or set directly
+- `/model [provider/model]` model picker or direct set
 - `/cancel` cancel auth flow
 - `/abort` cancel active run
-- `/clear` start a new persisted session (clears local transcript)
-- `/multiline` toggle multiline input mode
-- `/help` show command palette
-- `/exit` quit and dispose session
+- `/clear` new persisted session
+- `/multiline` toggle multiline input
+- `/help` command palette
+- `/exit` quit and dispose
 
-Shell also renders a live tool timeline (running/done + truncated result preview) and footer tool counters.
-
-Autocomplete is enabled for commands/providers/models:
-- `Tab` accept suggestion
-- `↑/↓` cycle suggestions
-- `Esc` dismiss suggestions
-
-Long-session UX:
-- `PgUp`/`PgDn` scroll transcript history
-- `End` jump to latest output
-- multiline mode: `Enter` newline, `Ctrl+D` send, `Ctrl+V` quick toggle
-
-Session history is disk-backed via Pi SessionManager and restored on startup.
-Shell now handles SIGINT/SIGTERM with graceful shutdown messaging.
+Target UX: live tool timeline, autocomplete, scrollback, multiline input, disk-backed
+session history via Pi SessionManager.

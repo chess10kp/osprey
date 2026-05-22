@@ -1,5 +1,5 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Ink UI context — implements ExtensionUIContext without pi-tui.
+// Headless UI context for the jac-ink shell — implements ExtensionUIContext.
 //
 // This provides the "supported" subset of Pi's extension UI surface
 // using the AgentStore as the backing state. Extensions that call
@@ -198,11 +198,11 @@ export class InkExtensionUIContext {
   // ──── Unsupported (degraded) ────────────────────────────────────────
 
   custom(_factory: any, _options?: any): any {
-    return this._unsupported("custom(pi-tui factory)");
+    return this._unsupported("custom(component factory)");
   }
 
   setEditorComponent(_factory: any): void {
-    this._unsupported("setEditorComponent(pi-tui factory)");
+    this._unsupported("setEditorComponent(component factory)");
   }
 
   getEditorComponent(): any {
@@ -210,11 +210,11 @@ export class InkExtensionUIContext {
   }
 
   setFooter(_factory: any): void {
-    this._unsupported("setFooter(pi-tui factory)");
+    this._unsupported("setFooter(component factory)");
   }
 
   setHeader(_factory: any): void {
-    this._unsupported("setHeader(pi-tui factory)");
+    this._unsupported("setHeader(component factory)");
   }
 
   // ──── Internals ─────────────────────────────────────────────────────

@@ -1,7 +1,8 @@
 # Implementation Plan (Jackal repo)
 
 ## Scope
-Implement the new coding agent in this repo (not in external plugin repos).
+Implement the new coding agent in this repo. **UI renderer:** jac-ink (jac-tui repo).
+**Agent runtime:** headless Pi SDK adapter in `agent-next/src/`.
 
 ## Phases
 
@@ -10,10 +11,11 @@ Implement the new coding agent in this repo (not in external plugin repos).
 - Events stream (`agent_start`, `message_update`, `agent_end`, etc.)
 - `runNextAgentSmoke()` verifies end-to-end in `/next-agent-smoke`
 
-### Phase 1 — CLI dependency wiring ✅
-- `@jac/pi` import detection and shim emission in `jac-tui`
+### Phase 1 — CLI dependency wiring ✅ (jac-tui repo)
+- `@jac/pi` import detection and shim emission in jac-ink
 - `PI_DEFAULT_DEPS` map, `--with_pi`/`--no_pi` flags
 - Package.json injection with Pi SDK deps
+- See `~/repos/jac-tui/docs/pi-interop-progress.md`
 
 ### Phase 2 — Store + event bridge ✅
 - `AgentStore` — immutable snapshot, subscriber pattern
@@ -21,43 +23,33 @@ Implement the new coding agent in this repo (not in external plugin repos).
 - `createNextAgent()` factory with actions
 
 ### Phase 3 — Extension UI context ✅
-- `InkExtensionUIContext` — full headless ExtensionUIContext
+- `InkExtensionUIContext` — headless ExtensionUIContext for Ink shell
 - notify, dialogs (select/confirm/input/editor as Promises)
-- Unsupported methods degrade with structured warnings
+- Unsupported host-injected component factories degrade with structured warnings
 - `session.bindExtensions()` wired in adapter
 
 ### Phase 4 — Auth + model picker ✅
-- `AuthFlowStore` state machine (provider picker → OAuth → model picker)
-- `AuthActions` — drives AuthStorage/ModelRegistry through state machine
-- OAuth callbacks (onAuth/onPrompt/onManualCodeInput/onSelect) piped through
-- API-key login flow
+- `AuthFlowStore` state machine
+- `AuthActions` — AuthStorage/ModelRegistry
 - `createNextAgent()` exposes authFlow + authActions + setModel
 
-### Phase 5 — Ink TUI shell ✅
-- `agent-next/templates/shell.mjs` — self-contained Ink shell
-- Header, MessageList, StatusBar, input components
-- Keyboard handling (type, enter, escape to abort)
-- `/jackal-shell` command scaffolds temp project + deps
-- Graceful shutdown on SIGINT/SIGTERM
+### Phase 5 — Headless adapter hardening ✅
+- Adapter proven end-to-end (streaming, auth, tools, persistence)
+- Features to port into `shell.cl.jac`
 
-### Phase 6 — Hardening (next)
-- Multi-line input support (Shift+Enter or colon-prefix)
-- Scrollback / message pagination
-- Tool call rendering (name, args, result, duration)
-- Auth overlay rendering (provider picker, model picker)
-- Diff rendering for file edits
-- Command palette (/help, /model, /login, /logout, /clear)
-- Session persistence (disk-backed SessionManager)
+### Phase 6 — jac-ink shell (current)
+- Port `shell.cl.jac` to full Ink app wired to adapter / `@jac/pi`
+- `jac tui templates/shell.cl.jac --with_pi --install --run`
+- jac-ink Phase 2: `jac_pi_adapter.mjs` in jac-tui repo
 
 ### Phase 7 — Integration
-- Wire into `jac tui` command pipeline
-- `jackal.sh` launcher integration
+- `jackal.sh` / `/jackal-shell` launch jac-ink path
 - Extension loading from project `.pi/extensions/`
 - MCP server auto-discovery
 
 ## Acceptance
-- End-to-end prompt loop runs from Jackal host
+- End-to-end prompt loop runs via **jac-ink**
 - Extension hooks work with explicit capability boundaries
 - Auth flow works for OAuth + API-key providers
-- TUI renders streaming text, tool calls, messages
-- Changes are validated with Jac/Pi checks and runtime smoke tests
+- Ink TUI renders streaming text, tool calls, messages
+- Changes validated with Jac/Pi checks and `jac tui` smoke tests

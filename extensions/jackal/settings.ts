@@ -8,10 +8,8 @@
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Container, SelectList, Text } from "@earendil-works/pi-tui";
 
 // ──── Settings file I/O ──────────────────────────────────────────────────
 
@@ -199,38 +197,10 @@ export async function pickSubagentModelSpec(
     return undefined;
   }
   models = [...models].sort((a, b) => a.name.localeCompare(b.name));
-  const items = models.map((m) => ({
-    value: modelSpecFromRegistryModel(m),
-    label: m.name,
-    description: `${m.provider}/${m.id}`,
-  }));
-
-  return ctx.ui.custom<string | undefined>((tui, theme, _kb, done) => {
-    const container = new Container();
-    container.addChild(new Text(theme.fg("accent", theme.bold(`Model for subagent: ${agent}`)), 0, 0));
-    container.addChild(new Text(theme.fg("dim", "↑/↓ navigate · Enter confirm · Esc cancel"), 0, 0));
-    container.addChild(new Text("", 0, 0));
-
-    const list = new SelectList(items, Math.min(15, Math.max(5, items.length)), getSelectListTheme());
-    list.onSelect = (item) => {
-      done(item.value);
-    };
-    list.onCancel = () => {
-      done(undefined);
-    };
-    container.addChild(list);
-
-    return {
-      render(width: number) {
-        return container.render(width);
-      },
-      invalidate() {
-        container.invalidate();
-      },
-      handleInput(data: string) {
-        list.handleInput(data);
-        tui.requestRender();
-      },
-    };
-  });
+  const options = models.map(
+    (m) => `${modelSpecFromRegistryModel(m)} — ${m.name}`,
+  );
+  const picked = await ctx.ui.select(`Model for subagent: ${agent}`, options);
+  if (picked === undefined) return undefined;
+  return picked.split(" — ")[0]!.trim();
 }

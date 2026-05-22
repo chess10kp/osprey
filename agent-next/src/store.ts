@@ -3,7 +3,7 @@
 //
 // The store is the single source of truth for agent state. Pi session events
 // are translated into store mutations by the event bridge (bridge.ts).
-// Consumers (Ink components, hooks) subscribe and get immutable snapshots.
+// Consumers (Ink components, @jac/pi hooks) subscribe and get immutable snapshots.
 // ────────────────────────────────────────────────────────────────────────────
 
 export type AgentPhase =
