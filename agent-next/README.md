@@ -24,7 +24,9 @@ Shell commands in current milestones:
 - `/model [provider/model]` open model picker or set directly
 - `/cancel` cancel auth flow
 - `/abort` cancel active run
-- `/clear` clear rendered transcript
+- `/clear` start a new persisted session (clears local transcript)
 - `/exit` quit and dispose session
 
 Shell also renders a live tool timeline (running/done + truncated result preview) and footer tool counters.
+
+Session history is now disk-backed via Pi SessionManager and restored on startup.

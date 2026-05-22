@@ -28,6 +28,7 @@ export interface NextAgentResult {
 export interface CreateNextAgentOptions {
   authStorage?: AuthStorage;
   modelRegistry?: ModelRegistry;
+  sessionDir?: string;
 }
 
 /**
@@ -94,6 +95,36 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
  * Create a full adapter: Pi session wired into store + auth + UI context.
  * Returns everything the Ink shell needs to render and interact.
  */
+function messageText(content: any): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part?.type === "text") return String(part.text ?? "");
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+function restoreTranscriptFromSession(session: any, store: AgentStore): void {
+  const history = Array.isArray(session?.messages) ? session.messages : [];
+  for (const msg of history) {
+    if (msg?.role === "user") {
+      store.pushUserMessage(messageText(msg.content));
+    } else if (msg?.role === "assistant") {
+      const text = messageText(msg.content);
+      if (text) {
+        store.beginStreaming();
+        store.appendStreamText(text);
+        store.finalizeStreaming();
+      }
+    }
+  }
+}
+
 export async function createNextAgent(
   cwd: string,
   options?: CreateNextAgentOptions,
@@ -107,6 +138,7 @@ export async function createNextAgent(
     abort: () => Promise<void>;
     resolveDialog: (id: string, value: any) => void;
     setModel: (provider: string, modelId: string) => Promise<void>;
+    clearSession: () => Promise<void>;
     dispose: () => void;
   };
 }> {
@@ -118,16 +150,19 @@ export async function createNextAgent(
   const modelRegistry = options?.modelRegistry ?? ModelRegistry.create(authStorage);
   const authActions = new AuthActions(authStorage, modelRegistry, authFlow);
 
+  const sessionManager = SessionManager.continueRecent(cwd, options?.sessionDir);
+
   const { session } = await createAgentSession({
     cwd,
     authStorage,
     modelRegistry,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager,
   });
 
   await session.bindExtensions({ uiContext: uiContext as any });
 
   const unsubBridge = bridgeEvents(session, store);
+  restoreTranscriptFromSession(session, store);
   store.markReady();
 
   return {
@@ -153,6 +188,11 @@ export async function createNextAgent(
           await session.setModel(model);
         }
         authFlow.setIdle();
+      },
+      clearSession: async () => {
+        sessionManager.newSession();
+        store.reset();
+        store.markReady();
       },
       dispose: () => {
         unsubBridge();

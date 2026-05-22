@@ -239,12 +239,20 @@ function submit() {
   }
 
   if (cmd === "/clear") {
-    state.messages = [];
-    state.streamingText = null;
-    state.toolExecutions = {};
-    state.toolLastError = null;
-    state.status = "cleared";
+    state.status = "clearing session";
     tui.requestRender();
+    agent.actions.clearSession().then(() => {
+      state.messages = [];
+      state.streamingText = null;
+      state.toolExecutions = {};
+      state.toolLastError = null;
+      state.status = "cleared (new persisted session)";
+      tui.requestRender();
+    }).catch((err) => {
+      state.error = err?.message || String(err);
+      state.status = "error";
+      tui.requestRender();
+    });
     return;
   }
 
