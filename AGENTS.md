@@ -269,3 +269,27 @@ pi --no-extensions -e ./extensions/jac-toolchain.ts --skill ./skills
 # Install as project-local package (writes .pi/, not ~/.pi/)
 pi install -l .
 ```
+
+## agent-next migration notes
+
+### Compilation pipeline (jac-ink)
+
+The agent-next shell compiles `.cl.jac` → Ink via jac-ink plugin at `~/repos/jac-tui/jac-ink`.
+
+**Key patches to site-packages (lost on pip reinstall):**
+1. `jac_client/.../compiler.impl.jac` — `_js_module_stem()` fix for `.cl.jac` files
+2. `jaclang/.../client_bundle.impl.jac` — skip `@jac/pi` in `_process_imports`
+3. `~/repos/jac-tui/jac-ink/.../cli.jac` — Vite bypass, Pi import injection, real shim
+
+**Why Vite is bypassed:** jac-client's `ViteCompiler` targets browsers (externalizes `node:process`, `node:stream`). Ink needs Node.js APIs. The plain `ClientBundleBuilder` gives raw JS which is what Ink needs.
+
+**Why `@jac/pi` import injection is needed:** The Jac compiler strips `@jac/pi` during bundle processing since it's not a real file. `_ensure_pi_import()` detects hook usage and re-adds the import.
+
+### Running
+
+```bash
+npm run build:agent  # compile TS adapter
+cd agent-next && jac tui templates/shell.cl.jac --with_pi  # launch shell
+```
+
+Requires interactive terminal. Non-interactive runs fail on Ink's raw mode.
