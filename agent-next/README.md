@@ -26,3 +26,5 @@ Shell commands in current milestones:
 - `/abort` cancel active run
 - `/clear` clear rendered transcript
 - `/exit` quit and dispose session
+
+Shell also renders a live tool timeline (running/done + truncated result preview) and footer tool counters.

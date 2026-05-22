@@ -11,10 +11,30 @@ const state = {
   streamingText: null,
   error: null,
   authStep: { kind: "idle" },
+  toolExecutions: {},
+  toolLastError: null,
 };
 
 let agent = null;
 let tui = null;
+
+function truncate(text, max = 120) {
+  const str = String(text ?? "").replace(/\s+/g, " ").trim();
+  return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+}
+
+function renderToolTimeline() {
+  const execs = Object.values(state.toolExecutions || {});
+  if (!execs.length) return [];
+
+  const lines = [chalk.magenta("Tools:")];
+  for (const exec of execs.slice(-10)) {
+    const icon = exec.status === "running" ? "⏳" : "✓";
+    const result = exec.result ? ` → ${truncate(exec.result, 80)}` : "";
+    lines.push(chalk.magenta(`${icon} ${exec.toolName} [${exec.status}]${result}`));
+  }
+  return lines;
+}
 
 function renderLines(width) {
   const lines = [];
@@ -35,13 +55,22 @@ function renderLines(width) {
     }
   }
 
-  const statusParts = [state.status, "/login", "/model", "/logout", "/abort", "/clear", "/exit"];
-  if (state.error) statusParts.unshift(`error: ${state.error}`);
+  const toolLines = renderToolTimeline();
+  if (toolLines.length) {
+    lines.push("");
+    lines.push(...toolLines);
+  }
+
   if (state.authStep.kind !== "idle") {
     lines.push("");
     lines.push(chalk.yellow("Auth flow:"));
     for (const line of renderAuthStep(state.authStep)) lines.push(chalk.yellow(line));
   }
+
+  const runningTools = Object.values(state.toolExecutions || {}).filter((t) => t.status === "running").length;
+  const statusParts = [state.status, `tools:${runningTools}`, "/login", "/model", "/logout", "/abort", "/clear", "/exit"];
+  if (state.toolLastError) statusParts.unshift(`tool-error: ${truncate(state.toolLastError, 60)}`);
+  if (state.error) statusParts.unshift(`error: ${truncate(state.error, 60)}`);
 
   lines.push(chalk.dim(`┌${"─".repeat(width - 2)}┐`));
   lines.push(chalk.dim(`│ ${statusParts.join("  |  ")} │`));
@@ -80,6 +109,9 @@ function syncFromStore() {
   state.streamingText = snap.streamingText;
   state.error = snap.error;
   state.messages = snap.messages;
+  state.toolExecutions = snap.toolExecutions || {};
+  const doneWithError = Object.values(state.toolExecutions).find((t) => t.status === "done" && typeof t.result === "string" && /\berror\b/i.test(t.result));
+  state.toolLastError = doneWithError?.result || null;
   state.modelLabel = snap.model ? `${snap.provider}/${snap.model}` : "no model configured";
   state.status = snap.phase === "streaming" ? "responding" : "ready";
   tui?.requestRender();
@@ -208,6 +240,8 @@ function submit() {
   if (cmd === "/clear") {
     state.messages = [];
     state.streamingText = null;
+    state.toolExecutions = {};
+    state.toolLastError = null;
     state.status = "cleared";
     tui.requestRender();
     return;
