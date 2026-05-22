@@ -15,9 +15,30 @@ fi
 
 export PI_CODING_AGENT_DIR="$AGENT_DIR"
 
-# Set process name to 'jackal' for tmux window title
-exec -a jackal pi \
-  -e "$JACKAL_DIR/extensions/jackal-toolchain.ts" \
-  --skill "$JACKAL_DIR/skills" \
-  --prompt-template "$JACKAL_DIR/prompts" \
-  "$@"
+# Usage:
+#   ./jackal.sh                 -> launch next TUI shell (default)
+#   ./jackal.sh --pi [args...]  -> launch classic Pi TUI with Jackal extension
+#   JACKAL_CLASSIC_PI=1 ./jackal.sh [args...] -> same as --pi
+USE_CLASSIC=0
+if [[ "${1:-}" == "--pi" ]]; then
+  USE_CLASSIC=1
+  shift
+fi
+if [[ "${JACKAL_CLASSIC_PI:-}" == "1" ]]; then
+  USE_CLASSIC=1
+fi
+
+if [[ "$USE_CLASSIC" == "1" ]]; then
+  exec -a jackal pi \
+    -e "$JACKAL_DIR/extensions/jackal-toolchain.ts" \
+    --skill "$JACKAL_DIR/skills" \
+    --prompt-template "$JACKAL_DIR/prompts" \
+    "$@"
+fi
+
+# Build adapter on demand for the next shell.
+if [[ ! -f "$JACKAL_DIR/agent-next/dist/index.js" ]]; then
+  (cd "$JACKAL_DIR" && npm run build:agent >/dev/null)
+fi
+
+exec -a jackal node "$JACKAL_DIR/agent-next/templates/shell.mjs" "$@"

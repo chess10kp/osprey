@@ -21,6 +21,7 @@ A Pi-powered, terminal-native Jac coding agent that gives Jac developers the age
    ./jackal.sh
    ```
 
+   `./jackal.sh` now launches the **Agent-Next Jackal shell** by default.
    Optional: `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
 
 5. In the Pi session, run **`/jac-doctor`** to confirm `jac`, MCP, and provider setup.
@@ -28,6 +29,30 @@ A Pi-powered, terminal-native Jac coding agent that gives Jac developers the age
 6. Patches are applied automatically via the `postinstall` script. If you skipped `npm install`, run `npx patch-package` manually.
 
 Use **`./jackal.sh`** from the directory you want as the agent’s working tree (for example `cd` into a Jac project first, then invoke the script with an absolute path to `jackal.sh`).
+
+### Launch modes
+
+```bash
+# Default: Agent-Next shell (recommended)
+./jackal.sh
+
+# Classic Pi TUI path (extension + commands)
+./jackal.sh --pi
+# or
+JACKAL_CLASSIC_PI=1 ./jackal.sh
+```
+
+### Troubleshooting
+
+- If first launch fails with missing `agent-next/dist/index.js`, run:
+  ```bash
+  npm run build:agent
+  ```
+- Verify Jac + MCP wiring with:
+  ```bash
+  /jac-doctor
+  ```
+  (in classic Pi mode via `./jackal.sh --pi`).
 
 ### With Docker
 

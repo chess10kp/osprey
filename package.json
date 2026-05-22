@@ -37,7 +37,8 @@
   },
   "scripts": {
     "postinstall": "patch-package",
-    "build:agent": "tsc -p agent-next/tsconfig.json"
+    "build:agent": "tsc -p agent-next/tsconfig.json",
+    "start:agent-shell": "node agent-next/templates/shell.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
