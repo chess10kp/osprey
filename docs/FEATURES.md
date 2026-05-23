@@ -55,21 +55,73 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 
 ---
 
-## 3. Agent capabilities (blockers)
+## 3. Agent capabilities
 
-Without these, Jackal is chat-only and not a coding agent.
+### Core tools
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `read` | Read file contents | Done |
+| `write` | Create / overwrite files | Done |
+| `edit` | Exact text replacement | Done |
+| `bash` | Run shell commands | Done |
+| `glob` | Find files by pattern | Done |
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| Jackal system prompt | Load `jackal/SYSTEM.md` at session boot | Done |
-| Read tool | Read project files | Done |
-| Write tool | Create / overwrite files | Done |
-| Edit tool | Targeted file edits | Done |
-| Bash tool | Run shell commands (`jac`, `git`, etc.) | Done |
-| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (loads from `pi/mcp.json`, MCP status surfaced; should lazy-load after TUI render) |
-| Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
-| Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
-| Working directory safety | Sensible defaults, visible command execution | Done (safeResolve path validation in tools) |
+### Jac toolchain tools
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `jac_cli` | Run any `jac` CLI command | Done |
+| `jac_check` | Structured diagnostics | Done |
+| `jac_fix` | Bounded check-format-check loop | Done |
+| `jac_test` | Run tests with diagnostic parsing | Done |
+| `jac_format` | Format .jac files | Done |
+| `jac_run` | Execute .jac files with output capture | Done |
+| `jac_doctor` | Jac environment detection | Done |
+| `jac_create` | Run `jac create` templates | Done |
+| `jac_list_templates` | List available templates | Done |
+
+### LSP tools
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `diagnostics` | Get compiler diagnostics for files | Done |
+| `hover` | Get type info / context at position | Done |
+| `definition` | Find symbol declarations | Done |
+| `references` | Find all symbol references | Done |
+
+### Task tools
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `create_task` | Create tasks for multi-step work | Done |
+| `update_task` | Update task status | Done |
+| `list_tasks` | List tasks with filters | Done |
+| `delete_task` | Delete tasks by ID | Done |
+
+### Agent tools
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `agent` | Delegate to subagent (scout, architect, implementer) | Done |
+| `mermaid` | Render Mermaid diagram as ASCII | Done |
+| `compact_context` | Context compaction (stub) | Partial |
+
+### MCP tools
+Any tools exposed by `jac mcp` are auto-discovered and available (validate_jac, search_docs, get_ast, etc.)
+
+### System & infrastructure
+| Feature | Status |
+|---------|--------|
+| System prompt with skill catalog | Done |
+| `.jackal` project config | Done |
+| MCP lazy connect after boot | Done |
+| Tool event bridge | Done |
+| Dev modes (normal/auto-accept/yolo/plan) | Done |
+| Tool approval queue | Done |
+| @file mentions + line ranges | Done |
+| !command inline execution | Done |
+| Auto-compact at threshold | Done |
+| Session retention pruning | Done |
+| Checkpointing | Done |
+| Subagents + chains | Done |
+| Custom commands | Done |
+| Non-interactive `jackal run` | Done |
 
 ---
 
