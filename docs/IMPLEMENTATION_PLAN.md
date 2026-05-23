@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implement the new coding agent **in this repo**. **UI renderer:** jac-ink (external jac-tui repo, human-maintained). **Agent runtime:** headless adapter in `agent-next/src/`.
+Implement the coding agent **in this repo**. **UI renderer:** jac-ink (external jac-tui repo, human-maintained). **Agent runtime:** headless adapter in `src/`.
 
 See [`AGENTS.md`](../../AGENTS.md) and [JAC-TUI.md](./JAC-TUI.md): agents do **not** edit jac-ink, jaclang, or shim scripts. Hand framework changes to the human.
 
@@ -44,8 +44,8 @@ See [`AGENTS.md`](../../AGENTS.md) and [JAC-TUI.md](./JAC-TUI.md): agents do **n
 - Remaining: session bugs, tools, MCP, Jackal workflows ([FEATURES.md](./FEATURES.md))
 
 ### Phase 7 — Integration (jackal repo + human handoffs)
-- `./jackal.sh` default path; `./jackal.sh --pi` fallback
-- Tools + Jac MCP in `agent-next/src/`
+- `./jackal.sh` as the sole supported launch path
+- Tools + Jac MCP in `src/` (lazy-load MCP after TUI render)
 - Request from human: jac-ink adapter injection, any compiler fixes ([JAC-TUI.md](./JAC-TUI.md))
 
 ## Acceptance

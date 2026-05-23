@@ -16,9 +16,9 @@ fi
 export JACKAL_AGENT_DIR="$PI_DIR"
 
 # Usage:
-#   ./jackal.sh                 -> launch next TUI shell (default)
-#   ./jackal.sh --pi [args...]  -> launch classic Pi TUI with Jackal extension
-#   JACKAL_CLASSIC_PI=1 ./jackal.sh [args...] -> same as --pi
+#   ./jackal.sh [args...]  -> launch Jackal (Ink TUI + headless runtime)
+#
+# The --pi / JACKAL_CLASSIC_PI paths are unmaintained legacy code; do not use for development.
 USE_CLASSIC=0
 if [[ "${1:-}" == "--pi" ]]; then
   USE_CLASSIC=1

@@ -6,7 +6,7 @@
 
 ## What
 
-A full-fledged coding agent written in Jac for Jac/Jaseci development. Jackal now runs through `agent-next` and does **not** depend on Pi as its runtime shell.
+A full-fledged coding agent for Jac/Jaseci development. Jackal runs as an Ink TUI with a headless TypeScript runtime — it does **not** use Pi as its shell.
 
 ## Architecture
 
@@ -86,10 +86,10 @@ The canonical set of tools Jackal may use, organized by tier.
 
 `reference/pi-lsp-extension/` remains a **legacy reference** for older Pi-extension patterns (kept for historical context).
 
-For active development, treat `agent-next/` as primary and keep architecture/runtime decisions aligned with:
-- `agent-next/docs/FEATURES.md`
-- `agent-next/docs/JAC-TUI.md`
-- `agent-next/docs/PLAN.md`
+For active development, treat `src/` + `templates/` as primary and keep architecture/runtime decisions aligned with:
+- `docs/FEATURES.md`
+- `docs/JAC-TUI.md`
+- `docs/PLAN.md`
 
 ## Project structure
 
@@ -98,7 +98,7 @@ jackal/
 ├── AGENTS.md                    # this file
 ├── README.md
 ├── ROADMAP.md
-├── jackal.sh                    # launcher script for agent-next shell
+├── jackal.sh                    # launcher script
 ├── jackal/
 │   ├── SYSTEM.md                # Jackal system prompt
 │   ├── settings.json            # Jackal runtime/settings config
@@ -139,46 +139,39 @@ jackal/
 
 ## Development
 
-Primary workflow is the Jac-native `agent-next` shell:
+Primary workflow:
 
 ```bash
-npm run build:agent   # compile TS adapter
-./jackal.sh           # compile .cl.jac via jac-ink and run Ink app
+npm run build:agent   # compile TS adapter → dist/
+./jackal.sh           # compile shell.cl.jac via jac-ink and run Ink app
 ```
-
-Classic Pi-based flow is now legacy and should only be used for compatibility checks (`./jackal.sh --pi`).
 
 ## Status and roadmap
 
-Jackal has transitioned from the old Pi-extension model to a Jac-native `agent-next` runtime.
+Jackal is a Jac-native terminal agent. All active development targets the Ink shell launched by `./jackal.sh`.
 
 Current priorities:
+- Fast, reliable TUI boot (defer heavy work like MCP until after first render)
 - Stabilize streaming/render behavior in the Ink shell
-- Harden adapter/bridge behavior in `agent-next/src/`
+- Harden adapter/bridge behavior in `src/`
 - Keep Jac MCP tooling as the primary validate/run/check surface
-- Maintain compatibility path (`./jackal.sh --pi`) only for regression checks
+- Port remaining workflows (plan mode, subagents, LSP, skills) into the Jackal runtime
 
-Historical Pi-era roadmap notes are now considered legacy context.
-## Legacy Pi extension testing (compat only)
+The old Pi-extension stack under `pi/extensions/` is **not maintained** and is not a supported launch path.
 
-```bash
-# Optional compatibility path only
-./jackal.sh --pi
-```
-
-## agent-next migration notes
+## Runtime architecture notes
 
 ### Compilation pipeline (jac-ink)
 
-The agent-next shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in the separate **jac-tui** repo (`~/repos/jac-tui/jac-ink`). See `agent-next/docs/JAC-TUI.md` for what belongs in jac-tui vs this repo.
+The Jackal shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in the separate **jac-tui** repo (`~/repos/jac-tui/jac-ink`). See `docs/JAC-TUI.md` for what belongs in jac-tui vs this repo.
 
-**Runtime:** agent-next runtime (node adapter + AI backend). Headless adapter in `agent-next/src/`; Ink UI in `agent-next/templates/shell.cl.jac` talks to the adapter through jac-ink-provided hooks.
+**Runtime:** headless adapter in `src/`; Ink UI in `templates/shell.cl.jac` talks to the adapter through jac-ink-provided hooks (`templates/jackal_agent_facade.mjs`).
 
 ### Framework / plugin changes — human in the loop
 
 **Do not modify jac-ink, jaclang, or jac-client yourself.** Do not write or edit shim scripts (`jac_pi_runtime_shim.mjs`, `jackal_agent_facade.mjs`, emitted runtime shims, etc.). The human maintains the jac-ink plugin and will apply toolchain fixes there.
 
-When agent-next work requires a **framework or plugin change**, stop and **tell the human explicitly**:
+When Jackal work requires a **framework or plugin change**, stop and **tell the human explicitly**:
 
 - What is broken or missing (symptom + file/line if known)
 - Which repo/layer owns the fix (`jac-tui/jac-ink`, `jaclang`, `jac_client`, upstream components)
@@ -192,7 +185,7 @@ Examples that belong in jac-tui/jac-ink (describe to human, do not patch):
 - Adapter injection (`--adapter`, `JACKAL_AGENT_DIST`, etc.) instead of copying shims in `jackal.sh`
 - `.cl.jac` module stem or `@jac/pi` bundling behavior (may be jaclang/jac_client upstream)
 
-**Work in this repo only:** `agent-next/src/` (adapter, store, bridge, auth), `agent-next/templates/shell.cl.jac` (Ink UI), `jackal.sh` launch wiring, docs, and Jackal extension/skills — not jac-ink internals.
+**Work in this repo only:** `src/` (adapter, store, bridge, auth), `templates/shell.cl.jac` (Ink UI), `jackal.sh` launch wiring, docs, and skills under `pi/skills/` — not jac-ink internals.
 
 ### Running
 
@@ -201,6 +194,6 @@ npm run build:agent   # compile TS adapter
 ./jackal.sh           # compile shell via jac-ink + run Ink app (interactive terminal required)
 ```
 
-Or `./jackal.sh --pi` for the classic Pi TUI path. Non-interactive runs fail on Ink raw mode.
+Non-interactive runs fail on Ink raw mode (TTY required).
 
-Reference docs: `agent-next/docs/FEATURES.md`, `agent-next/docs/JAC-TUI.md`, `agent-next/docs/PLAN.md`.
+Reference docs: `docs/FEATURES.md`, `docs/JAC-TUI.md`, `docs/PLAN.md`.

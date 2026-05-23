@@ -1,143 +1,68 @@
 Jackal — Commands and Other Information
 
-Source: /home/jac/repos/jackal/AGENTS.md and /home/jac/repos/jackal/extensions/jackal-toolchain.ts
+Source: /home/jac/repos/jackal/AGENTS.md, templates/shell.cl.jac, src/runtime/tools.ts
 
-=== From AGENTS.md (summary) ===
+=== What Jackal is ===
 
-What
-- A Pi package that turns Pi into a specialized coding agent for Jac/Jaseci development. Installs as a local Pi package — does not touch ~/.pi/ global config.
+A Jac-native terminal coding agent. Launch with ./jackal.sh from any project directory.
 
-Architecture (high level)
-- jackal/SYSTEM.md — custom Jackal system prompt emphasizing evidence-based decisions, spatial modeling, OSP-first design
-- jackal/mcp.json — wires up the official Jac MCP server (`jac mcp`), exposing many Jac toolchain tools to the LLM
-- extensions/jackal-toolchain.ts — registers Jackal-specific slash commands and an auto-check hook; defers to Jac MCP for jac_* tools
-- skills/ — SKILL.md agent skills (project-skill, fix-skill, diagnosis-skill, osp-skill)
-- prompts/ — reusable prompt templates
+Stack:
+- Ink TUI: templates/shell.cl.jac (compiled via jac-ink)
+- Headless runtime: src/ (adapter, store, bridge, auth, MCP client)
+- System prompt: pi/SYSTEM.md
+- MCP config: pi/mcp.json (jac mcp server)
+- Skills: pi/skills/*/SKILL.md (on demand)
+- Project config: .jackal (per-project JSON)
 
-Project structure (relevant files)
-- AGENTS.md (this file)
-- README.md
-- ROADMAP.md
-- jackal.sh (launcher script)
-- jackal/ (settings.json, mcp.json)
-- package.json
-- extensions/jackal-toolchain.ts (slash commands + autocheck hook)
-- skills/ (project-skill, fix-skill, osp-skill)
-- prompts/explain.md
-- reference/pi-lsp-extension/
+The old Pi extension under pi/extensions/ is not maintained and is not a supported product path.
 
-Development / Launching
-- Launch wrapper script:
-  cd /some/project
+=== Launch ===
+
+From repo root (or via symlink in PATH):
+
+  cd /path/to/your/jac-project
   /path/to/jackal/jackal.sh
-- Manual flags (without launcher):
-  PI_CODING_AGENT_DIR=./jackal pi --no-extensions \
-    -e ./extensions/jackal-toolchain.ts \
-    --skill ./skills \
-    --prompt-template ./prompts
-- Project-local install:
-  pi install -l .
 
-Implementation plan (versions summarized)
-- v0.1: Bare loop (scaffold complete). Key slash commands present: /jac-doctor, /jac-check, /fix, /jac-verbose, /osp, /create, /refactor, /plan. /fix and /plan support optional inline prompts.
-- v0.2..v0.7: Conversation state, verbose/silent, model selection, example library, OSP support, Plan mode (plan mode implemented in v0.7).
+First-time setup from the jackal repo:
 
-=== From extensions/jackal-toolchain.ts (detailed) ===
+  npm install
+  npm run build:agent
+  ./jackal.sh
 
-Registered Flags
-- jac-verbose (boolean, default: false)
-  Description: Show full jac check output and per-attempt detail in slash commands.
-- jac-autocheck (boolean, default: true)
-  Description: Automatically run `jac check` after every write/edit of a .jac file.
-- plan (boolean, default: false)
-  Description: Start in Jac plan mode (read-only exploration with Jac MCP).
+=== Shell slash commands (Ink TUI) ===
 
-Host-side helpers / behaviors
-- Parses `jac check` output into structured diagnostics.
-- Tracks "workingFile" (most-recently written/edited .jac file) and pending check files per session.
-- Auto-check behavior: collects .jac files edited/written in a turn and runs a single `jac check` at agent_end.
-  - If errors: attempts heuristic auto-fix prompt, per-file attempt counter with cap (cap=2 for auto-check loop in this extension).
-  - Detects no-progress by fingerprinting the error set and stops auto-fix loop if same errors recur.
-- Auto-check recommendations: run `jac lint` and `jac run` to verify if errors are false positives.
-- Persists small session state entries (working_file, plan_mode) via pi.appendEntry.
+Implemented in templates/shell.cl.jac and/or src/runtime/tools.ts:
 
-Slash commands (registered via pi.registerCommand)
+  /help          Command reference
+  /exit, /quit   Quit
+  /clear, /new   New session
+  /abort         Cancel active agent run
+  /multiline     Toggle multiline input
+  /compact       Compact conversation context
+  /login         Provider auth flow
+  /logout        Logout provider
+  /model         Model picker
+  /jac-doctor    Environment + Jac toolchain check
+  /jac-check     Run jac check diagnostics
+  /fix           Fix loop (validate + patch, capped retries)
+  /create        jac create template wrapper
+  /jac <args>    Pass-through to jac CLI
 
-1) /jac-doctor
-- Description: Check Jac environment: binary, version, MCP availability, project structure.
-- Behavior: reports jac binary presence, jac --version, MCP availability (`jac mcp --inspect`), flags status (verbose retries, auto-check), plan mode status, current working file, and lists up to first 20 .jac files found in the project tree.
-- Usage: /jac-doctor
+Still to port from the legacy Pi extension: /plan, /osp, /refactor, /commit, subagents, LSP tools, mermaid rendering.
+See docs/FEATURES.md for status.
 
-2) /jac-check
-- Description: Run `jac check` on the project and display diagnostics in the TUI.
-- Behavior: runs host-side `jac check` (quick view). If jac not found: notifies; otherwise runs check and displays diagnostics and optional raw output when jac-verbose is on.
-- Usage: /jac-check [target]
+=== Project config (.jackal) ===
 
-3) /fix
-- Description: Run `jac check` and ask the agent to fix any reported errors via the Jac MCP (capped at 3 retries). If the user describes the issue, the agent follows `diagnosis-skill` first, then `fix-skill`.
-- Behavior: runs `jac check`, then, if errors present, sends a follow-up user message instructing the LLM to fix errors using MCP tools: explain_error, validate_jac, check_syntax, etc., and to stop after at most 3 attempts. If a user description is provided, the prompt instructs the agent to first follow `diagnosis-skill` (gather evidence, synthesize a diagnosis, validate before editing) and only then proceed to `fix-skill`.
-- Usage: /fix [target.jac] [description of the issue]
+Keys: autocheck, autoformat, verbose, plan, maxFixAttempts, mermaid, notify, subagents
 
-4) /jac-verbose
-- Description: Toggle verbose Jac retries. Usage: /jac-verbose [on|off]
-- Behavior: toggles a per-process verboseOverride (on/off), provides status notification.
+=== Development ===
 
-5) /osp
-- Description: Generate Object-Spatial (walker/node/edge) Jac code. Usage: /osp <description>
-- Behavior: sends a follow-up prompt instructing the LLM to follow osp-skill workflow and to use MCP tools (list_examples, get_example, search_docs, validate_jac). Emphasizes writing nodes, edges, walkers, abilities, and a with entry { ... } that spawns from root.
+  npm run build:agent   # compile src/ → dist/
+  ./jackal.sh           # compile shell + run (TTY required)
 
-6) /create
-- Description: Scaffold a Jac app from a plain-language description. Usage: /create <description>
-- Behavior: queues a doc-driven scaffold workflow that first looks up docs/examples (list_examples/get_example/search_docs/get_resource), then designs topology, scaffolds files, and verifies with validate_jac/run_jac/lint_jac.
-
-7) Examples (via MCP)
-- Use the Jac MCP tools `list_examples` and `get_example` to browse curated examples; there is no host-side slash command.
-
-8) /plan
-- Description: Toggle Jac plan mode, or enter plan mode and send a prompt in one action. Usage: /plan [prompt]
-- Behavior: with no arguments, toggles plan mode on/off. When a prompt is provided, enables plan mode (if not already active) and immediately sends the prompt to the agent, so read-only exploration and the user's request happen in a single turn. When enabling: sets active tools to JAC_PLAN_TOOLS (read-only subset). When disabling: restores JAC_EXECUTE_TOOLS. Persists plan mode entries and shows a UI widget with plan todos when relevant. Extracts plan steps from assistant messages under "Plan:" header.
-
-Plan Mode: tool access lists
-- JAC_PLAN_TOOLS (read-only / planning):
-  validate_jac, check_syntax, explain_error, search_docs, get_resource, list_examples, get_example, get_ast, read, bash
-
-- JAC_EXECUTE_TOOLS (full execution):
-  validate_jac, check_syntax, run_jac, explain_error, format_jac, lint_jac, search_docs, get_resource, list_examples, get_example, get_ast, py_to_jac, jac_to_py, jac_to_js, graph_visualize, read, write, edit, bash
-
-Plan extraction & execution helpers
-- extractPlanSteps(message): looks for a "Plan:" header and numbered list items (1., 2., etc.), cleans them and returns JacPlanStep[]
-- Marking steps complete: assistant messages can include [DONE:n] tags; these are parsed and used to mark steps completed across turns.
-- On execution, the extension prompts the user to choose: Execute the plan, Stay in plan mode, or Refine the plan. If user selects Execute, active tools switch to JAC_EXECUTE_TOOLS and plan steps are tracked.
-
-Other noteworthy behaviors
-- session_start: initializes plan mode from flag and restores persisted plan_mode entries if present.
-- turn_end / agent_end: handles plan step completion parsing and auto-check behaviors.
-- session_shutdown: clears attempts, fingerprints, pending checks, workingFile, planMode state.
-
-Local helper functions of interest (host-side)
-- findJacBinary() — looks in PATH for "jac" or "jaclang", checking executability.
-- runJacCheck(jacBin, cwd, files?) — runs `jac check` via execFile and parses output into diagnostics.
-- parseJacCheckOutput(stdout, stderr) — parse logic for jac check raw text into structured diagnostics.
-- formatDiagnostics(diagnostics) — human readable bullet-list formatting of diagnostics.
-
-Auto-check loop (summary)
-- Trigger: write/edit tool results for files ending in .jac are recorded during the turn.
-- On agent_end: a single `jac check` runs on all touched .jac files in that turn.
-- If errors present:
-  - compute fingerprint; if same as previous: report no-progress and stop auto-fix loop
-  - increment attempts count for the file-set; if attempts exceed cap: stop auto-fix loop and notify
-  - otherwise send a follow-up prompt to agent with the diagnostics and guidance for fixing via MCP tools
-
-Notes / Recommendations
-- The extension intentionally defers all LLM-callable jac_* tools to the MCP server configured in jackal/mcp.json.
-- Avoid unrelated refactors during automatic fix loops — only focused edits at reported lines are recommended.
-- Use `jac lint` and `jac run` to validate functional correctness if type-check errors look spurious.
-
-=== File list references ===
-- Source files read for this summary:
-  - /home/jac/repos/jackal/AGENTS.md
-  - /home/jac/repos/jackal/extensions/jackal-toolchain.ts
-
-Generated: COMMANDS_AND_INFO.txt
-
-End of file
+Reference docs:
+  README.md
+  AGENTS.md
+  docs/FEATURES.md
+  docs/QUICK_REFERENCE.md
+  docs/PLAN.md

@@ -1,13 +1,13 @@
-# Plan: Jackal Agent-Next to Working TUI
+# Plan: Jackal to Working TUI
 
 See also:
 - **[FEATURES.md](./FEATURES.md)** — full feature checklist with status
 - **[JAC-TUI.md](./JAC-TUI.md)** — jac-ink / jac-tui work (human-owned)
-- **[../../AGENTS.md](../../AGENTS.md)** — agents do not edit jac-ink shims or plugin code; hand framework changes to the human
+- **[../AGENTS.md](../AGENTS.md)** — agents do not edit jac-ink shims or plugin code; hand framework changes to the human
 
 ## Agent workflow (all phases)
 
-**In this repo:** `agent-next/src/`, `agent-next/templates/shell.cl.jac`, `jackal.sh`, Jackal extensions/skills, docs.
+**In this repo:** `src/`, `templates/shell.cl.jac`, `jackal.sh`, skills under `pi/skills/`, docs.
 
 **Not in this repo (human maintains):** `~/repos/jac-tui/jac-ink`, jaclang/jac_client site-packages, any `jac_pi_runtime_shim.mjs` or similar shim scripts. When compilation or `@jac/pi` wiring breaks, document the symptom and recommended fix for the human — do not patch the plugin yourself.
 
@@ -26,7 +26,7 @@ What works in jac-ink (`~/repos/jac-tui`) — **maintained by human, not jackal 
 - **jac-ink bypasses Vite** — uses plain `ClientBundleBuilder` for Ink apps
 - **`@jac/pi` import injection** — detects hook usage and adds the import
 - **`jac_pi_runtime_shim.mjs`** — emitted by jac-ink; boots headless adapter via `JACKAL_AGENT_DIST`
-- `agent-next/jac.toml` declares `pi-agent-core` + `pi-ai` (no `pi-coding-agent`)
+- `src/jac.toml` declares `pi-agent-core` + `pi-ai` (no `pi-coding-agent`)
 
 What runs:
 - `./jackal.sh` → `jac tui` compile + run (interactive terminal required)
@@ -45,7 +45,7 @@ See [JAC-TUI.md](./JAC-TUI.md) for the full handoff checklist.
 ## Phases
 
 ### Phase A: Build Pipeline ✅
-Compiled `agent-next/src/*.ts` → `agent-next/dist/*.js`
+Compiled `src/*.ts` → `dist/*.js`
 
 ### Phase B: Headless adapter ✅
 Store, bridge, auth, ExtensionUIContext — no rendering layer
@@ -78,11 +78,11 @@ npm run build:agent
 ## File map
 
 ```
-agent-next/
-├── dist/                  # compiled adapter (jackal agents OK)
-├── src/                   # headless adapter (jackal agents OK)
+jackal/
+├── dist/                  # compiled adapter
+├── src/                   # headless adapter
 ├── templates/
-│   └── shell.cl.jac       # Ink shell UI (jackal agents OK)
+│   └── shell.cl.jac       # Ink shell UI
 └── bin/
     └── jackal_shell.jac   # jac tui launcher
 

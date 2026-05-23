@@ -1,6 +1,6 @@
-# Jackal Next Agent
+# Jackal Agent Runtime
 
-In-repo **Jac-ink / Ink** coding agent shell with a headless TypeScript runtime.
+In-repo **Jac-ink / Ink** coding agent shell with a headless TypeScript runtime. **This is Jackal** — there is no separate “classic” or Pi-based launch path in active development.
 
 ## Goals
 
@@ -29,7 +29,7 @@ The `@jac/pi` import name is a **jac-ink virtual module** for React hooks. It do
 
 - `@earendil-works/pi-agent-core` — agent loop (`Agent` class)
 - `@earendil-works/pi-ai` — models, streaming, OAuth helpers
-- Declared in `agent-next/jac.toml` and `agent-next/package.json`
+- Declared in `jac.toml` and `package.json`
 
 ## Run
 
@@ -41,12 +41,13 @@ npm run build:agent
 Or manually:
 
 ```bash
-cd agent-next && jac tui templates/shell.cl.jac --install --run
+npm run build:agent
+jac tui templates/shell.cl.jac --install --run
 ```
 
 (`jackal.sh` builds the adapter, runs `jac tui` to compile the shell, then `node .jac/tui/runner.mjs`. Requires an interactive terminal.)
 
-Auth uses `jackal/auth.json` when `PI_CODING_AGENT_DIR` points at `jackal/` (see `jackal.sh`).
+Auth uses `pi/auth.json` (symlinked from `~/.pi/agent/auth.json` on first launch — see `jackal.sh`).
 
 ## Shell commands
 

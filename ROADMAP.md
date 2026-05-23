@@ -83,7 +83,7 @@ That shows why Jac exists.
 
 ## Layer 1 — Agent runtime
 
-Use the agent-next runtime and jac-ink integration.
+Use the Jackal runtime (`src/`) and jac-ink integration.
 
 Responsibilities:
 
@@ -506,7 +506,7 @@ Users should be able to add their own:
 
 # MVP implementation plan
 
-## Phase 1 — agent-next runtime skeleton
+## Phase 1 — Jackal runtime skeleton
 
 Deliver:
 

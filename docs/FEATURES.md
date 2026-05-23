@@ -1,12 +1,12 @@
-# Agent-Next — Required Features
+# Jackal — Required Features
 
-Features needed for agent-next to replace the default `./jackal.sh` path as a daily-usable Jac coding agent.
+Features needed for `./jackal.sh` to be a daily-usable Jac coding agent.
 
 **Not in scope for v1:** full IDE, replacing the Jac compiler/LSP, hosting models, cloud deployment.
 
 > **Glossary:** **jac-ink** is a Jac plugin in the separate [`jac-tui`](~/repos/jac-tui) repo. It compiles `.cl.jac` UI code into an Ink + React terminal app via `jac tui`. It is the UI compiler/launcher — not the agent brain. See [JAC-TUI.md](./JAC-TUI.md) for what belongs in jac-tui vs this repo.
 
-> **Agent workflow:** Do not modify jac-ink, jaclang, jac-client, or write/edit shim scripts in this repo. When a framework or plugin change is needed, document it and **hand off to the human** (see [`AGENTS.md`](../../AGENTS.md) § agent-next migration notes).
+> **Agent workflow:** Do not modify jac-ink, jaclang, jac-client, or write/edit shim scripts in this repo. When a framework or plugin change is needed, document it and **hand off to the human** (see [`AGENTS.md`](../AGENTS.md) § Runtime architecture notes).
 
 ---
 
@@ -57,7 +57,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 
 ## 3. Agent capabilities (blockers)
 
-Without these, agent-next is chat-only and not a coding agent.
+Without these, Jackal is chat-only and not a coding agent.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
@@ -66,7 +66,7 @@ Without these, agent-next is chat-only and not a coding agent.
 | Write tool | Create / overwrite files | Done |
 | Edit tool | Targeted file edits | Done |
 | Bash tool | Run shell commands (`jac`, `git`, etc.) | Done |
-| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (loads from `pi/mcp.json`, MCP status surfaced, basic arg coercion/validation) |
+| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (loads from `pi/mcp.json`, MCP status surfaced; should lazy-load after TUI render) |
 | Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
 | Working directory safety | Sensible defaults, visible command execution | Missing |
@@ -75,7 +75,7 @@ Without these, agent-next is chat-only and not a coding agent.
 
 ## 4. Jackal-specific workflows
 
-Port from classic extension without requiring full `pi-coding-agent`.
+Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 
 | Feature | Description | Status |
 |---------|-------------|--------|
@@ -85,18 +85,18 @@ Port from classic extension without requiring full `pi-coding-agent`.
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
 | `/fix` | Check → patch → re-check loop (capped retries) | Partial (prefers MCP `validate_jac` path when available; CLI fallback remains) |
 | `/create` | Wrapper around `jac create` templates | Partial (tool-driven wrapper) |
-| Skills on demand | Load `skills/*/SKILL.md` when task matches | Missing |
-| Prompt templates | Reusable prompts from `prompts/` | Missing |
+| Skills on demand | Load `pi/skills/*/SKILL.md` when task matches | Missing |
+| Prompt templates | Reusable prompts from `pi/prompts/` | Missing |
 
-**Defer to classic `./jackal.sh --pi` until ported:**
+**Still to port into Jackal** (previously lived in the unmaintained Pi extension):
 
 | Feature | Notes |
 |---------|-------|
 | Plan mode | Tool gating, read-only exploration phase |
-| Subagents | scout / architect / implementer via `pi-subagents` |
-| LSP tools | diagnostics, hover, rename via `pi-lsp-extension` |
-| Mermaid rendering | `pi-mermaid` ASCII diagrams |
-| `/commit`, `/refactor`, `/osp` | Extension slash commands |
+| Subagents | scout / architect / implementer chains |
+| LSP tools | diagnostics, hover, rename |
+| Mermaid rendering | ASCII diagrams in transcript |
+| `/commit`, `/refactor`, `/osp` | Slash command workflows |
 
 ---
 
@@ -107,11 +107,10 @@ Port from classic extension without requiring full `pi-coding-agent`.
 | TS adapter build | `npm run build:agent` → `dist/` | Done |
 | jac-ink compile | `jac tui shell.cl.jac` → `.jac/tui/` (via `./jackal.sh`) | Done |
 | Adapter wiring | `@jac/pi` → headless adapter (`JACKAL_AGENT_DIST`); owned by **jac-ink** | Partial — human maintains plugin |
-| `./jackal.sh` default path | Build + compile + run Ink shell | Done |
-| `./jackal.sh --pi` fallback | Classic Pi + Jackal extension | Done |
+| `./jackal.sh` launch | Build + compile + run Ink shell | Done |
+| Fast TUI boot | Render shell before MCP/subsystems finish connecting | Missing |
 | Unified launch entrypoints | `bin/jackal_shell.jac` / `npm run start:agent-shell` same as `jackal.sh` | Missing |
-| Auth symlink | `jackal/auth.json` → `~/.pi/agent/auth.json` | Done |
-| `PI_CODING_AGENT_DIR` | Point at `jackal/` for auth + future config | Done |
+| Auth symlink | `pi/auth.json` → `~/.pi/agent/auth.json` (provider credentials) | Done |
 
 ---
 
@@ -132,9 +131,10 @@ Jackal agents **do not implement** items in this section. Record the requirement
 
 ## 7. Verification checklist
 
-Run before calling agent-next v1 done:
+Run before calling Jackal v1 done:
 
-- [ ] `./jackal.sh` boots in interactive terminal
+- [ ] `./jackal.sh` boots in interactive terminal (TUI visible quickly)
+- [ ] MCP connects in background; status bar reflects connection state
 - [ ] `/login` + `/model` + successful prompt on chosen model
 - [ ] 3+ prompt/response cycles with streaming
 - [ ] Restart shell → transcript and model restored
@@ -144,18 +144,17 @@ Run before calling agent-next v1 done:
 - [ ] Tool rows appear during multi-tool turn
 - [ ] `/jac-check` surfaces compiler diagnostics
 - [ ] Editing a `.jac` file triggers autocheck (when enabled)
-- [ ] `./jackal.sh --pi` still works as fallback
 
 ---
 
 ## 8. Success definition
 
-Agent-next v1 is **done** when the default `./jackal.sh` path:
+Jackal v1 is **done** when `./jackal.sh`:
 
-1. Boots a reliable Ink shell with auth, model selection, and session restore
-2. Runs an agent with file + bash + Jac MCP tools under `jackal/SYSTEM.md`
+1. Boots a reliable Ink shell quickly, with auth, model selection, and session restore
+2. Runs an agent with file + bash + Jac MCP tools under `pi/SYSTEM.md`
 3. Supports `/jac-check` and autocheck-on-edit for Jac projects
-4. Keeps `./jackal.sh --pi` available for plan mode, subagents, and LSP until ported
+4. Has a clear path to port plan mode, subagents, and LSP without relying on any alternate launcher
 
 ---
 
@@ -164,5 +163,5 @@ Agent-next v1 is **done** when the default `./jackal.sh` path:
 - [PLAN.md](./PLAN.md) — phase breakdown (build pipeline, shell, integration)
 - [REMAINING_TUI_PLAN.md](./REMAINING_TUI_PLAN.md) — Ink milestone checklist (M1–M6)
 - [JAC-TUI.md](./JAC-TUI.md) — jac-ink / jac-tui handoff checklist
-- [../../AGENTS.md](../../AGENTS.md) — agent rules (framework changes → human)
+- [../../AGENTS.md](../AGENTS.md) — agent rules (framework changes → human)
 - [../README.md](../README.md) — run instructions and architecture overview

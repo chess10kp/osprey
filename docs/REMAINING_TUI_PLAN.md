@@ -1,4 +1,4 @@
-# Remaining TUI Plan (Agent-Next)
+# Remaining TUI Plan
 
 ## Goal
 Ship a **daily-usable Ink shell** for Jackal via **jac-ink** (jac-tui repo), with
@@ -8,7 +8,7 @@ reliable send/receive, auth/model UX, tool visibility, and session persistence.
 
 ### Jackal repo (agents implement here)
 - **UI:** Ink components in `templates/shell.cl.jac`
-- **Runtime:** headless adapter in `agent-next/src/*.ts`
+- **Runtime:** headless adapter in `src/*.ts`
 - **Launch:** `jackal.sh`, docs, Jackal slash workflows ported to Ink where feasible
 - Runtime deps: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` (via `jac.toml`; no `pi-coding-agent`)
 - Use `reference/nanocoder` for Ink interaction patterns where helpful
@@ -21,7 +21,7 @@ reliable send/receive, auth/model UX, tool visibility, and session persistence.
   [`pi-interop-plan.md`](../../jac-tui/docs/pi-interop-plan.md),
   [`pi-interop-progress.md`](../../jac-tui/docs/pi-interop-progress.md),
   [JAC-TUI.md](./JAC-TUI.md),
-  [`AGENTS.md`](../../AGENTS.md)
+  [`AGENTS.md`](../AGENTS.md)
 
 ## Milestone 1 — jac-ink shell boots with adapter
 1. `shell.cl.jac` exports `app()` and imports `@jac/pi`.

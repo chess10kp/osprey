@@ -16,11 +16,11 @@ A Jac-native, terminal-first Jac coding agent that gives Jac developers the agen
 
    ```bash
    npm install
-   npm run build:agent   # compile the agent-next runtime
+   npm run build:agent   # compile the Jackal agent runtime
    ./jackal.sh
    ```
 
-   `./jackal.sh` launches the **Agent-Next Jackal shell** by default. Optional: `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
+   `./jackal.sh` launches the **Jackal shell** (Ink TUI + headless agent runtime). Optional: `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
 
 Run **`/jac-doctor`** inside the running Jackal shell to confirm `jac`, MCP, and provider setup.
 
@@ -28,21 +28,9 @@ Patches are applied automatically via the `postinstall` script. If you skipped `
 
 Use **`./jackal.sh`** from the directory you want as the agent’s working tree (for example `cd` into a Jac project first, then invoke the script with an absolute path to `jackal.sh`).
 
-### Launch modes
-
-```bash
-# Default: Agent-Next shell (recommended)
-./jackal.sh
-
-# Classic Pi TUI path (compatibility)
-./jackal.sh --pi
-# or
-JACKAL_CLASSIC_PI=1 ./jackal.sh
-```
-
 ### Troubleshooting
 
-- If first launch fails with missing `agent-next/dist/index.js`, run:
+- If first launch fails with missing `dist/index.js`, run:
   ```bash
   npm run build:agent
   ```
@@ -75,7 +63,7 @@ docker run --rm -it \
 
 ### Quick Reference
 
-See `QUICK_REFERENCE.md` for a condensed guide to all slash commands, flags, and common workflows.
+See [`docs/QUICK_REFERENCE.md`](docs/QUICK_REFERENCE.md) for a condensed guide to slash commands, flags, and common workflows.
 
 ---
 

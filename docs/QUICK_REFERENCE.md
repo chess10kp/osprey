@@ -2,7 +2,9 @@
 
 ## What is Jackal?
 
-Jackal is a Jac-native coding agent with:
+Jackal is a Jac-native terminal coding agent (`./jackal.sh`). It runs an Ink TUI backed by a headless TypeScript agent runtime — not the legacy Pi extension stack.
+
+Features (implemented or planned in the Jackal runtime):
 - Custom system prompt emphasizing evidence-based decisions and spatial modeling
 - Full Jac MCP toolchain integration
 - Plan mode for read-only exploration
@@ -223,14 +225,15 @@ Use the Jac MCP tools directly: run the `list_examples` tool to see example cate
 
 ```
 jackal/
-├── jackal/
-│   ├── SYSTEM.md      ← Custom system prompt
-│   ├── mcp.json       ← Jac MCP config
-│   └── settings.json
-├── extensions/
-│   └── jackal-toolchain.ts  ← All slash commands
-├── skills/            ← Jac-specific workflows
-└── prompts/           ← Reusable templates
+├── src/                     ← Headless agent runtime (adapter, store, MCP client)
+├── templates/
+│   └── shell.cl.jac         ← Ink TUI
+├── pi/
+│   ├── SYSTEM.md            ← System prompt
+│   ├── mcp.json             ← Jac MCP config
+│   └── skills/              ← Agent skills (loaded on demand)
+├── jackal.sh                ← Launch script
+└── docs/                    ← Feature/plan docs
 ```
 
 ## Getting Started
