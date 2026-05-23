@@ -83,8 +83,8 @@ Port from classic extension without requiring full `pi-coding-agent`.
 | `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Partial |
 | `/jac-check` | Run `jac check`, display diagnostics | Partial |
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
-| `/fix` | Check → patch → re-check loop (capped retries) | Partial (agent-driven prompt flow) |
-| `/create` | Wrapper around `jac create` templates | Partial |
+| `/fix` | Check → patch → re-check loop (capped retries) | Partial (tool-driven check/format/check loop) |
+| `/create` | Wrapper around `jac create` templates | Partial (tool-driven wrapper) |
 | Skills on demand | Load `skills/*/SKILL.md` when task matches | Missing |
 | Prompt templates | Reusable prompts from `prompts/` | Missing |
 

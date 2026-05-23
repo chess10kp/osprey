@@ -528,7 +528,7 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/jac-check" {
-            if session { session.send("Run `jac check` for this project using the bash tool and report diagnostics."); }
+            if session { session.send("Use jac_check tool and report diagnostics."); }
             return;
         }
         if cmd == "/jac-doctor" {
@@ -536,13 +536,20 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/fix" {
-            if session { session.send("Run jac_check first. If errors exist, edit files to fix them, then re-run jac_check. Repeat up to 3 attempts and summarize changes."); }
+            if session { session.send("Use jac_fix tool with maxAttempts=3 and summarize the result."); }
             return;
         }
         if cmd.startswith("/create ") {
-            tpl: str = cmd[8:].strip();
-            if session and tpl {
-                session.send("Use bash to run jac create template: " + tpl + " and summarize results.");
+            arg: str = cmd[8:].strip();
+            if session and arg {
+                parts: list = arg.split(" ");
+                tpl: str = parts[0] if len(parts) > 0 else "";
+                name: str = parts[1] if len(parts) > 1 else "";
+                if tpl and name {
+                    session.send("Use jac_create with template='" + tpl + "' and name='" + name + "'.");
+                } elif tpl {
+                    session.send("Use jac_create with template='" + tpl + "'.");
+                }
             }
             return;
         }

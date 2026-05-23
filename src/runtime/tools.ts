@@ -213,6 +213,75 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const jacCreateTool: AgentTool = {
+    name: "jac_create",
+    label: "Jac Create",
+    description: "Run jac create for a template/project name.",
+    parameters: Type.Object({
+      template: Type.String({ description: "Template name" }),
+      name: Type.Optional(Type.String({ description: "Project/package name" })),
+      args: Type.Optional(Type.Array(Type.String({ description: "Additional args" }))),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { template: string; name?: string; args?: string[] };
+      const pieces = ["jac", "create", params.template];
+      if (params.name) pieces.push(params.name);
+      if (params.args?.length) pieces.push(...params.args);
+      const command = pieces.map((x) => JSON.stringify(x)).join(" ");
+      const result = await runBash(cwd, command, 120);
+      const text = [
+        `command: ${pieces.join(" ")}`,
+        `exit=${String(result.code)}`,
+        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+      ].filter(Boolean).join("\n\n");
+      return { content: [{ type: "text", text }], details: { ...result, command: pieces.join(" ") } };
+    },
+  };
+
+  const jacFixTool: AgentTool = {
+    name: "jac_fix",
+    label: "Jac Fix",
+    description: "Run a capped jac check/format/check loop and report results.",
+    parameters: Type.Object({
+      maxAttempts: Type.Optional(Type.Number({ minimum: 1, maximum: 10 })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { maxAttempts?: number };
+      const maxAttempts = params.maxAttempts ?? 3;
+      const attempts: Array<{ attempt: number; checkCode: number | null; formatCode?: number | null; checkStdout: string; checkStderr: string }> = [];
+
+      for (let i = 1; i <= maxAttempts; i++) {
+        const check = await runBash(cwd, "jac check", 120);
+        attempts.push({
+          attempt: i,
+          checkCode: check.code,
+          checkStdout: check.stdout,
+          checkStderr: check.stderr,
+        });
+        if (check.code === 0) break;
+
+        const format = await runBash(cwd, "jac format .", 120);
+        attempts[attempts.length - 1].formatCode = format.code;
+      }
+
+      const ok = attempts.length > 0 && attempts[attempts.length - 1].checkCode === 0;
+      const summary = attempts.map((a) => `attempt ${a.attempt}: check=${String(a.checkCode)}${a.formatCode !== undefined ? ` format=${String(a.formatCode)}` : ""}`).join("\n");
+      const last = attempts[attempts.length - 1];
+      const text = [
+        ok ? "jac_fix: success" : "jac_fix: unresolved after max attempts",
+        summary,
+        last?.checkStdout ? `\nstdout:\n${limitText(last.checkStdout)}` : "",
+        last?.checkStderr ? `\nstderr:\n${limitText(last.checkStderr)}` : "",
+      ].filter(Boolean).join("\n");
+
+      return {
+        content: [{ type: "text", text }],
+        details: { ok, maxAttempts, attempts },
+      };
+    },
+  };
+
   const compactTool: AgentTool = {
     name: "compact_context",
     label: "Compact Context",
@@ -227,5 +296,15 @@ export function createCoreTools(cwd: string): AgentTool[] {
     }),
   };
 
-  return [readTool, writeTool, editTool, bashTool, jacCheckTool, jacDoctorTool, compactTool];
+  return [
+    readTool,
+    writeTool,
+    editTool,
+    bashTool,
+    jacCheckTool,
+    jacDoctorTool,
+    jacCreateTool,
+    jacFixTool,
+    compactTool,
+  ];
 }
