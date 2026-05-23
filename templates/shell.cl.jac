@@ -2,6 +2,8 @@
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
+import from "./components/chathistory.cl.jac" { ChatHistory }
+import from "./components/streammsg.cl.jac" { StreamingMessage }
 import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
     useJackalSession,
@@ -121,84 +123,6 @@ def:pub StatusBar(props: any) -> JsxElement {
             </Box>
             <Text color="gray">{session_display}</Text>
             {usage_line and <Text color="gray">{"  " + usage_line}</Text>}
-        </Box>
-    );
-}
-
-# ── Message rendering ───────────────────────────────────────────────
-
-def safe_text(msg: any) -> str {
-    if not msg { return ""; }
-
-    if hasattr(msg, "text") {
-        text_val: any = msg.text;
-        if text_val is not None { return str(text_val); }
-    }
-    if hasattr(msg, "content") {
-        content: any = msg.content;
-        if content is None { return str(msg); }
-        flat: str = str(content);
-        if flat and flat != "[object Object]" { return flat; }
-        parts: list = [];
-        for part in list(content) {
-            if hasattr(part, "text") {
-                parts.append(str(part.text));
-            }
-            elif hasattr(part, "get") {
-                if str(part.get("type", "")) == "text" {
-                    parts.append(str(part.get("text", "")));
-                }
-            }
-        }
-        if len(parts) > 0 { return "".join(parts); }
-    }
-    if hasattr(msg, "keys") {
-        if "text" in msg and msg["text"] is not None {
-            return str(msg["text"]);
-        }
-        if "content" in msg and msg["content"] is not None {
-            return safe_text({"text": msg["content"], "content": None});
-        }
-    }
-    return str(msg);
-}
-
-def msg_role(msg: any) -> str {
-    if hasattr(msg, "role") { return str(msg.role); }
-    if "role" in msg and hasattr(msg, "keys") and "role" in msg { return str(msg["role"]); }
-    return "unknown";
-}
-
-def:pub MessageRow(props: any) -> JsxElement {
-    msg: any = props.msg;
-    role: str = msg_role(msg);
-    text: str = safe_text(msg);
-    # truncate for display
-    display: str = text;
-    if len(display) > 500 {
-        display = display[:500] + "...";
-    }
-
-    if role == "user" {
-        return (
-            <Box flexDirection="column" paddingX={1}>
-                <Text color="green" bold>{"> "}</Text>
-                <Text>{display}</Text>
-            </Box>
-        );
-    }
-    if role == "assistant" {
-        return (
-            <Box flexDirection="column" paddingX={1}>
-                <Text color="cyan" bold>{"⎇ "}</Text>
-                <Text>{display}</Text>
-            </Box>
-        );
-    }
-    # system / tool / other
-    return (
-        <Box flexDirection="column" paddingX={1}>
-            <Text dimColor>{"[" + role + "] " + display}</Text>
         </Box>
     );
 }
@@ -556,7 +480,6 @@ def:pub app() -> JsxElement {
     has input_reset_key: int = 0;
     # multiline is always enabled -- Enter submits, Ctrl+J / Shift+Enter inserts newline
     has show_help: bool = False;
-    has scroll_offset: int = 0;
     has selected_completion_index: int = 0;
     has compact_tools: bool = False;
 
@@ -595,7 +518,6 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/clear" or cmd == "/new" {
-            scroll_offset = 0;
             show_help = False;
             selected_completion_index = 0;
             if session { session.clearSession(); }
@@ -925,12 +847,7 @@ def:pub app() -> JsxElement {
                 submit_main("/exit");
                 return;
             }
-            if key.pageUp {
-                scroll_offset = scroll_offset + 10;
-                return;
-            }
-            if key.pageDown {
-                scroll_offset = max(0, scroll_offset - 10);
+            if key.pageUp or key.pageDown {
                 return;
             }
             completion_items: list = list(completions) if completions else [];
@@ -1066,13 +983,12 @@ def:pub app() -> JsxElement {
 
     pc: str = phase_color(str(phase));
 
-    # transcript with scrollback
     msgs_list: list = list(messages) if messages else [];
     total: int = len(msgs_list);
-    end_idx: int = max(1, total - scroll_offset);
-    start_idx: int = max(0, end_idx - 20);
-    visible_msgs: list = msgs_list[start_idx:end_idx];
-    msg_rows: list = [<MessageRow msg={m}/> for m in visible_msgs];
+    transcript_epoch: int = 0;
+    if snap and hasattr(snap, "transcriptEpoch") {
+        transcript_epoch = int(snap.transcriptEpoch);
+    }
 
     notifs: list = list(ui.notifications) if ui.notifications else [];
     last_notif: any = notifs[-1] if len(notifs) > 0 else None;
@@ -1102,7 +1018,12 @@ def:pub app() -> JsxElement {
 
     divider: str = "-" * 70;
     prompt_marker: str = "";
-    is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
+    is_streaming: bool = streaming is not None or phase == "streaming";
+
+    live_component: any = None;
+    if is_streaming {
+        live_component = <StreamingMessage streaming_text={to_str(streaming)} model={model_id}/>;
+    }
 
     # Welcome banner disabled.
     show_welcome: bool = False;
@@ -1144,15 +1065,13 @@ def:pub app() -> JsxElement {
             {show_help and <HelpPanel/>}
             {compact_layout and <PromptBar {...prompt_props}/>}
             {(not compact_layout) and (
-                <Box flexDirection="column" paddingX={1}>
-                    {msg_rows}
-                    {is_streaming and (
-                        <Box>
-                            <Text color="cyan" bold>{"⎇ "}</Text>
-                            <Text>{to_str(streaming)}</Text>
-                            <Text color="cyan">{"_"}</Text>
-                        </Box>
-                    )}
+                <Box key={"chat-" + str(transcript_epoch)}>
+                    <ChatHistory
+                        start_chat={True}
+                        messages={msgs_list}
+                        model={model_id}
+                        live_component={live_component}
+                    />
                 </Box>
             )}
             {(not compact_layout) and len(tools_list) > 0 and (

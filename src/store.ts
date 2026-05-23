@@ -46,6 +46,8 @@ export interface AgentSnapshot {
   mcpToolCount: number;
   mcpError: string | null;
   messages: AgentMessage[];
+  /** Bumps when transcript is cleared or replaced (Ink Static remount). */
+  transcriptEpoch: number;
   /** In-flight assistant message text (null when idle). */
   streamingText: string | null;
   toolExecutions: Record<string, ToolExecution>;
@@ -68,6 +70,7 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
   mcpToolCount: 0,
   mcpError: null,
   messages: [],
+  transcriptEpoch: 0,
   streamingText: null,
   toolExecutions: {},
   tokens: null,
@@ -181,6 +184,7 @@ export class AgentStore {
       toolExecutions: {},
       phase: "ready",
       error: null,
+      transcriptEpoch: this._snapshot.transcriptEpoch + 1,
     });
   }
 
@@ -192,6 +196,7 @@ export class AgentStore {
       toolExecutions: {},
       phase: "ready",
       error: null,
+      transcriptEpoch: this._snapshot.transcriptEpoch + 1,
     });
   }
 
