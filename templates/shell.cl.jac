@@ -752,12 +752,7 @@ def:pub app() -> JsxElement {
                 }
             }
             if key.ctrl and ch == "c" {
-                if streaming or (snap and to_str(snap.phase) == "streaming") {
-                    if session { session.abort(); }
-                } else {
-                    if session { session.dispose(); }
-                    exit_app(0);
-                }
+                submit_main("/exit");
                 return;
             }
             if key.pageUp {
