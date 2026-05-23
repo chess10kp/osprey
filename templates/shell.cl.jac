@@ -946,8 +946,10 @@ def:pub app() -> JsxElement {
             if key.tab and completion_count > 0 {
                 idx: any = selected_completion_index;
                 if idx < 0 or idx >= completion_count { idx = 0; }
-                input_text = str(completion_items[idx].value);
-                input_cursor = len(input_text);
+                completed: str = str(completion_items[idx].value);
+                input_text = completed;
+                input_cursor = len(completed);
+                selected_completion_index = 0;
                 input_reset_key = input_reset_key + 1;
                 return;
             }
@@ -974,7 +976,8 @@ def:pub app() -> JsxElement {
                 if use_selected_completion {
                     idx_enter: int = selected_completion_index;
                     if idx_enter < 0 or idx_enter >= completion_count { idx_enter = 0; }
-                    input_text = str(completion_items[idx_enter].value);
+                    handle_submit(str(completion_items[idx_enter].value));
+                    return;
                 }
                 handle_submit();
                 return;
