@@ -239,7 +239,7 @@ def asst_estimate_tokens(text: str) -> int {
 
 def:pub AssistantMessage(message: str, model: str) -> JsxElement {
     tokens: int = asst_estimate_tokens(message);
-    display: str = message.strip() if message else "";
+    display: str = str(message).strip() if message else "";
 
     return (
         <Box flexDirection="column">
