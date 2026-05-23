@@ -702,7 +702,8 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/jac-doctor" {
-            if session and hasattr(session, "runTool") { session.runTool("jac_doctor", {}); }
+            if session and hasattr(session, "showJacDoctor") { session.showJacDoctor(); }
+            elif session and hasattr(session, "runJacDoctor") { session.runJacDoctor(); }
             elif session { session.send("Use jac_doctor tool and summarize findings."); }
             return;
         }

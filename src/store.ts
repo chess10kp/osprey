@@ -6,6 +6,9 @@
 // Consumers (Ink components, runtime hooks) subscribe and get immutable snapshots.
 // ────────────────────────────────────────────────────────────────────────────
 
+import type { DevMode } from "./runtime/dev-mode.js";
+import type { PendingApproval } from "./runtime/tool-approval.js";
+
 export type AgentPhase =
   | "booting"
   | "ready"
@@ -31,11 +34,14 @@ export interface AgentMessage {
 
 export interface AgentSnapshot {
   phase: AgentPhase;
+  mode: DevMode;
+  pendingApproval: PendingApproval | null;
   model: string;
   provider: string;
   sessionId: string;
   sessionName: string;
   mcpConnected: boolean;
+  mcpConnecting: boolean;
   mcpServer: string;
   mcpToolCount: number;
   mcpError: string | null;
@@ -50,11 +56,14 @@ export interface AgentSnapshot {
 
 const INITIAL_SNAPSHOT: AgentSnapshot = {
   phase: "booting",
+  mode: "normal",
+  pendingApproval: null,
   model: "",
   provider: "",
   sessionId: "",
   sessionName: "",
   mcpConnected: false,
+  mcpConnecting: false,
   mcpServer: "",
   mcpToolCount: 0,
   mcpError: null,
@@ -103,14 +112,24 @@ export class AgentStore {
     this._patch({ error, phase: error ? "error" : "ready" });
   }
 
+  setMode(mode: DevMode): void {
+    this._patch({ mode });
+  }
+
+  setPendingApproval(pendingApproval: PendingApproval | null): void {
+    this._patch({ pendingApproval });
+  }
+
   setMcpStatus(status: {
     connected: boolean;
+    connecting?: boolean;
     server?: string;
     toolCount?: number;
     error?: string | null;
   }): void {
     this._patch({
       mcpConnected: status.connected,
+      mcpConnecting: status.connecting ?? false,
       mcpServer: status.server ?? this._snapshot.mcpServer,
       mcpToolCount: status.toolCount ?? this._snapshot.mcpToolCount,
       mcpError: status.error ?? null,
@@ -158,6 +177,17 @@ export class AgentStore {
   clearTranscript(): void {
     this._patch({
       messages: [],
+      streamingText: null,
+      toolExecutions: {},
+      phase: "ready",
+      error: null,
+    });
+  }
+
+  /** Replace transcript (e.g. after /resume). */
+  setTranscript(messages: AgentMessage[]): void {
+    this._patch({
+      messages: [...messages],
       streamingText: null,
       toolExecutions: {},
       phase: "ready",

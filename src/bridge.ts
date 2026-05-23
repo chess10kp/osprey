@@ -5,7 +5,8 @@
 // snapshot. This is the only code that mutates the store after boot.
 // ────────────────────────────────────────────────────────────────────────────
 
-import type { AgentStore } from "./store.js";
+import type { AgentStore, AgentMessage as StoreMessage } from "./store.js";
+import type { DevMode } from "./runtime/dev-mode.js";
 
 function formatToolPayload(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -14,6 +15,64 @@ function formatToolPayload(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+}
+
+function agentMessageToStore(message: {
+  role?: string;
+  content?: unknown;
+}): StoreMessage | null {
+  const role = message.role;
+  if (role !== "user" && role !== "assistant" && role !== "system") return null;
+
+  const content = message.content;
+  let text = "";
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          return String((part as { text?: string }).text ?? "");
+        }
+        return JSON.stringify(part);
+      })
+      .join("\n");
+  } else if (content != null) {
+    text = JSON.stringify(content);
+  }
+
+  return { role, text };
+}
+
+function agentMessagesToStore(messages: unknown[]): StoreMessage[] {
+  const out: StoreMessage[] = [];
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    const converted = agentMessageToStore(msg as { role?: string; content?: unknown });
+    if (converted) out.push(converted);
+  }
+  return out;
+}
+
+/** Sync store with session state emitted before the bridge subscribed. */
+export function seedStoreFromSession(
+  store: AgentStore,
+  seed: {
+    mode: DevMode;
+    provider: string;
+    model: string;
+    sessionId: string;
+    sessionName: string;
+    messages?: unknown[];
+  },
+): void {
+  store.setMode(seed.mode);
+  store.setModel(seed.provider, seed.model);
+  store.setSession(seed.sessionId, seed.sessionName);
+  if (seed.messages && seed.messages.length > 0) {
+    store.setTranscript(agentMessagesToStore(seed.messages));
   }
 }
 
@@ -41,6 +100,8 @@ export function bridgeEvents(
         }
         if (event.reason === "new") {
           store.clearTranscript();
+        } else if (event.reason === "resume" && Array.isArray(event.messages)) {
+          store.setTranscript(agentMessagesToStore(event.messages));
         }
         break;
 
@@ -121,9 +182,30 @@ export function bridgeEvents(
         break;
 
       // ── MCP ───────────────────────────────────────────────────────
+      case "mcp_connecting":
+        store.setMcpStatus({
+          connected: false,
+          connecting: true,
+          server: event.server ? String(event.server) : "jac",
+          toolCount: 0,
+          error: null,
+        });
+        break;
+
+      case "mcp_ready":
+        store.setMcpStatus({
+          connected: true,
+          connecting: false,
+          server: event.server ? String(event.server) : "jac",
+          toolCount: typeof event.toolCount === "number" ? event.toolCount : undefined,
+          error: null,
+        });
+        break;
+
       case "mcp_status":
         store.setMcpStatus({
           connected: Boolean(event.connected),
+          connecting: false,
           server: event.server ? String(event.server) : undefined,
           toolCount: typeof event.toolCount === "number" ? event.toolCount : undefined,
           error: event.error ? String(event.error) : null,
@@ -137,6 +219,9 @@ export function bridgeEvents(
 
       case "compaction_end":
         store.setPhase("ready");
+        if (Array.isArray(event.messages)) {
+          store.setTranscript(agentMessagesToStore(event.messages));
+        }
         break;
 
       // ── Retry ─────────────────────────────────────────────────────
@@ -146,6 +231,13 @@ export function bridgeEvents(
 
       case "auto_retry_end":
         store.setPhase("ready");
+        break;
+
+      // ── Development mode ──────────────────────────────────────────
+      case "mode_change":
+        if (event.mode) {
+          store.setMode(String(event.mode) as DevMode);
+        }
         break;
 
       // ── Shutdown ──────────────────────────────────────────────────

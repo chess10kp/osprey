@@ -1,15 +1,45 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import type { DevMode } from "./dev-mode.js";
+
+export interface JackalSubagentsConfig {
+  model?: string;
+  enabled?: boolean;
+  [agentName: string]: string | { model?: string } | boolean | undefined;
+}
 
 export interface JackalProjectConfig {
   autocheck?: boolean;
   autoformat?: boolean;
   verbose?: boolean;
   plan?: boolean;
+  /** Default development mode (overridden by `--mode` CLI flag). */
+  mode?: DevMode;
   maxFixAttempts?: number;
   mermaid?: boolean;
   notify?: boolean;
-  subagents?: boolean;
+  subagents?: boolean | JackalSubagentsConfig;
+  /** Override model context window (tokens) for `/usage` and auto-compact. */
+  contextMax?: number;
+  sessions?: {
+    autoSave?: boolean;
+    saveIntervalMs?: number;
+  };
+}
+
+/** Resolve boot mode from `.jackal` (`mode` key, legacy `plan: true`). */
+export function resolveDefaultMode(config: JackalProjectConfig): DevMode {
+  if (config.mode && isDevMode(config.mode)) {
+    return config.mode;
+  }
+  if (config.plan) {
+    return "plan";
+  }
+  return "normal";
+}
+
+function isDevMode(value: string): value is DevMode {
+  return value === "normal" || value === "auto-accept" || value === "yolo" || value === "plan";
 }
 
 function findConfigPath(cwd: string): string | null {

@@ -14,7 +14,7 @@ jackal/auth.json
 jackal/mcp-cache.json
 jackal/mcp-npx-cache.json
 jackal/mcp-onboarding.json
-.jackal/sessions/
+.jackal/
 # Ad-hoc session exports
 session-ses_*.md
 node_modules/

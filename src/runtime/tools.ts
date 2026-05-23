@@ -5,6 +5,16 @@ import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { loadProjectConfig } from "./project-config.js";
+import {
+  formatDiagnostics,
+  runJacCheck,
+  runJacFormat,
+  runJacTest,
+  runJacCommand,
+} from "./jac-cli.js";
+import { runJacDoctor } from "./jac-doctor.js";
+import type { JacDiagnostic } from "./jac-types.js";
+import { createTaskTools } from "./task-tools.js";
 
 const MAX_TOOL_TEXT = 50_000;
 
@@ -54,13 +64,22 @@ async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promi
 async function maybeAutoCheck(cwd: string, path: string): Promise<string | null> {
   const cfg = loadProjectConfig(cwd);
   if (!cfg.autocheck || !path.endsWith(".jac")) return null;
-  const out = await runBash(cwd, "jac check", 120);
-  return [
-    "[autocheck] jac check",
-    `exit=${String(out.code)}`,
-    out.stdout ? `stdout:\n${limitText(out.stdout)}` : "",
-    out.stderr ? `stderr:\n${limitText(out.stderr)}` : "",
-  ].filter(Boolean).join("\n");
+  try {
+    const { diagnostics, rawOutput, exitCode } = await runJacCheck(cwd, [path]);
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    const warnings = diagnostics.filter((d) => d.severity === "warning");
+    if (errors.length === 0 && warnings.length === 0 && exitCode === 0) {
+      return `[autocheck] jac check passed for ${path}`;
+    }
+    const parts = [
+      `[autocheck] jac check: ${errors.length} error(s), ${warnings.length} warning(s)`,
+      diagnostics.length > 0 ? formatDiagnostics(diagnostics) : "",
+      rawOutput.trim() ? `raw:\n${limitText(rawOutput)}` : "",
+    ].filter(Boolean);
+    return parts.join("\n");
+  } catch (error) {
+    return `[autocheck] jac check failed: ${String(error)}`;
+  }
 }
 
 export function createCoreTools(cwd: string): AgentTool[] {
@@ -185,11 +204,14 @@ export function createCoreTools(cwd: string): AgentTool[] {
       if (!params.args?.length) {
         throw new Error("jac_cli requires at least one arg");
       }
-      const command = ["jac", ...params.args].map((x) => JSON.stringify(x)).join(" ");
-      const result = await runBash(cwd, command, params.timeout ?? 120);
+      const result = await runJacCommand(params.args, cwd, {
+        timeoutMs: (params.timeout ?? 120) * 1000,
+        parseDiagnostics: params.args[0] === "check",
+      });
       const text = [
         `command: jac ${params.args.join(" ")}`,
-        `exit=${String(result.code)}`,
+        `exit=${String(result.exitCode)}`,
+        result.diagnostics.length > 0 ? formatDiagnostics(result.diagnostics) : "",
         result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
         result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
       ].filter(Boolean).join("\n\n");
@@ -200,40 +222,42 @@ export function createCoreTools(cwd: string): AgentTool[] {
   const jacCheckTool: AgentTool = {
     name: "jac_check",
     label: "Jac Check",
-    description: "Run jac check and return diagnostics.",
-    parameters: Type.Object({}),
-    execute: async () => {
-      const result = await runBash(cwd, "jac check", 120);
+    description: "Run jac check and return structured diagnostics.",
+    parameters: Type.Object({
+      files: Type.Optional(Type.Array(Type.String({ description: "Optional .jac file paths" }))),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { files?: string[] };
+      const { diagnostics, rawOutput, exitCode, exitError } = await runJacCheck(cwd, params.files);
+      if (exitError) {
+        throw new Error(exitError);
+      }
+      const errors = diagnostics.filter((d) => d.severity === "error");
+      const warnings = diagnostics.filter((d) => d.severity === "warning");
       const text = [
-        `exit=${String(result.code)}`,
-        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
-        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        exitCode === 0 && errors.length === 0
+          ? "jac check passed — no errors."
+          : `jac check: ${errors.length} error(s), ${warnings.length} warning(s)`,
+        diagnostics.length > 0 ? formatDiagnostics(diagnostics) : "",
+        rawOutput.trim() ? `\n--- raw output ---\n${limitText(rawOutput)}` : "",
       ].filter(Boolean).join("\n\n");
-      return { content: [{ type: "text", text }], details: result };
+      return {
+        content: [{ type: "text", text }],
+        details: { exitCode, diagnostics, rawOutput },
+      };
     },
   };
 
   const jacDoctorTool: AgentTool = {
     name: "jac_doctor",
     label: "Jac Doctor",
-    description: "Check jac CLI, project files, and MCP availability.",
+    description: "Check jac CLI, project files, jac.toml, and MCP availability.",
     parameters: Type.Object({}),
     execute: async () => {
-      const cmd = [
-        "set +e",
-        "echo '== jac --version =='",
-        "jac --version 2>&1",
-        "echo ''",
-        "echo '== jac files =='",
-        "find . -name '*.jac' | head -n 20",
-        "echo ''",
-        "echo '== jac mcp == '",
-        "jac mcp --help 2>&1 | head -n 20",
-      ].join("\n");
-      const result = await runBash(cwd, cmd, 120);
+      const report = await runJacDoctor(cwd);
       return {
-        content: [{ type: "text", text: `${limitText(result.stdout)}\n${limitText(result.stderr)}` }],
-        details: result,
+        content: [{ type: "text", text: report.summary }],
+        details: report,
       };
     },
   };
@@ -283,52 +307,114 @@ export function createCoreTools(cwd: string): AgentTool[] {
   const jacFixTool: AgentTool = {
     name: "jac_fix",
     label: "Jac Fix",
-    description: "Run a capped jac check/format/check loop and report results.",
+    description: "Run a capped jac check/format/check loop and report diagnostics.",
     parameters: Type.Object({
       maxAttempts: Type.Optional(Type.Number({ minimum: 1, maximum: 10 })),
+      files: Type.Optional(Type.Array(Type.String({ description: "Optional .jac file paths" }))),
     }),
     execute: async (_toolCallId, rawParams) => {
-      const params = rawParams as { maxAttempts?: number };
+      const params = rawParams as { maxAttempts?: number; files?: string[] };
       const cfg = loadProjectConfig(cwd);
       const maxAttempts = params.maxAttempts ?? cfg.maxFixAttempts ?? 3;
-      const attempts: Array<{ attempt: number; checkCode: number | null; formatCode?: number | null; checkStdout: string; checkStderr: string }> = [];
+      const attempts: Array<{
+        attempt: number;
+        exitCode: number;
+        errorCount: number;
+        formatted?: boolean;
+        diagnostics: JacDiagnostic[];
+      }> = [];
+      let lastFingerprint: string | undefined;
 
       for (let i = 1; i <= maxAttempts; i++) {
-        const check = await runBash(cwd, "jac check", 120);
+        const check = await runJacCheck(cwd, params.files);
+        const errors = check.diagnostics.filter((d) => d.severity === "error");
         attempts.push({
           attempt: i,
-          checkCode: check.code,
-          checkStdout: check.stdout,
-          checkStderr: check.stderr,
+          exitCode: check.exitCode,
+          errorCount: errors.length,
+          diagnostics: check.diagnostics,
         });
-        if (check.code === 0) break;
 
-        const format = await runBash(cwd, "jac format .", 120);
-        attempts[attempts.length - 1].formatCode = format.code;
+        if (errors.length === 0) break;
+
+        const fp = errors.map((d) => `${d.file}:${d.line}:${d.message}`).sort().join("\n");
+        if (lastFingerprint && lastFingerprint === fp) break;
+        lastFingerprint = fp;
+
+        const formatTargets = [...new Set(errors.map((d) => d.file).filter(Boolean))];
+        if (formatTargets.length > 0) {
+          const formatted = await runJacFormat(cwd, formatTargets);
+          attempts[attempts.length - 1].formatted = formatted.changed;
+        }
       }
 
-      const ok = attempts.length > 0 && attempts[attempts.length - 1].checkCode === 0;
-      const summary = attempts.map((a) => `attempt ${a.attempt}: check=${String(a.checkCode)}${a.formatCode !== undefined ? ` format=${String(a.formatCode)}` : ""}`).join("\n");
-      const verbose = Boolean(cfg.verbose);
       const last = attempts[attempts.length - 1];
+      const ok = Boolean(last && last.errorCount === 0);
+      const lastErrors = last?.diagnostics.filter((d) => d.severity === "error") ?? [];
+      const summary = attempts
+        .map((a) => `attempt ${a.attempt}: errors=${a.errorCount}${a.formatted !== undefined ? ` formatChanged=${String(a.formatted)}` : ""}`)
+        .join("\n");
+      const verbose = Boolean(cfg.verbose);
       const text = [
         ok ? "jac_fix: success" : "jac_fix: unresolved after max attempts",
         summary,
-        last?.checkStdout ? `\nstdout:\n${limitText(last.checkStdout)}` : "",
-        last?.checkStderr ? `\nstderr:\n${limitText(last.checkStderr)}` : "",
+        lastErrors.length > 0 ? `\n${formatDiagnostics(lastErrors)}` : "",
       ].filter(Boolean).join("\n");
 
       const verboseText = verbose
         ? "\n\n" + attempts.map((a) => [
           `--- attempt ${a.attempt} ---`,
-          a.checkStdout ? `stdout:\n${limitText(a.checkStdout)}` : "",
-          a.checkStderr ? `stderr:\n${limitText(a.checkStderr)}` : "",
-        ].filter(Boolean).join("\n")).join("\n")
+          a.diagnostics.length > 0 ? formatDiagnostics(a.diagnostics) : "(no diagnostics)",
+        ].join("\n")).join("\n")
         : "";
 
       return {
         content: [{ type: "text", text: text + verboseText }],
         details: { ok, maxAttempts, attempts, verbose },
+      };
+    },
+  };
+
+  const jacTestTool: AgentTool = {
+    name: "jac_test",
+    label: "Jac Test",
+    description: "Run jac test and return parsed diagnostics.",
+    parameters: Type.Object({
+      files: Type.Optional(Type.Array(Type.String({ description: "Optional test file paths" }))),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { files?: string[] };
+      const result = await runJacTest(cwd, params.files);
+      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      const text = [
+        result.passed ? "jac test: passed" : `jac test: failed (${errors.length} error(s))`,
+        result.diagnostics.length > 0 ? formatDiagnostics(result.diagnostics) : "",
+        result.rawOutput.trim() ? `\n--- raw output ---\n${limitText(result.rawOutput)}` : "",
+      ].filter(Boolean).join("\n\n");
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  };
+
+  const jacFormatTool: AgentTool = {
+    name: "jac_format",
+    label: "Jac Format",
+    description: "Run jac format on one or more files.",
+    parameters: Type.Object({
+      files: Type.Array(Type.String({ description: ".jac file paths" })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { files: string[] };
+      const result = await runJacFormat(cwd, params.files);
+      const text = [
+        result.changed ? `formatted: ${params.files.join(", ")}` : "no formatting changes",
+        result.rawOutput.trim() ? limitText(result.rawOutput) : "",
+      ].filter(Boolean).join("\n\n");
+      return {
+        content: [{ type: "text", text }],
+        details: result,
       };
     },
   };
@@ -358,6 +444,9 @@ export function createCoreTools(cwd: string): AgentTool[] {
     jacListTemplatesTool,
     jacCreateTool,
     jacFixTool,
+    jacTestTool,
+    jacFormatTool,
     compactTool,
+    ...createTaskTools(cwd),
   ];
 }

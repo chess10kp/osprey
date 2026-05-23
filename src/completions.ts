@@ -4,6 +4,7 @@ export interface CompletionContext {
   models: string[];
   authOptions: string[];
   filePaths?: string[];
+  customCommands?: string[];
 }
 
 export interface Suggestion {
@@ -19,7 +20,21 @@ const COMMANDS = [
   "/abort",
   "/clear",
   "/new",
-  "/multiline",
+  "/compact",
+  "/usage",
+  "/resume",
+  "/rename",
+  "/export",
+  "/checkpoint",
+  "/tasks",
+  "/mcp",
+  "/osp",
+  "/agents",
+  "/commands",
+  "/jac-check",
+  "/jac-doctor",
+  "/fix",
+  "/create",
   "/exit",
   "/cancel",
 ];
@@ -142,6 +157,12 @@ export function getSuggestions(input: string, ctx: CompletionContext): Suggestio
   if (trimmed.startsWith("/model ")) {
     const q = trimmed.slice("/model ".length);
     return sortAndMap(q, ctx.models).map((s) => ({ ...s, value: `/model ${s.value}` }));
+  }
+
+  const custom = ctx.customCommands ?? [];
+  if (custom.length > 0) {
+    const customMatches = sortAndMap(trimmed, custom);
+    if (customMatches.length > 0) return customMatches;
   }
 
   return sortAndMap(trimmed, COMMANDS);

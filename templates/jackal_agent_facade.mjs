@@ -92,7 +92,22 @@ async function bootAdapter() {
     try {
       const mod = await import(ADAPTER_PATH);
       const cwd = process.env.JACKAL_AGENT_CWD || process.cwd();
-      const adapter = await mod.createNextAgent(cwd);
+      const envMode = process.env.JACKAL_MODE?.trim();
+      const mode =
+        envMode && mod.DEV_MODES?.includes?.(envMode) ? envMode : undefined;
+      let contextMax;
+      const ctxIdx = process.argv.indexOf("--context-max");
+      if (ctxIdx >= 0 && process.argv[ctxIdx + 1]) {
+        const parsed = Number.parseInt(process.argv[ctxIdx + 1], 10);
+        if (!Number.isNaN(parsed) && parsed > 0) contextMax = parsed;
+      }
+      const bootOpts = {};
+      if (mode) bootOpts.mode = mode;
+      if (contextMax) bootOpts.contextMax = contextMax;
+      const adapter = await mod.createNextAgent(
+        cwd,
+        Object.keys(bootOpts).length > 0 ? bootOpts : undefined,
+      );
 
       adapter.store.subscribe(emit);
       adapter.authFlow.subscribe(emit);
@@ -185,6 +200,17 @@ function useJackalSession() {
       resolveDialog: (id, value) => a.actions.resolveDialog(id, value),
       setModel: (provider, modelId) => a.actions.setModel(provider, modelId),
       clearSession: () => a.actions.clearSession(),
+      compactSession: (opts) => a.actions.compactSession(opts),
+      listSessions: (all) => a.actions.listSessions(all),
+      resumeSession: (target) => a.actions.resumeSession(target),
+      renameSession: (name) => a.actions.renameSession(name),
+      exportSessionMarkdown: () => a.actions.exportSessionMarkdown(),
+      getContextUsage: () => a.actions.getContextUsage(),
+      getUsageLine: () => {
+        const u = a.actions.getContextUsage();
+        return `Context: ${u.used.toLocaleString()} / ${u.max.toLocaleString()} tokens (${u.percent}%)`;
+      },
+      setContextMax: (n) => a.actions.setContextMax(n),
       dispose: () => a.actions.dispose(),
       login: () => a.authActions.login(),
       loginWith: (providerId) => a.authActions.loginWith(providerId),
@@ -204,6 +230,38 @@ function useJackalSession() {
       },
       listProviders: () => a.authActions.listProviders(),
       listModels: (provider) => a.authActions.listModels(provider),
+      setMode: (mode) => a.actions.setMode(mode),
+      cycleMode: () => a.actions.cycleMode(),
+      approveTool: () => a.actions.approveTool(),
+      rejectTool: () => a.actions.rejectTool(),
+      runTool: (name, params) => a.actions.runTool(name, params ?? {}),
+      runFixFlow: (max) => a.actions.runFixFlow(max ?? 3),
+      runJacCheck: (files) => a.actions.runJacCheck(files),
+      runJacDoctor: () => a.actions.runJacDoctor(),
+      runJacFormat: (files) => a.actions.runJacFormat(files),
+      runJacTest: (files) => a.actions.runJacTest(files),
+      runOsp: (prompt) => a.actions.runOsp(prompt),
+      runConvertPython: (path) => a.actions.runConvertPython(path),
+      runIdiomReview: (paths) => a.actions.runIdiomReview(paths ?? []),
+      listSessions: (all) => a.actions.listSessions(all),
+      resumeSession: (target) => a.actions.resumeSession(target),
+      renameSession: (name) => a.actions.renameSession(name),
+      exportSessionMarkdown: () => a.actions.exportSessionMarkdown(),
+      checkpointCreate: (name) => a.actions.checkpointCreate(name),
+      checkpointList: () => a.actions.checkpointList(),
+      checkpointLoad: (name, opts) => a.actions.checkpointLoad(name, opts),
+      checkpointDelete: (name) => a.actions.checkpointDelete(name),
+      tasksList: () => a.actions.tasksList(),
+      tasksAdd: (title) => a.actions.tasksAdd(title),
+      tasksRemove: (index) => a.actions.tasksRemove(index),
+      tasksClear: () => a.actions.tasksClear(),
+      getCustomCommandSlashNames: () => a.actions.getCustomCommandSlashNames(),
+      showAgents: () => a.actions.showAgents(),
+      showCommands: () => a.actions.showCommands(),
+      showCheckpoints: () => a.actions.showCheckpoints(),
+      showTasks: () => a.actions.showTasks(),
+      showSessions: () => a.actions.showSessions(),
+      showJacDoctor: () => a.actions.showJacDoctor(),
     };
   }
   return actionsRef.current;
@@ -227,12 +285,14 @@ function useCompletions(input) {
         let authOptions = [];
         if (step.kind === "select") authOptions = step.options.map((o) => o.id);
         const filePaths = await listProjectFiles(process.cwd());
+        const customCommands = a.actions.getCustomCommandSlashNames?.() ?? [];
         const ctx = {
           authStepKind: step.kind,
           providers,
           models,
           authOptions,
           filePaths,
+          customCommands,
         };
         const sugg = mod.getSuggestions(input ?? "", ctx);
         setList(sugg);
