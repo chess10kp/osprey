@@ -106,6 +106,15 @@ export {
   type ExplainMode,
 } from "./runtime/jac-workflows.js";
 
+// Mermaid ASCII renderer
+export {
+  renderMermaidAscii,
+  detectDiagramType,
+  parseFlowchart,
+  renderFlowchartAscii,
+} from "./runtime/mermaid-render.js";
+export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./runtime/mermaid-render.js";
+
 import { pathToFileURL } from "node:url";
 import { runNextAgentSmoke } from "./adapter.js";
 import { parseRunArgs, printRunUsage, runCli } from "./cli-run.js";

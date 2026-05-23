@@ -16,6 +16,7 @@ import {
 import { runJacDoctor } from "./jac-doctor.js";
 import type { JacDiagnostic } from "./jac-types.js";
 import { createTaskTools } from "./task-tools.js";
+import { renderMermaidAscii } from "./mermaid-render.js";
 
 const MAX_TOOL_TEXT = 50_000;
 
@@ -487,6 +488,23 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const mermaidTool: AgentTool = {
+    name: "mermaid",
+    label: "Render Mermaid",
+    description: "Render a Mermaid diagram as ASCII art. Supports flowchart, sequence, class, ER, state diagrams.",
+    parameters: Type.Object({
+      source: Type.String({ description: "Mermaid diagram source code" }),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { source: string };
+      const ascii = renderMermaidAscii(params.source);
+      return {
+        content: [{ type: "text", text: `\`\`\`\n${ascii}\n\`\`\`` }],
+        details: { source: params.source, rendered: true },
+      };
+    },
+  };
+
   const compactTool: AgentTool = {
     name: "compact_context",
     label: "Compact Context",
@@ -516,6 +534,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     jacFormatTool,
     jacRunTool,
     globTool,
+    mermaidTool,
     compactTool,
     ...createTaskTools(cwd),
   ];

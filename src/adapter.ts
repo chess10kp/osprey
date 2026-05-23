@@ -65,6 +65,8 @@ export interface CreateNextAgentOptions {
   mode?: DevMode;
   /** Override model context window (tokens). Also read from `JACKAL_CONTEXT_MAX`. */
   contextMax?: number;
+  /** Start with a specific session ID instead of resuming the latest. */
+  sessionId?: string;
 }
 
 function resolveContextMax(cwd: string, options?: CreateNextAgentOptions): number | null {

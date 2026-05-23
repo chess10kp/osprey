@@ -111,8 +111,6 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | Feature | Notes |
 |---------|-------|
 | LSP tools | diagnostics, hover, rename |
-| Mermaid rendering | ASCII diagrams in transcript |
-| `/commit`, `/refactor` | Slash command UI in shell |
 
 ---
 
