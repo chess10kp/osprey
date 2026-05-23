@@ -75,9 +75,14 @@ function validateAndCoerceArgs(
 
 export class JackalMcpClient {
   private _client: Client | null = null;
+  private _transport: StdioClientTransport | null = null;
   private _serverName = "jac";
+  private _cwd = "";
+  private _command = "jac";
+  private _args: string[] = ["mcp"];
 
   async connectFromConfig(cwd: string): Promise<boolean> {
+    this._cwd = cwd;
     const cfgPath = join(cwd, "pi", "mcp.json");
     let command = "jac";
     let args = ["mcp"];
@@ -93,11 +98,24 @@ export class JackalMcpClient {
       }
     }
 
+    this._command = command;
+    this._args = args;
+
     const transport = new StdioClientTransport({ command, args });
     const client = new Client({ name: "jackal-agent-next", version: "0.1.0" });
     await client.connect(transport);
+    this._transport = transport;
     this._client = client;
     return true;
+  }
+
+  private async _reconnect(): Promise<void> {
+    await this.disconnect().catch(() => undefined);
+    const transport = new StdioClientTransport({ command: this._command, args: this._args });
+    const client = new Client({ name: "jackal-agent-next", version: "0.1.0" });
+    await client.connect(transport);
+    this._transport = transport;
+    this._client = client;
   }
 
   async listToolDefs(): Promise<ToolDef[]> {
@@ -119,7 +137,19 @@ export class JackalMcpClient {
       execute: async (_toolCallId, rawParams) => {
         if (!this._client) throw new Error("MCP client not connected");
         const args = validateAndCoerceArgs(d.inputSchema, (rawParams ?? {}) as Record<string, unknown>);
-        const result = await this._client.callTool({ name: d.name, arguments: args });
+        let result;
+        try {
+          result = await this._client.callTool({ name: d.name, arguments: args });
+        } catch (error) {
+          const msg = String(error);
+          if (msg.includes("Connection closed")) {
+            await this._reconnect();
+            if (!this._client) throw error;
+            result = await this._client.callTool({ name: d.name, arguments: args });
+          } else {
+            throw error;
+          }
+        }
 
         let text = "";
         if (Array.isArray(result.content)) {
@@ -144,5 +174,6 @@ export class JackalMcpClient {
     if (!this._client) return;
     await this._client.close();
     this._client = null;
+    this._transport = null;
   }
 }

@@ -96,20 +96,30 @@ export class JackalAgentSession {
   }
 
   async initialize(): Promise<void> {
-    try {
-      this._mcp = new JackalMcpClient();
-      await this._mcp.connectFromConfig(this._sessionManager.cwd);
-      const defs = await this._mcp.listToolDefs();
-      const mcpTools = this._mcp.toAgentTools(defs);
+    this._mcp = new JackalMcpClient();
+
+    const initOnce = async () => {
+      await this._mcp!.connectFromConfig(this._sessionManager.cwd);
+      const defs = await this._mcp!.listToolDefs();
+      const mcpTools = this._mcp!.toAgentTools(defs);
       const existing = new Set(this._agent.state.tools.map((t) => t.name));
       this._agent.state.tools = [
         ...this._agent.state.tools,
         ...mcpTools.filter((t) => !existing.has(t.name)),
       ];
       this._emit({ type: "mcp_status", connected: true, server: "jac", toolCount: defs.length, error: null });
+    };
+
+    try {
+      await initOnce();
     } catch (error) {
-      this._emit({ type: "mcp_status", connected: false, server: "jac", toolCount: 0, error: String(error) });
-      // keep running without MCP tools
+      try {
+        await new Promise((r) => setTimeout(r, 250));
+        await initOnce();
+      } catch (finalError) {
+        this._emit({ type: "mcp_status", connected: false, server: "jac", toolCount: 0, error: String(finalError ?? error) });
+        // keep running without MCP tools
+      }
     }
   }
 
