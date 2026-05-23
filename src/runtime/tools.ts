@@ -172,6 +172,31 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const jacCliTool: AgentTool = {
+    name: "jac_cli",
+    label: "Jac CLI",
+    description: "Run a jac CLI command with arguments.",
+    parameters: Type.Object({
+      args: Type.Array(Type.String({ description: "CLI args after 'jac'" })),
+      timeout: Type.Optional(Type.Number({ minimum: 1, maximum: 600 })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { args: string[]; timeout?: number };
+      if (!params.args?.length) {
+        throw new Error("jac_cli requires at least one arg");
+      }
+      const command = ["jac", ...params.args].map((x) => JSON.stringify(x)).join(" ");
+      const result = await runBash(cwd, command, params.timeout ?? 120);
+      const text = [
+        `command: jac ${params.args.join(" ")}`,
+        `exit=${String(result.code)}`,
+        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+      ].filter(Boolean).join("\n\n");
+      return { content: [{ type: "text", text }], details: { ...result, command: `jac ${params.args.join(" ")}` } };
+    },
+  };
+
   const jacCheckTool: AgentTool = {
     name: "jac_check",
     label: "Jac Check",
@@ -264,7 +289,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
     }),
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as { maxAttempts?: number };
-      const maxAttempts = params.maxAttempts ?? 3;
+      const cfg = loadProjectConfig(cwd);
+      const maxAttempts = params.maxAttempts ?? cfg.maxFixAttempts ?? 3;
       const attempts: Array<{ attempt: number; checkCode: number | null; formatCode?: number | null; checkStdout: string; checkStderr: string }> = [];
 
       for (let i = 1; i <= maxAttempts; i++) {
@@ -283,6 +309,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
 
       const ok = attempts.length > 0 && attempts[attempts.length - 1].checkCode === 0;
       const summary = attempts.map((a) => `attempt ${a.attempt}: check=${String(a.checkCode)}${a.formatCode !== undefined ? ` format=${String(a.formatCode)}` : ""}`).join("\n");
+      const verbose = Boolean(cfg.verbose);
       const last = attempts[attempts.length - 1];
       const text = [
         ok ? "jac_fix: success" : "jac_fix: unresolved after max attempts",
@@ -291,9 +318,17 @@ export function createCoreTools(cwd: string): AgentTool[] {
         last?.checkStderr ? `\nstderr:\n${limitText(last.checkStderr)}` : "",
       ].filter(Boolean).join("\n");
 
+      const verboseText = verbose
+        ? "\n\n" + attempts.map((a) => [
+          `--- attempt ${a.attempt} ---`,
+          a.checkStdout ? `stdout:\n${limitText(a.checkStdout)}` : "",
+          a.checkStderr ? `stderr:\n${limitText(a.checkStderr)}` : "",
+        ].filter(Boolean).join("\n")).join("\n")
+        : "";
+
       return {
-        content: [{ type: "text", text }],
-        details: { ok, maxAttempts, attempts },
+        content: [{ type: "text", text: text + verboseText }],
+        details: { ok, maxAttempts, attempts, verbose },
       };
     },
   };
@@ -317,6 +352,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     writeTool,
     editTool,
     bashTool,
+    jacCliTool,
     jacCheckTool,
     jacDoctorTool,
     jacListTemplatesTool,
