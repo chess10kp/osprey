@@ -456,7 +456,8 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/jac-check     run jac check"}</Text>
                 <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
                 <Text color="white">{"/fix           jac check/fix loop"}</Text>
-                <Text color="white">{"/create <tpl>  run jac create template"}</Text>
+                <Text color="white">{"/create        list jac templates"}</Text>
+                <Text color="white">{"/create <tpl> [name]  run jac create"}</Text>
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
@@ -538,6 +539,10 @@ def:pub app() -> JsxElement {
         }
         if cmd == "/fix" {
             if session { session.send("Use jac_fix tool with maxAttempts=3 and summarize the result."); }
+            return;
+        }
+        if cmd == "/create" {
+            if session { session.send("Use jac_list_templates and show available templates."); }
             return;
         }
         if cmd.startswith("/create ") {

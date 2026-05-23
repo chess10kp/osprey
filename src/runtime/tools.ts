@@ -213,6 +213,22 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const jacListTemplatesTool: AgentTool = {
+    name: "jac_list_templates",
+    label: "Jac List Templates",
+    description: "List jac create templates from CLI help output.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const result = await runBash(cwd, "jac create --help", 60);
+      const text = [
+        `exit=${String(result.code)}`,
+        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+      ].filter(Boolean).join("\n\n");
+      return { content: [{ type: "text", text }], details: result };
+    },
+  };
+
   const jacCreateTool: AgentTool = {
     name: "jac_create",
     label: "Jac Create",
@@ -303,6 +319,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     bashTool,
     jacCheckTool,
     jacDoctorTool,
+    jacListTemplatesTool,
     jacCreateTool,
     jacFixTool,
     compactTool,
