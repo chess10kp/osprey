@@ -51,6 +51,7 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
       models,
       sessionManager,
     });
+    await session.initialize();
 
     const unsubEvents = session.subscribe((event) => {
       if (event?.type) eventTypes.add(String(event.type));
@@ -127,6 +128,7 @@ export async function createNextAgent(
     models,
     sessionManager,
   });
+  await session.initialize();
 
   const unsubBridge = bridgeEvents(session, store);
   store.markReady();

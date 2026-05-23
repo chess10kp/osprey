@@ -6,6 +6,7 @@ import { JackalAuth, JackalModels } from "./auth.js";
 import { JackalSessionManager } from "./session.js";
 import { createCoreTools } from "./tools.js";
 import { loadJackalSystemPrompt } from "./system-prompt.js";
+import { JackalMcpClient } from "./mcp-client.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
 
@@ -25,6 +26,7 @@ export class JackalAgentSession {
   private _listeners = new Set<SessionEventSink>();
   private _unsubAgent: () => void;
   private _disposed = false;
+  private _mcp: JackalMcpClient | null = null;
 
   constructor(options: JackalAgentSessionOptions) {
     this._auth = options.auth;
@@ -91,6 +93,22 @@ export class JackalAgentSession {
     return () => {
       this._listeners.delete(handler);
     };
+  }
+
+  async initialize(): Promise<void> {
+    try {
+      this._mcp = new JackalMcpClient();
+      await this._mcp.connectFromConfig(this._sessionManager.cwd);
+      const defs = await this._mcp.listToolDefs();
+      const mcpTools = this._mcp.toAgentTools(defs);
+      const existing = new Set(this._agent.state.tools.map((t) => t.name));
+      this._agent.state.tools = [
+        ...this._agent.state.tools,
+        ...mcpTools.filter((t) => !existing.has(t.name)),
+      ];
+    } catch {
+      // keep running without MCP tools
+    }
   }
 
   async sendUserMessage(
@@ -202,6 +220,10 @@ export class JackalAgentSession {
     this._disposed = true;
     this._agent.abort();
     this._unsubAgent();
+    if (this._mcp) {
+      this._mcp.disconnect().catch(() => undefined);
+      this._mcp = null;
+    }
     this._emit({ type: "session_shutdown" });
     this._listeners.clear();
   }
