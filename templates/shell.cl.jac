@@ -2,7 +2,6 @@
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
-import from "@inkjs/ui" { TextInput }
 import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
     useJackalSession,
@@ -455,7 +454,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"Esc = cancel   Tab = autocomplete   Ctrl+C = exit"}
+                {"Readline: Ctrl+A/E, Ctrl+K/U/W, Ctrl+D, Alt+B/F, ←/→, Backspace/Delete"}
             </Text>
         </Box>
     );
@@ -465,27 +464,31 @@ def:pub HelpPanel(_props: any) -> JsxElement {
 
 def:pub PromptBar(props: any) -> JsxElement {
     prompt_marker: str = props.prompt_marker;
-    input_reset_key: int = props.input_reset_key;
     input_text: str = props.input_text;
+    input_cursor: int = props.input_cursor;
     multiline: bool = props.multiline;
     show_completions: bool = props.show_completions;
     completions_list: list = props.completions_list;
     completion_selection: int = props.completion_selection;
-    on_change: any = props.on_change;
-    on_submit: any = props.on_submit;
+
+    cur: int = max(0, min(input_cursor, len(input_text)));
+    before: str = input_text[:cur];
+    at: str = input_text[cur:cur + 1] if cur < len(input_text) else "";
+    after: str = input_text[cur + 1:] if cur < len(input_text) else "";
 
     return (
         <Box flexDirection="column" paddingX={1} marginTop={1}>
             <Box borderStyle="single" borderColor="gray" paddingX={1}>
                 <Text color="green" bold>{prompt_marker}</Text>
                 <Text>{" "}</Text>
-                <TextInput
-                    key={str(input_reset_key)}
-                    defaultValue={input_text}
-                    placeholder={"Type a message (or /help)" if multiline == False else "Multiline (Ctrl+D to send)"}
-                    onChange={on_change}
-                    onSubmit={on_submit}
-                />
+                {len(input_text) == 0 and <Text color="gray">{"Type a message (or /help)" if multiline == False else "Multiline (Enter=newline, Ctrl+D=send)"}</Text>}
+                {len(input_text) > 0 and (
+                    <>
+                        <Text>{before}</Text>
+                        <Text inverse>{at if at else " "}</Text>
+                        <Text>{after}</Text>
+                    </>
+                )}
             </Box>
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
@@ -505,6 +508,7 @@ def:pub app() -> JsxElement {
     session: any = useJackalSession();
 
     has input_text: str = "";
+    has input_cursor: int = 0;
     has input_reset_key: int = 0;
     has multiline: bool = False;
     has show_help: bool = False;
@@ -711,6 +715,7 @@ def:pub app() -> JsxElement {
     def handle_submit(submitted: str = "") -> None {
         text: str = submitted.strip() if submitted else input_text.strip();
         input_text = "";
+        input_cursor = 0;
         input_reset_key = input_reset_key + 1;
         if not text { return; }
         if ui.dialogs and len(list(ui.dialogs)) > 0 {
@@ -731,12 +736,14 @@ def:pub app() -> JsxElement {
                     dlg2: any = list(ui.dialogs)[0];
                     if session { session.resolveDialog(to_str(dlg2.id), None); }
                     input_text = "";
+                    input_cursor = 0;
                     input_reset_key = input_reset_key + 1;
                     return;
                 }
                 if to_str(auth.step.kind) != "idle" {
                     if session { session.cancelLogin(); }
                     input_text = "";
+                    input_cursor = 0;
                     input_reset_key = input_reset_key + 1;
                     return;
                 }
@@ -748,6 +755,10 @@ def:pub app() -> JsxElement {
             if key.ctrl and ch == "d" {
                 if multiline {
                     handle_submit();
+                    return;
+                }
+                if len(input_text) > 0 and input_cursor < len(input_text) {
+                    input_text = input_text[:input_cursor] + input_text[input_cursor + 1:];
                     return;
                 }
             }
@@ -777,7 +788,82 @@ def:pub app() -> JsxElement {
                 idx: any = selected_completion_index;
                 if idx < 0 or idx >= completion_count { idx = 0; }
                 input_text = str(completion_items[idx].value);
+                input_cursor = len(input_text);
                 input_reset_key = input_reset_key + 1;
+                return;
+            }
+            if key.return {
+                if multiline {
+                    input_text = input_text[:input_cursor] + "\n" + input_text[input_cursor:];
+                    input_cursor = input_cursor + 1;
+                } else {
+                    handle_submit();
+                }
+                return;
+            }
+            if key.leftArrow {
+                input_cursor = max(0, input_cursor - 1);
+                return;
+            }
+            if key.rightArrow {
+                input_cursor = min(len(input_text), input_cursor + 1);
+                return;
+            }
+            if key.ctrl and ch == "a" {
+                input_cursor = 0;
+                return;
+            }
+            if key.ctrl and ch == "e" {
+                input_cursor = len(input_text);
+                return;
+            }
+            if key.ctrl and ch == "k" {
+                input_text = input_text[:input_cursor];
+                return;
+            }
+            if key.ctrl and ch == "u" {
+                input_text = input_text[input_cursor:];
+                input_cursor = 0;
+                return;
+            }
+            if key.ctrl and ch == "w" {
+                s: int = input_cursor;
+                while s > 0 and input_text[s - 1].isspace() { s = s - 1; }
+                while s > 0 and not input_text[s - 1].isspace() { s = s - 1; }
+                input_text = input_text[:s] + input_text[input_cursor:];
+                input_cursor = s;
+                return;
+            }
+            if key.meta and ch == "b" {
+                s2: int = input_cursor;
+                while s2 > 0 and input_text[s2 - 1].isspace() { s2 = s2 - 1; }
+                while s2 > 0 and not input_text[s2 - 1].isspace() { s2 = s2 - 1; }
+                input_cursor = s2;
+                return;
+            }
+            if key.meta and ch == "f" {
+                e2: int = input_cursor;
+                while e2 < len(input_text) and not input_text[e2].isspace() { e2 = e2 + 1; }
+                while e2 < len(input_text) and input_text[e2].isspace() { e2 = e2 + 1; }
+                input_cursor = e2;
+                return;
+            }
+            if key.backspace {
+                if input_cursor > 0 {
+                    input_text = input_text[:input_cursor - 1] + input_text[input_cursor:];
+                    input_cursor = input_cursor - 1;
+                }
+                return;
+            }
+            if key.delete {
+                if input_cursor < len(input_text) {
+                    input_text = input_text[:input_cursor] + input_text[input_cursor + 1:];
+                }
+                return;
+            }
+            if len(ch) > 0 and not key.ctrl and not key.meta {
+                input_text = input_text[:input_cursor] + ch + input_text[input_cursor:];
+                input_cursor = input_cursor + len(ch);
                 return;
             }
         }
@@ -850,22 +936,11 @@ def:pub app() -> JsxElement {
         "prompt_marker": prompt_marker,
         "input_reset_key": input_reset_key,
         "input_text": input_text,
+        "input_cursor": input_cursor,
         "multiline": multiline,
         "show_completions": show_completions,
         "completions_list": completions_list,
         "completion_selection": completion_selection,
-        "on_change": lambda (v: str) -> None {
-            input_text = v;
-            selected_completion_index = 0;
-        },
-        "on_submit": lambda (v: str) -> None {
-            if multiline {
-                input_text = v + "\n";
-                input_reset_key = input_reset_key + 1;
-            } else {
-                handle_submit(v);
-            }
-        },
     };
 
     return (
