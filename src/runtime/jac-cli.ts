@@ -216,3 +216,38 @@ export async function runJacTest(
     diagnostics: result.diagnostics,
   };
 }
+
+/** Run `jac run <file>` and capture runtime output. */
+export async function runJacRun(
+  cwd: string,
+  file: string,
+  options?: { args?: string[]; timeoutMs?: number },
+): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  error?: string;
+}> {
+  const args = ["run", file];
+  if (options?.args?.length) args.push(...options.args);
+
+  try {
+    const result = await runJacCommand(args, cwd, {
+      timeoutMs: options?.timeoutMs ?? 60_000,
+      parseDiagnostics: false,
+    });
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      error: result.exitCode !== 0 ? result.stderr.trim() || "jac run failed" : undefined,
+    };
+  } catch (err) {
+    return {
+      stdout: "",
+      stderr: String(err),
+      exitCode: 1,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}

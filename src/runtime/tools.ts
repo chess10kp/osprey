@@ -10,6 +10,7 @@ import {
   runJacCheck,
   runJacFormat,
   runJacTest,
+  runJacRun,
   runJacCommand,
 } from "./jac-cli.js";
 import { runJacDoctor } from "./jac-doctor.js";
@@ -419,6 +420,35 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const jacRunTool: AgentTool = {
+    name: "jac_run",
+    label: "Jac Run",
+    description: "Run a Jac file and return stdout/stderr. Use for runtime verification.",
+    parameters: Type.Object({
+      file: Type.String({ description: "Path to .jac file to run" }),
+      args: Type.Optional(Type.Array(Type.String({ description: "Additional arguments" }))),
+      timeout: Type.Optional(Type.Number({ minimum: 1, maximum: 300 })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { file: string; args?: string[]; timeout?: number };
+      const result = await runJacRun(cwd, params.file, {
+        args: params.args,
+        timeoutMs: (params.timeout ?? 60) * 1000,
+      });
+      const parts = [
+        `command: jac run ${params.file}`,
+        `exit=${String(result.exitCode)}`,
+        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        result.error ? `error: ${result.error}` : "",
+      ].filter(Boolean);
+      return {
+        content: [{ type: "text", text: parts.join("\n\n") }],
+        details: result,
+      };
+    },
+  };
+
   const compactTool: AgentTool = {
     name: "compact_context",
     label: "Compact Context",
@@ -446,6 +476,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     jacFixTool,
     jacTestTool,
     jacFormatTool,
+    jacRunTool,
     compactTool,
     ...createTaskTools(cwd),
   ];
