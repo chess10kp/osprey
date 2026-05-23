@@ -66,7 +66,7 @@ Without these, agent-next is chat-only and not a coding agent.
 | Write tool | Create / overwrite files | Done |
 | Edit tool | Targeted file edits | Done |
 | Bash tool | Run shell commands (`jac`, `git`, etc.) | Done |
-| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Missing |
+| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (jac CLI proxy tool, full MCP tool surface still missing) |
 | Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
 | Working directory safety | Sensible defaults, visible command execution | Missing |
