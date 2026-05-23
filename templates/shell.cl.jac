@@ -797,6 +797,19 @@ def:pub app() -> JsxElement {
                     input_text = input_text[:input_cursor] + "\n" + input_text[input_cursor:];
                     input_cursor = input_cursor + 1;
                 } else {
+                    use_selected_completion: bool = False;
+                    if completion_count > 0 {
+                        if not input_text.strip() {
+                            use_selected_completion = True;
+                        } elif to_str(auth.step.kind) == "model_picker" and "/" not in input_text.strip() {
+                            use_selected_completion = True;
+                        }
+                    }
+                    if use_selected_completion {
+                        idx_enter: int = selected_completion_index;
+                        if idx_enter < 0 or idx_enter >= completion_count { idx_enter = 0; }
+                        input_text = str(completion_items[idx_enter].value);
+                    }
                     handle_submit();
                 }
                 return;
@@ -864,6 +877,7 @@ def:pub app() -> JsxElement {
             if len(ch) > 0 and not key.ctrl and not key.meta {
                 input_text = input_text[:input_cursor] + ch + input_text[input_cursor:];
                 input_cursor = input_cursor + len(ch);
+                selected_completion_index = 0;
                 return;
             }
         }
