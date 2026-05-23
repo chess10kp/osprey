@@ -25,7 +25,7 @@ These must work before anything else is useful.
 | Session restore (model) | Apply persisted provider/model on boot | Done |
 | `/clear` / `/new` | Reset store, session file, **and** agent message memory | Done |
 | Graceful dispose | `/exit`, Ctrl+C cleanup without corrupting session | Done |
-| Smoke / CI path | Non-interactive verification of adapter boot | Missing |
+| Smoke / CI path | `./jackal.sh --check` or `jackal run --check` | Done |
 
 ---
 
@@ -47,7 +47,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Auth error display | Inline errors with retry path | Done |
 | Dialog overlays | Select / confirm / input from extension UI context | Done |
 | Tool timeline UI | Running/done tool rows in transcript | Done (UI only; no tools fire yet) |
-| Tool detail in UI | Name, status, truncated input/result, duration | Missing |
+| Tool detail in UI | Name, status, truncated input/result, duration | Done |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
 | `/compact` | Context compaction command | Partial (basic session compaction + stub tool) |
@@ -108,7 +108,7 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | jac-ink compile | `jac tui shell.cl.jac` → `.jac/tui/` (via `./jackal.sh`) | Done |
 | Adapter wiring | `@jac/pi` → headless adapter (`JACKAL_AGENT_DIST`); owned by **jac-ink** | Partial — human maintains plugin |
 | `./jackal.sh` launch | Build + compile + run Ink shell | Done |
-| Fast TUI boot | Render shell before MCP/subsystems finish connecting | Missing |
+| Fast TUI boot | Lazy MCP after first frame (`scheduleMcpConnect`) | Done |
 | Unified launch entrypoints | `bin/jackal_shell.jac` / `npm run start:agent-shell` same as `jackal.sh` | Missing |
 | Auth symlink | `pi/auth.json` → `~/.pi/agent/auth.json` (provider credentials) | Done |
 
