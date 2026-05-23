@@ -413,12 +413,19 @@ def:pub ToolRow(props: any) -> JsxElement {
     if duration_ms is not None {
         duration_label = "  (" + str(duration_ms) + "ms)";
     }
+    result_text: str = to_str(getattr(tool, "result", ""));
+    if len(result_text) > 120 {
+        result_text = result_text[:120] + "...";
+    }
 
     return (
-        <Box>
-            <Text color={color}>{icon + " "}</Text>
-            <Text bold>{name}</Text>
-            {duration_label and <Text dimColor>{duration_label}</Text>}
+        <Box flexDirection="column">
+            <Box>
+                <Text color={color}>{icon + " "}</Text>
+                <Text bold>{name}</Text>
+                {duration_label and <Text dimColor>{duration_label}</Text>}
+            </Box>
+            {result_text and <Text dimColor>{"  " + result_text}</Text>}
         </Box>
     );
 }
@@ -446,6 +453,8 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/clear,/new    new session"}</Text>
                 <Text color="white">{"/multiline     toggle multiline mode"}</Text>
                 <Text color="white">{"/compact       compact context"}</Text>
+                <Text color="white">{"/jac-check     run jac check"}</Text>
+                <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
@@ -514,6 +523,14 @@ def:pub app() -> JsxElement {
         }
         if cmd == "/compact" {
             if session { session.send("Compact the conversation context now. Use the compact_context tool."); }
+            return;
+        }
+        if cmd == "/jac-check" {
+            if session { session.send("Run `jac check` for this project using the bash tool and report diagnostics."); }
+            return;
+        }
+        if cmd == "/jac-doctor" {
+            if session { session.send("Run Jac environment checks (jac --version, project scan for .jac files, mcp availability) using bash/read and summarize."); }
             return;
         }
         if cmd == "/login" {
