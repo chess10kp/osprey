@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Type } from "typebox";
@@ -100,6 +101,16 @@ export class JackalMcpClient {
 
     this._command = command;
     this._args = args;
+
+    if (command === "jac" && args[0] === "mcp") {
+      const probe = spawnSync("jac", ["mcp", "--help"], { encoding: "utf-8" });
+      const stderr = probe.stderr || "";
+      if (probe.status !== 0 && stderr.includes("invalid choice: 'mcp'")) {
+        throw new Error(
+          "Jac MCP is unavailable in this Jac CLI build (missing `jac mcp`). Use a Jac build with MCP support or update pi/mcp.json to a valid MCP server command.",
+        );
+      }
+    }
 
     const transport = new StdioClientTransport({ command, args });
     const client = new Client({ name: "jackal-agent-next", version: "0.1.0" });
