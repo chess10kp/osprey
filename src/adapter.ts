@@ -21,6 +21,7 @@ import {
   runJacCheck as runJacCheckCli,
   runJacFormat as runJacFormatCli,
   runJacTest as runJacTestCli,
+  runJacRun as runJacRunCli,
 } from "./runtime/jac-cli.js";
 import { runJacDoctor as runJacDoctorCli } from "./runtime/jac-doctor.js";
 import {
@@ -141,6 +142,20 @@ export async function runJacTest(
   return runJacTestCli(cwd, files);
 }
 
+/** Run `jac run <file>` and capture runtime output. */
+export async function runJacRun(
+  cwd: string,
+  file: string,
+  options?: { args?: string[]; timeoutMs?: number },
+): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  error?: string;
+}> {
+  return runJacRunCli(cwd, file, options);
+}
+
 /**
  * Phase-0 smoke: boot a headless Jackal session, run one prompt turn,
  * and verify the store + bridge + UI context work end-to-end.
@@ -256,6 +271,7 @@ export async function createNextAgent(
     runJacDoctor: () => Promise<JacDoctorReport>;
     runJacFormat: (files: string[]) => Promise<Awaited<ReturnType<typeof runJacFormat>>>;
     runJacTest: (files?: string[]) => Promise<Awaited<ReturnType<typeof runJacTest>>>;
+    runJacRun: (file: string, args?: string[]) => Promise<Awaited<ReturnType<typeof runJacRun>>>;
     runOsp: (prompt: string) => Promise<void>;
     runConvertPython: (path: string) => Promise<void>;
     runIdiomReview: (paths?: string[]) => Promise<void>;
@@ -463,6 +479,7 @@ export async function createNextAgent(
       runJacDoctor: async () => runJacDoctor(cwd),
       runJacFormat: async (files: string[]) => runJacFormat(cwd, files),
       runJacTest: async (files?: string[]) => runJacTest(cwd, files),
+      runJacRun: async (file: string, args?: string[]) => runJacRun(cwd, file, { args }),
       runOsp: async (prompt: string) => {
         const desc = prompt.trim();
         if (!desc) {

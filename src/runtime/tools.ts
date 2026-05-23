@@ -449,6 +449,44 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const globTool: AgentTool = {
+    name: "glob",
+    label: "Find Files",
+    description: "Find files by glob pattern. Returns matching paths relative to cwd.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "Glob pattern (e.g. **\/*.jac, src\/**\/*.py)" }),
+      maxResults: Type.Optional(Type.Number({ description: "Maximum results (default 50)" })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { pattern: string; maxResults?: number };
+      const { execSync } = await import("node:child_process");
+      const cap = Math.min(params.maxResults ?? 50, 200);
+      try {
+        const output = execSync(
+          `find . -path ./node_modules -prune -o -path ./.git -prune -o -path ./.venv -prune -o -path ./dist -prune -o -name '${params.pattern.replace(/'/g, "'\\''")}' -print`,
+          { cwd, encoding: "utf-8", maxBuffer: 1024 * 1024, timeout: 5000 },
+        ).trim();
+        const files = output
+          .split("\n")
+          .filter(Boolean)
+          .map((f) => f.replace(/^\.\//, ""))
+          .slice(0, cap);
+        const text = files.length > 0
+          ? `Found ${files.length} file(s):\n${files.join("\n")}`
+          : `No files matching '${params.pattern}'`;
+        return {
+          content: [{ type: "text", text }],
+          details: { pattern: params.pattern, count: files.length, files },
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `No files matching '${params.pattern}'` }],
+          details: { pattern: params.pattern, count: 0, files: [] },
+        };
+      }
+    },
+  };
+
   const compactTool: AgentTool = {
     name: "compact_context",
     label: "Compact Context",
@@ -477,6 +515,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     jacTestTool,
     jacFormatTool,
     jacRunTool,
+    globTool,
     compactTool,
     ...createTaskTools(cwd),
   ];
