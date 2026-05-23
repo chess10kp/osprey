@@ -59,7 +59,7 @@ def:pub UserInput(
                 <Box>
                     {len(input_text) == 0 and <Text color="gray">{"> "}</Text>}
                     <TextInput
-                        value={input_text}
+                        defaultValue={input_text}
                         placeholder={placeholder if placeholder else "/ commands, ! bash"}
                         onChange={on_change}
                         onSubmit={on_submit}

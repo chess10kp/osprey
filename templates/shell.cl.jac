@@ -1,4 +1,4 @@
-"""Jackal Shell — Ink shell wired to the headless Jackal adapter via @jac/pi hooks.
+"""Jackal Shell - Ink shell wired to the headless Jackal adapter via @jac/pi hooks.
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
@@ -17,7 +17,7 @@ import from "@jac/pi" {
 
 def to_str(value: any) -> str {
     if value is None { return ""; }
-    
+
     return str(value);
 }
 
@@ -112,30 +112,18 @@ def:pub StatusBar(props: any) -> JsxElement {
 def safe_text(msg: any) -> str {
     if not msg { return ""; }
 
-    content: any = None;
     if hasattr(msg, "text") {
-        content = msg.text;
+        text_val: any = msg.text;
+        if text_val is not None { return str(text_val); }
     }
-    elif hasattr(msg, "content") {
-        content = msg.content;
-    }
-    elif hasattr(msg, "keys") {
-        if "text" in msg {
-            content = msg["text"];
-        }
-        elif "content" in msg {
-            content = msg["content"];
-        }
-    }
-    if content is None { return str(msg); }
-    if type(content) == str { return content; }
-    if type(content) == list {
+    if hasattr(msg, "content") {
+        content: any = msg.content;
+        if content is None { return str(msg); }
+        flat: str = str(content);
+        if flat and flat != "[object Object]" { return flat; }
         parts: list = [];
-        for part in content {
-            if type(part) == str {
-                parts.append(part);
-            }
-            elif hasattr(part, "text") {
+        for part in list(content) {
+            if hasattr(part, "text") {
                 parts.append(str(part.text));
             }
             elif hasattr(part, "get") {
@@ -144,9 +132,17 @@ def safe_text(msg: any) -> str {
                 }
             }
         }
-        return "".join(parts);
+        if len(parts) > 0 { return "".join(parts); }
     }
-    return str(content);
+    if hasattr(msg, "keys") {
+        if "text" in msg and msg["text"] is not None {
+            return str(msg["text"]);
+        }
+        if "content" in msg and msg["content"] is not None {
+            return safe_text({"text": msg["content"], "content": None});
+        }
+    }
+    return str(msg);
 }
 
 def msg_role(msg: any) -> str {
@@ -466,6 +462,7 @@ def:pub app() -> JsxElement {
     session: any = useJackalSession();
 
     has input_text: str = "";
+    has input_reset_key: int = 0;
     has multiline: bool = False;
     has show_help: bool = False;
     has scroll_offset: int = 0;
@@ -473,7 +470,7 @@ def:pub app() -> JsxElement {
 
     completions: any = useCompletions(input_text);
 
-    # Derived from snap — plain locals, not has (would call setState during render)
+    # Derived from snap - plain locals, not has (would call setState during render)
     phase: any = "ready";
     if snap { phase = to_str(snap.phase); }
     model_id: any = "(no model)";
@@ -614,9 +611,11 @@ def:pub app() -> JsxElement {
         if session { session.resolveDialog(to_str(dlg.id), text); }
     }
 
-    def handle_submit() -> None {
-        text: str = input_text;
+    def handle_submit(submitted: str = "") -> None {
+        text: str = submitted.strip() if submitted else input_text.strip();
         input_text = "";
+        input_reset_key = input_reset_key + 1;
+        if not text { return; }
         if ui.dialogs and len(list(ui.dialogs)) > 0 {
             submit_dialog(text);
             return;
@@ -635,11 +634,13 @@ def:pub app() -> JsxElement {
                     dlg2: any = list(ui.dialogs)[0];
                     if session { session.resolveDialog(to_str(dlg2.id), None); }
                     input_text = "";
+                    input_reset_key = input_reset_key + 1;
                     return;
                 }
                 if to_str(auth.step.kind) != "idle" {
                     if session { session.cancelLogin(); }
                     input_text = "";
+                    input_reset_key = input_reset_key + 1;
                     return;
                 }
                 if streaming or (snap and to_str(snap.phase) == "streaming") {
@@ -684,6 +685,7 @@ def:pub app() -> JsxElement {
                 idx: any = selected_completion_index;
                 if idx < 0 or idx >= completion_count { idx = 0; }
                 input_text = str(completion_items[idx].value);
+                input_reset_key = input_reset_key + 1;
                 return;
             }
         }
@@ -798,25 +800,27 @@ def:pub app() -> JsxElement {
                     <Text color="cyan">{to_str(ui.workingMessage)}</Text>
                 </Box>
             )}
-            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
             <Box paddingX={1} marginTop={1}>
                 <Text color="green" bold>{prompt_marker}</Text>
                 <TextInput
-                    value={input_text}
+                    key={str(input_reset_key)}
+                    defaultValue={input_text}
                     placeholder={"Type a message (or /help)" if multiline == False else "Multiline (Ctrl+D to send)"}
                     onChange={lambda (v: str) -> None {
                         input_text = v;
                         selected_completion_index = 0;
                     }}
-                    onSubmit={lambda (_v: str) -> None {
+                    onSubmit={lambda (v: str) -> None {
                         if multiline {
-                            input_text = input_text + "\n";
+                            input_text = v + "\n";
+                            input_reset_key = input_reset_key + 1;
                         } else {
-                            handle_submit();
+                            handle_submit(v);
                         }
                     }}
                 />
             </Box>
+            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
     );
 }
