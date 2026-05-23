@@ -22,37 +22,6 @@ export interface CreateNextAgentOptions {
   sessionDir?: string;
 }
 
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (part && typeof part === "object" && "type" in part && part.type === "text") {
-          return String((part as { text?: string }).text ?? "");
-        }
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-function restoreTranscriptFromSession(session: JackalAgentSession, store: AgentStore): void {
-  for (const msg of session.messages) {
-    if (msg.role === "user") {
-      store.pushUserMessage(messageText(msg.content));
-    } else if (msg.role === "assistant") {
-      const text = messageText(msg.content);
-      if (text) {
-        store.beginStreaming();
-        store.appendStreamText(text);
-        store.finalizeStreaming();
-      }
-    }
-  }
-}
-
 /**
  * Phase-0 smoke: boot a headless Jackal session, run one prompt turn,
  * and verify the store + bridge + UI context work end-to-end.
@@ -137,6 +106,7 @@ export async function createNextAgent(
     resolveDialog: (id: string, value: unknown) => void;
     setModel: (provider: string, modelId: string) => Promise<void>;
     clearSession: () => Promise<void>;
+    compactSession: () => Promise<{ compacted: boolean; dropped: number }>;
     dispose: () => void;
   };
 }> {
@@ -158,7 +128,6 @@ export async function createNextAgent(
   });
 
   const unsubBridge = bridgeEvents(session, store);
-  restoreTranscriptFromSession(session, store);
   store.markReady();
 
   return {
@@ -185,9 +154,10 @@ export async function createNextAgent(
         authFlow.setIdle();
       },
       clearSession: async () => {
-        sessionManager.newSession();
-        store.reset();
-        store.markReady();
+        session.resetForNewSession();
+      },
+      compactSession: async () => {
+        return session.compactContext();
       },
       dispose: () => {
         unsubBridge();

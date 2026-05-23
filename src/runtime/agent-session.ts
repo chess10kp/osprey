@@ -114,6 +114,40 @@ export class JackalAgentSession {
     });
   }
 
+  compactContext(): { compacted: boolean; dropped: number } {
+    const all = this._agent.state.messages;
+    const keepTail = 12;
+    if (all.length <= keepTail) {
+      return { compacted: false, dropped: 0 };
+    }
+
+    this._emit({ type: "compaction_start" });
+
+    const dropped = all.slice(0, all.length - keepTail);
+    const kept = all.slice(all.length - keepTail);
+
+    const lines = dropped
+      .map((m) => {
+        const c = typeof (m as { content?: unknown }).content === "string"
+          ? String((m as { content?: unknown }).content)
+          : JSON.stringify((m as { content?: unknown }).content ?? "");
+        return `${m.role}: ${c.slice(0, 200)}`;
+      })
+      .slice(-30);
+
+    const summary: AgentMessage = {
+      role: "user",
+      content: `Context summary (older messages compacted):\n${lines.join("\n")}`,
+      timestamp: Date.now(),
+    };
+
+    this._agent.state.messages = [summary, ...kept];
+    this._sessionManager.setMessages(this._agent.state.messages);
+    this._emit({ type: "compaction_end" });
+
+    return { compacted: true, dropped: dropped.length };
+  }
+
   /** Start a fresh session: clear agent context and persist an empty transcript. */
   resetForNewSession(): void {
     this._sessionManager.newSession();

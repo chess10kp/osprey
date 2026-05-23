@@ -524,7 +524,8 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/compact" {
-            if session { session.send("Compact the conversation context now. Use the compact_context tool."); }
+            if session and hasattr(session, "compactSession") { session.compactSession(); }
+            elif session { session.send("Compact the conversation context now. Use the compact_context tool."); }
             return;
         }
         if cmd == "/jac-check" {

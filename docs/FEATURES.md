@@ -50,7 +50,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Tool detail in UI | Name, status, truncated input/result, duration | Missing |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
-| `/compact` | Context compaction command | Partial (command + stub tool) |
+| `/compact` | Context compaction command | Partial (basic session compaction + stub tool) |
 | SIGINT / shutdown UX | Clear messaging on abort vs exit | Partial |
 
 ---
