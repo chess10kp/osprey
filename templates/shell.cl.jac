@@ -37,12 +37,12 @@ def:pub WelcomeMessage(props: any) -> JsxElement {
     return (
         <Box flexDirection="column" marginBottom={1}>
             <Box flexDirection="column">
-                <Text color="#e040fb" bold>{"  ██╗ █████╗ ██████╗ ██╗     ██████╗ ███████╗██╗  ██╗"}</Text>
-                <Text color="#e040fb" bold>{"  ██║██╔══██╗██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝"}</Text>
-                <Text color="#e040fb" bold>{"  ██║███████║██████╔╝██║     ██║  ██║███████╗█████╔╝ "}</Text>
-                <Text color="#e040fb" bold>{"  ██║██╔══██║██╔══██╗██║     ██║  ██║╚════██║██╔═██╗ "}</Text>
-                <Text color="#e040fb" bold>{"  ██║██║  ██║██████╔╝███████╗██████╔╝███████║██║  ██╗"}</Text>
-                <Text color="#e040fb" bold>{"  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝"}</Text>
+                <Text color="#e040fb" bold>{"     ██╗ █████╗  ██████╗██╗  ██╗ █████╗ ██╗     "}</Text>
+                <Text color="#e040fb" bold>{"     ██║██╔══██╗██╔════╝██║ ██╔╝██╔══██╗██║     "}</Text>
+                <Text color="#e040fb" bold>{"     ██║███████║██║     █████╔╝ ███████║██║     "}</Text>
+                <Text color="#e040fb" bold>{"██   ██║██╔══██║██║     ██╔═██╗ ██╔══██║██║     "}</Text>
+                <Text color="#e040fb" bold>{"╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██║███████╗"}</Text>
+                <Text color="#e040fb" bold>{" ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝"}</Text>
             </Box>
             <Box
                 flexDirection="column"
@@ -408,11 +408,17 @@ def:pub ToolRow(props: any) -> JsxElement {
     running: bool = status == "running";
     color: str = "yellow" if running else "green";
     icon: str = "⏵" if running else "✓";
+    duration_ms: any = getattr(tool, "durationMs", None);
+    duration_label: str = "";
+    if duration_ms is not None {
+        duration_label = "  (" + str(duration_ms) + "ms)";
+    }
 
     return (
         <Box>
             <Text color={color}>{icon + " "}</Text>
             <Text bold>{name}</Text>
+            {duration_label and <Text dimColor>{duration_label}</Text>}
         </Box>
     );
 }
@@ -504,6 +510,10 @@ def:pub app() -> JsxElement {
         }
         if cmd == "/multiline" {
             multiline = not multiline;
+            return;
+        }
+        if cmd == "/compact" {
+            if session { session.send("Compact the conversation context now. Use the compact_context tool."); }
             return;
         }
         if cmd == "/login" {
@@ -743,8 +753,8 @@ def:pub app() -> JsxElement {
     prompt_marker: str = ">> " if multiline else "> ";
     is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
 
-    # Keep welcome visible until conversation starts.
-    show_welcome: bool = total == 0 and (not is_streaming);
+    # Welcome banner disabled.
+    show_welcome: bool = False;
 
     return (
         <Box flexDirection="column" padding={0}>
@@ -757,7 +767,6 @@ def:pub app() -> JsxElement {
                 tools_running={len(running_tools)}
             />
             <Text color="gray">{divider}</Text>
-            {show_welcome and <WelcomeMessage version=""/>}
             <Box flexDirection="column" paddingX={1}>
                 {msg_rows}
                 {is_streaming and (

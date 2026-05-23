@@ -4,9 +4,8 @@ import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { JackalAuth, JackalModels } from "./auth.js";
 import { JackalSessionManager } from "./session.js";
-
-const DEFAULT_SYSTEM = `You are Jackal, a Jac/Jaseci coding assistant.
-Be concise, evidence-based, and correct. When unsure about Jac syntax, say so.`;
+import { createCoreTools } from "./tools.js";
+import { loadJackalSystemPrompt } from "./system-prompt.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
 
@@ -49,9 +48,9 @@ export class JackalAgentSession {
 
     this._agent = new Agent({
       initialState: {
-        systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM,
+        systemPrompt: loadJackalSystemPrompt(options.cwd, options.systemPrompt),
         model: initialModel,
-        tools: [],
+        tools: createCoreTools(options.cwd),
         messages: options.sessionManager.messages,
       },
       getApiKey: (provider) => this._auth.getApiKey(provider),

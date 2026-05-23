@@ -20,6 +20,7 @@ export interface ToolExecution {
   status: "running" | "done";
   input?: Record<string, unknown>;
   result?: string;
+  durationMs?: number;
 }
 
 export interface AgentMessage {
@@ -129,6 +130,17 @@ export class AgentStore {
   /** Mark the store as ready (boot complete). */
   markReady(): void {
     this._patch({ phase: "ready" });
+  }
+
+  /** Clear transcript and tool state but keep model/session metadata. */
+  clearTranscript(): void {
+    this._patch({
+      messages: [],
+      streamingText: null,
+      toolExecutions: {},
+      phase: "ready",
+      error: null,
+    });
   }
 
   /** Reset to initial state. */

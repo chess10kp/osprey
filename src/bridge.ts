@@ -25,6 +25,8 @@ export function bridgeEvents(
   session: { subscribe: (handler: (event: { type?: string; [key: string]: unknown }) => void) => () => void },
   store: AgentStore,
 ): () => void {
+  const startedAt = new Map<string, number>();
+
   const handler = (event: { type?: string; [key: string]: unknown }): void => {
     if (!event?.type) return;
 
@@ -36,6 +38,9 @@ export function bridgeEvents(
             String(event.sessionId),
             event.sessionName ? String(event.sessionName) : "",
           );
+        }
+        if (event.reason === "new") {
+          store.clearTranscript();
         }
         break;
 
@@ -79,24 +84,33 @@ export function bridgeEvents(
         break;
 
       // ── Tool executions ───────────────────────────────────────────
-      case "tool_execution_start":
+      case "tool_execution_start": {
+        const toolCallId = String(event.toolCallId ?? "");
+        startedAt.set(toolCallId, Date.now());
         store.upsertToolExecution({
-          toolCallId: String(event.toolCallId ?? ""),
+          toolCallId,
           toolName: String(event.toolName ?? "unknown"),
           status: "running",
           input: event.input as Record<string, unknown> | undefined,
         });
         break;
+      }
 
-      case "tool_execution_end":
+      case "tool_execution_end": {
+        const toolCallId = String(event.toolCallId ?? "");
+        const start = startedAt.get(toolCallId);
+        const durationMs = typeof start === "number" ? Date.now() - start : undefined;
+        startedAt.delete(toolCallId);
         store.upsertToolExecution({
-          toolCallId: String(event.toolCallId ?? ""),
+          toolCallId,
           toolName: String(event.toolName ?? "unknown"),
           status: "done",
           input: event.input as Record<string, unknown> | undefined,
           result: formatToolPayload(event.result),
+          durationMs,
         });
         break;
+      }
 
       // ── Model ─────────────────────────────────────────────────────
       case "model_select":
