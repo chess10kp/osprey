@@ -819,8 +819,9 @@ function registerJacPlan({ pi }: CommandContext): void {
 
 function registerClearScreen({ pi }: CommandContext): void {
   const clearHandler = async (): Promise<void> => {
-    // Clear visible screen + scrollback and move cursor to top-left.
-    process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+    // Reset scrolling region/origin mode first so clear targets the full terminal,
+    // then clear visible screen + scrollback and move cursor to absolute top-left.
+    process.stdout.write("\x1b[r\x1b[?6l\x1b[2J\x1b[3J\x1b[H");
   };
 
   pi.registerCommand("clear", {
