@@ -7,6 +7,17 @@
 
 import { useEffect, useState, useRef } from "react";
 
+// ── SIGINT guard ─────────────────────────────────────────────────────────────
+// Ink handles the first Ctrl+C via exitOnCtrlC, but a second press during
+// teardown can throw. This guard ensures repeated Ctrl+C always exits cleanly.
+let __sigintReceived = false;
+process.on("SIGINT", () => {
+  if (__sigintReceived) {
+    process.exit(0);
+  }
+  __sigintReceived = true;
+});
+
 const ADAPTER_PATH =
   process.env.JACKAL_AGENT_DIST ||
   new URL("../../dist/index.js", import.meta.url).pathname;
