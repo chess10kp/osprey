@@ -21,7 +21,7 @@ import {
   pickSubagentModelSpec,
 } from "./settings.js";
 import { getConfig, formatConfig } from "./config.js";
-import { runNextAgentSmoke } from "../../agent-next/src/adapter.js";
+import { runNextAgentSmoke } from "../../../src/adapter.js";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +51,7 @@ function registerJacDoctor({ pi, isVerbose }: CommandContext): void {
         } catch {}
         try {
           await execFileAsync(jacBin, ["mcp", "--inspect"]);
-          lines.push("jac mcp: available (configured in jackal/mcp.json)");
+          lines.push("jac mcp: available (configured in pi/mcp.json)");
         } catch {
           lines.push("jac mcp: NOT available — `jac mcp` failed. Update jaclang.");
         }
@@ -839,7 +839,7 @@ function registerClearScreen({ pi }: CommandContext): void {
 function registerJacSubagentModel({ pi }: CommandContext): void {
   pi.registerCommand("subagent-model", {
     description:
-      'List or set subagents.agentOverrides.<agent>.model in jackal/settings.json. Type agent name manually; after "agent " tab completes models only.',
+      'List or set subagents.agentOverrides.<agent>.model in pi/settings.json. Type agent name manually; after "agent " tab completes models only.',
     getArgumentCompletions: (argumentPrefix) => {
       const items = subagentModelCompletions(argumentPrefix);
       if (!items) return null;
@@ -853,7 +853,7 @@ function registerJacSubagentModel({ pi }: CommandContext): void {
         if (!parsed) {
           ctx.ui.notify(
             readErr ||
-              "Could not read jackal/settings.json. Use jackal.sh so PI_CODING_AGENT_DIR is set, or export PI_CODING_AGENT_DIR.",
+              "Could not read pi/settings.json. Use jackal.sh so PI_CODING_AGENT_DIR is set, or export PI_CODING_AGENT_DIR.",
             "warning",
           );
           return;
@@ -966,7 +966,7 @@ function registerJackalShell({ pi }: CommandContext): void {
 
       // Copy shell template
       const __dirname = dirname(fileURLToPath(import.meta.url));
-      const templatePath = join(__dirname, "..", "..", "agent-next", "templates", "shell.cl.jac");
+      const templatePath = join(__dirname, "..", "..", "..", "templates", "shell.cl.jac");
       if (!existsSync(templatePath)) {
         ctx.ui.notify(`Shell template not found: ${templatePath}`, "error");
         return;
@@ -998,7 +998,7 @@ function registerJackalShell({ pi }: CommandContext): void {
       );
 
       ctx.ui.notify(
-        `Shell template: ${outDir}/shell.cl.jac\nRun: ./jackal.sh  (or: cd agent-next && jac tui templates/shell.cl.jac --install --run)`,
+        `Shell template: ${outDir}/shell.cl.jac\nRun: ./jackal.sh  (or: jac tui templates/shell.cl.jac --install --run)`,
         "info",
       );
     },

@@ -7,16 +7,14 @@ import from pathlib { Path }
 
 def main() {
     base = Path(__file__) if __file__ else Path(".");
-    agent_next_dir = base.parent.parent;
-    repo_root = agent_next_dir.parent;
-
-    shell_jac = agent_next_dir / "templates" / "shell.cl.jac";
+    repo_root = base.parent.parent;
+    shell_jac = repo_root / "templates" / "shell.cl.jac";
     if not shell_jac.exists() {
         print(f"Error: {shell_jac} not found");
         sys.exit(1);
     }
 
-    print("Building agent-next adapter...");
+    print("Building Jackal adapter...");
     build = subprocess.run(["npm", "run", "-s", "build:agent"], cwd=str(repo_root));
     if build.returncode != 0 {
         print("Build failed.");
@@ -30,7 +28,7 @@ def main() {
                 "jac", "tui", str(shell_jac),
                 "--install", "--run",
             ],
-            cwd=str(agent_next_dir),
+            cwd=str(repo_root),
         );
         sys.exit(child.returncode);
     } except KeyboardInterrupt {

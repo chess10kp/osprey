@@ -3,17 +3,17 @@ set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 JACKAL_DIR="$(cd "$(dirname "$(readlink -f "$SCRIPT_PATH")")" && pwd)"
-AGENT_DIR="$JACKAL_DIR/jackal"
+PI_DIR="$JACKAL_DIR/pi"
 
 # Symlink auth.json from global config so provider credentials carry over.
 # This is a one-time setup — once created, it stays in sync automatically.
 GLOBAL_AUTH="$HOME/.pi/agent/auth.json"
-LOCAL_AUTH="$AGENT_DIR/auth.json"
+LOCAL_AUTH="$PI_DIR/auth.json"
 if [ -f "$GLOBAL_AUTH" ] && [ ! -e "$LOCAL_AUTH" ]; then
   ln -s "$GLOBAL_AUTH" "$LOCAL_AUTH"
 fi
 
-export JACKAL_AGENT_DIR="$AGENT_DIR"
+export JACKAL_AGENT_DIR="$PI_DIR"
 
 # Usage:
 #   ./jackal.sh                 -> launch next TUI shell (default)
@@ -29,27 +29,27 @@ if [[ "${JACKAL_CLASSIC_PI:-}" == "1" ]]; then
 fi
 
 if [[ "$USE_CLASSIC" == "1" ]]; then
-  export PI_CODING_AGENT_DIR="$AGENT_DIR"
+  export PI_CODING_AGENT_DIR="$PI_DIR"
   exec -a jackal pi \
-    -e "$JACKAL_DIR/extensions/jackal-toolchain.ts" \
-    --skill "$JACKAL_DIR/skills" \
-    --prompt-template "$JACKAL_DIR/prompts" \
+    -e "$PI_DIR/extensions/jackal-toolchain.ts" \
+    --skill "$PI_DIR/skills" \
+    --prompt-template "$PI_DIR/prompts" \
     "$@"
 fi
 
 # Build adapter on demand for the next shell.
-if [[ ! -f "$JACKAL_DIR/agent-next/dist/index.js" ]]; then
+if [[ ! -f "$JACKAL_DIR/dist/index.js" ]]; then
   (cd "$JACKAL_DIR" && npm run build:agent >/dev/null)
 fi
 
 # Expose adapter dist path + the user's launch cwd to the facade.
-export JACKAL_AGENT_DIST="$JACKAL_DIR/agent-next/dist/index.js"
+export JACKAL_AGENT_DIST="$JACKAL_DIR/dist/index.js"
 export JACKAL_AGENT_CWD="${JACKAL_AGENT_CWD:-$PWD}"
 
 # Compile-only; swap jac-ink's @jac/pi stub for the Jackal agent runtime facade.
-TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/agent-next/.jac/tui}"
+TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/.jac/tui}"
 (
-  cd "$JACKAL_DIR/agent-next" \
+  cd "$JACKAL_DIR" \
     && jac tui templates/shell.cl.jac --out "$TUI_OUT" --no_run
 )
 
@@ -61,7 +61,7 @@ sed -i \
   "$TUI_OUT/module.mjs"
 
 # Overwrite the jac-ink-emitted stub with the Jackal runtime facade.
-cp "$JACKAL_DIR/agent-next/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+cp "$JACKAL_DIR/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
 
 # Install deps if needed, then launch.
 if [[ ! -d "$TUI_OUT/node_modules" ]]; then

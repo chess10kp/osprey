@@ -1,9 +1,0 @@
-{
-  "name": "jackal-agent",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.75.4",
-    "@earendil-works/pi-ai": "^0.75.4"
-  }
-}

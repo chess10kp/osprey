@@ -1,7 +1,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 // @jac/pi runtime facade — Jackal React hooks for the Ink shell.
 //
-// Bridges shell.cl.jac to agent-next/dist/index.js (pi-agent-core loop).
+// Bridges shell.cl.jac to dist/index.js (pi-agent-core loop).
 // Copied into .jac/tui/jac_pi_runtime_shim.mjs by jackal.sh at launch.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -9,7 +9,7 @@ import { useEffect, useState, useRef } from "react";
 
 const ADAPTER_PATH =
   process.env.JACKAL_AGENT_DIST ||
-  new URL("../../agent-next/dist/index.js", import.meta.url).pathname;
+  new URL("../../dist/index.js", import.meta.url).pathname;
 
 let __fileListCache = { at: 0, cwd: "", files: [] };
 

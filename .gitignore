@@ -1,18 +1,18 @@
 # Jac runtime artifacts
 .jac/
 
-# Pi isolated agent dir (jackal/): secrets and session logs
-jackal/auth.json
-jackal/sessions/
-jackal/mcp-cache.json
-jackal/mcp-npx-cache.json
-jackal/mcp-onboarding.json
-jackal/__pycache__/
+# Pi isolated agent dir (pi/): secrets and session logs
+pi/auth.json
+pi/sessions/
+pi/mcp-cache.json
+pi/mcp-npx-cache.json
+pi/mcp-onboarding.json
+pi/__pycache__/
 # Ad-hoc session exports
 session-ses_*.md
 node_modules/
 jac-code/
 reference/
 
-# Agent-next build output
-agent-next/dist/
+# Headless adapter build output
+dist/

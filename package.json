@@ -10,21 +10,21 @@
   "license": "MIT",
   "pi": {
     "extensions": [
-      "./extensions"
+      "./pi/extensions"
     ],
     "skills": [
-      "./skills"
+      "./pi/skills"
     ],
     "prompts": [
-      "./prompts"
+      "./pi/prompts"
     ]
   },
   "files": [
-    "extensions",
-    "chains",
-    "skills",
-    "prompts",
-    "jackal/mcp.json"
+    "pi/extensions",
+    "pi/chains",
+    "pi/skills",
+    "pi/prompts",
+    "pi/mcp.json"
   ],
   "dependencies": {
     "@juicesharp/rpiv-ask-user-question": "^1.5.0",
@@ -37,8 +37,8 @@
   },
   "scripts": {
     "postinstall": "patch-package",
-    "build:agent": "tsc -p agent-next/tsconfig.json",
-    "start:agent-shell": "npm run build:agent && cd agent-next && jac tui templates/shell.cl.jac --install --run"
+    "build:agent": "tsc -p tsconfig.json",
+    "start:agent-shell": "npm run build:agent && jac tui templates/shell.cl.jac --install --run"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "^0.75.4",
