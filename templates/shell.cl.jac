@@ -3,7 +3,6 @@ Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
 import from "@inkjs/ui" { TextInput }
-import from react { useRef }
 import from "@jac/pi" {
     useJackalBoot,
     useJackalSession,
@@ -33,7 +32,8 @@ def list_len(value: any) -> int {
 
 # ── Welcome banner ──────────────────────────────────────────────────
 
-def:pub WelcomeMessage(version: str) -> JsxElement {
+def:pub WelcomeMessage(props: any) -> JsxElement {
+    version: str = to_str(props.version) if props.version else "";
     return (
         <Box flexDirection="column" marginBottom={1}>
             <Box flexDirection="column">
@@ -77,14 +77,13 @@ def phase_color(phase: str) -> str {
     return "gray";
 }
 
-def:pub StatusBar(
-    phase: str,
-    model: str,
-    provider: str,
-    session_name: str,
-    msg_count: int,
-    tools_running: int,
-) -> JsxElement {
+def:pub StatusBar(props: any) -> JsxElement {
+    phase: str = to_str(props.phase) if props.phase else "ready";
+    model: str = to_str(props.model) if props.model else "";
+    provider: str = to_str(props.provider) if props.provider else "";
+    session_name: str = to_str(props.session_name) if props.session_name else "";
+    msg_count: int = int(props.msg_count) if props.msg_count is not None else 0;
+    tools_running: int = int(props.tools_running) if props.tools_running is not None else 0;
     pc: str = phase_color(phase);
     model_display: str = model if model else "(no model)";
     provider_display: str = provider if provider else "";
@@ -112,28 +111,42 @@ def:pub StatusBar(
 
 def safe_text(msg: any) -> str {
     if not msg { return ""; }
-    
-    # message objects have .content or .text
-    has content: any = None;
-    if hasattr(msg, "content") {
-        content = msg.content;
-    }
-    elif hasattr(msg, "text") {
+
+    content: any = None;
+    if hasattr(msg, "text") {
         content = msg.text;
     }
+    elif hasattr(msg, "content") {
+        content = msg.content;
+    }
     elif hasattr(msg, "keys") {
-        if "content" in msg {
-            content = msg["content"];
-        }
-        elif "text" in msg {
+        if "text" in msg {
             content = msg["text"];
         }
+        elif "content" in msg {
+            content = msg["content"];
+        }
     }
-    if content is not None {
-        
-        return str(content);
+    if content is None { return str(msg); }
+    if type(content) == str { return content; }
+    if type(content) == list {
+        parts: list = [];
+        for part in content {
+            if type(part) == str {
+                parts.append(part);
+            }
+            elif hasattr(part, "text") {
+                parts.append(str(part.text));
+            }
+            elif hasattr(part, "get") {
+                if str(part.get("type", "")) == "text" {
+                    parts.append(str(part.get("text", "")));
+                }
+            }
+        }
+        return "".join(parts);
     }
-    return str(msg);
+    return str(content);
 }
 
 def msg_role(msg: any) -> str {
@@ -142,7 +155,8 @@ def msg_role(msg: any) -> str {
     return "unknown";
 }
 
-def:pub MessageRow(msg: any) -> JsxElement {
+def:pub MessageRow(props: any) -> JsxElement {
+    msg: any = props.msg;
     role: str = msg_role(msg);
     text: str = safe_text(msg);
     # truncate for display
@@ -177,12 +191,13 @@ def:pub MessageRow(msg: any) -> JsxElement {
 
 # ── Auth overlays ───────────────────────────────────────────────────
 
-def:pub ProviderPicker(step: any) -> JsxElement {
+def:pub ProviderPicker(props: any) -> JsxElement {
+    step: any = props.step;
     providers: list = list(step.providers) if hasattr(step, "providers") and step.providers else [];
     rows: list = [];
     for p in providers {
-        has marker: str = "○";
-        has color: str = "yellow";
+        marker: str = "○";
+        color: str = "yellow";
         configured: bool = False;
         if hasattr(p, "configured") and p.configured {
             configured = True;
@@ -221,7 +236,8 @@ def:pub ProviderPicker(step: any) -> JsxElement {
     );
 }
 
-def:pub BrowserAuthView(step: any) -> JsxElement {
+def:pub BrowserAuthView(props: any) -> JsxElement {
+    step: any = props.step;
     url: str = str(getattr(step, "url", "")) if hasattr(step, "url") else "";
     instructions: str = str(getattr(step, "instructions", "")) if hasattr(step, "instructions") else "";
     return (
@@ -242,7 +258,9 @@ def:pub BrowserAuthView(step: any) -> JsxElement {
     );
 }
 
-def:pub AuthPromptView(step: any, input_text: str) -> JsxElement {
+def:pub AuthPromptView(props: any) -> JsxElement {
+    step: any = props.step;
+    input_text: str = to_str(props.input_text) if props.input_text else "";
     message: str = str(getattr(step, "message", "")) if hasattr(step, "message") else "Input required";
     placeholder: str = str(getattr(step, "placeholder", "")) if hasattr(step, "placeholder") else "";
     return (
@@ -266,7 +284,8 @@ def:pub AuthPromptView(step: any, input_text: str) -> JsxElement {
     );
 }
 
-def:pub ModelPicker(step: any) -> JsxElement {
+def:pub ModelPicker(props: any) -> JsxElement {
+    step: any = props.step;
     models: list = list(step.models) if hasattr(step, "models") and step.models else [];
     shown: list = models[:12];
     rows: list = [];
@@ -294,7 +313,8 @@ def:pub ModelPicker(step: any) -> JsxElement {
     );
 }
 
-def:pub AuthErrorView(step: any) -> JsxElement {
+def:pub AuthErrorView(props: any) -> JsxElement {
+    step: any = props.step;
     message: str = str(getattr(step, "message", "")) if hasattr(step, "message") else "Unknown error";
     return (
         <Box
@@ -314,12 +334,16 @@ def:pub AuthErrorView(step: any) -> JsxElement {
 
 # ── Dialog overlay ──────────────────────────────────────────────────
 
-def:pub DialogOption(label: str, selected: bool) -> JsxElement {
+def:pub DialogOption(props: any) -> JsxElement {
+    label: str = to_str(props.label) if props.label else "";
+    selected: bool = bool(props.selected) if props.selected is not None else False;
     icon: str = "▸ " if selected else "  ";
     return <Text bold={selected}>{icon + label}</Text>;
 }
 
-def:pub DialogOverlay(dialog: any, input_text: str) -> JsxElement {
+def:pub DialogOverlay(props: any) -> JsxElement {
+    dialog: any = props.dialog;
+    input_text: str = to_str(props.input_text) if props.input_text else "";
     kind: str = str(getattr(dialog, "kind", ""));
     title: str = str(getattr(dialog, "title", "Dialog"));
     opts: list = [];
@@ -358,7 +382,9 @@ def:pub DialogOverlay(dialog: any, input_text: str) -> JsxElement {
 
 # ── Completions ─────────────────────────────────────────────────────
 
-def:pub CompletionsList(items: list, selected_index: int) -> JsxElement {
+def:pub CompletionsList(props: any) -> JsxElement {
+    items: list = list(props.items) if props.items else [];
+    selected_index: int = int(props.selected_index) if props.selected_index is not None else 0;
     rows: list = [];
     shown: list = items[:8];
     for (i, c) in enumerate(shown) {
@@ -379,14 +405,13 @@ def:pub CompletionsList(items: list, selected_index: int) -> JsxElement {
 
 # ── Tool rows ───────────────────────────────────────────────────────
 
-def:pub ToolRow(tool: any) -> JsxElement {
-    name: str = str(getattr(tool, "name", "unknown"));
+def:pub ToolRow(props: any) -> JsxElement {
+    tool: any = props.tool;
+    name: str = str(getattr(tool, "toolName", getattr(tool, "name", "unknown")));
     status: str = str(getattr(tool, "status", "done"));
     running: bool = status == "running";
-    has color: str = "green";
-    if running { color = "yellow"; }
-    has icon: str = "✓";
-    if running { icon = "⏵"; }
+    color: str = "yellow" if running else "green";
+    icon: str = "⏵" if running else "✓";
 
     return (
         <Box>
@@ -398,7 +423,7 @@ def:pub ToolRow(tool: any) -> JsxElement {
 
 # ── Help panel ──────────────────────────────────────────────────────
 
-def:pub HelpPanel() -> JsxElement {
+def:pub HelpPanel(_props: any) -> JsxElement {
     return (
         <Box
             flexDirection="column"
@@ -458,7 +483,6 @@ def:pub app() -> JsxElement {
     session_name: any = "new session";
     if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
 
-    welcome_shown: any = useRef(False);
 
     def submit_main(text: str) -> None {
         cmd: str = text.strip();
@@ -717,12 +741,8 @@ def:pub app() -> JsxElement {
     prompt_marker: str = ">> " if multiline else "> ";
     is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
 
-    # Show welcome once (ref mutation during render is safe; no setState loop)
-    welcome_block: list = [];
-    if welcome_shown.current == False {
-        welcome_shown.current = True;
-        welcome_block = [<WelcomeMessage version=""/>];
-    }
+    # Keep welcome visible until conversation starts.
+    show_welcome: bool = total == 0 and (not is_streaming);
 
     return (
         <Box flexDirection="column" padding={0}>
@@ -735,7 +755,7 @@ def:pub app() -> JsxElement {
                 tools_running={len(running_tools)}
             />
             <Text color="gray">{divider}</Text>
-            {welcome_block}
+            {show_welcome and <WelcomeMessage version=""/>}
             <Box flexDirection="column" paddingX={1}>
                 {msg_rows}
                 {is_streaming and (
