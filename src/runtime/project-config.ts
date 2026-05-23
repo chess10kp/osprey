@@ -24,6 +24,20 @@ export interface JackalProjectConfig {
   sessions?: {
     autoSave?: boolean;
     saveIntervalMs?: number;
+    /** Maximum number of sessions to keep (oldest pruned on startup). */
+    maxCount?: number;
+    /** Prune sessions older than this many days. */
+    retentionDays?: number;
+  };
+  /** Auto-compact context when usage exceeds threshold. */
+  autoCompact?: boolean | {
+    enabled?: boolean;
+    /** Trigger at this percent (default 80). */
+    thresholdPercent?: number;
+    /** Keep this many recent messages (default 12). */
+    keepTail?: number;
+    /** Notify the user when auto-compact runs (default true). */
+    notify?: boolean;
   };
 }
 

@@ -68,6 +68,44 @@ export { resolveDefaultMode } from "./runtime/project-config.js";
 export { runCli, parseRunArgs, resolveRunMode, printRunUsage } from "./cli-run.js";
 export type { RunCliOptions, RunCliResult } from "./cli-run.js";
 
+// Auto-compact
+export {
+  shouldAutoCompact,
+  buildMechanicalSummary,
+  buildLlmSummaryPrompt,
+  resolveAutoCompactConfig,
+} from "./runtime/auto-compact.js";
+export type { AutoCompactConfig, AutoCompactResult } from "./runtime/auto-compact.js";
+
+// Session retention
+export { pruneSessions } from "./runtime/session-index.js";
+
+// Skill index
+export {
+  buildSkillIndex,
+  formatSkillCatalog,
+  searchSkills,
+  loadSkillBody,
+  appendSkillCatalogToPrompt,
+} from "./runtime/skill-index.js";
+export type { SkillEntry } from "./runtime/skill-index.js";
+
+// Project init
+export {
+  analyzeProject,
+  generateAgentsMd,
+  runProjectInit,
+} from "./runtime/project-init.js";
+export type { ProjectInfo, ProjectType } from "./runtime/project-init.js";
+
+// Jac explain workflows
+export {
+  buildExplainPrompt,
+  runExplain,
+  runInit as runJacInit,
+  type ExplainMode,
+} from "./runtime/jac-workflows.js";
+
 import { pathToFileURL } from "node:url";
 import { runNextAgentSmoke } from "./adapter.js";
 import { parseRunArgs, printRunUsage, runCli } from "./cli-run.js";

@@ -248,3 +248,57 @@ export function deleteSession(sessionDir: string, id: string): boolean {
   writeIndex(sessionDir, index);
   return true;
 }
+
+/** Prune old sessions based on retention policy. Returns pruned session IDs. */
+export function pruneSessions(
+  sessionDir: string,
+  options?: {
+    maxCount?: number;
+    retentionDays?: number;
+  },
+): string[] {
+  if (!existsSync(sessionDir)) return [];
+
+  const entries = readIndex(sessionDir);
+  if (entries.length === 0) return [];
+
+  const now = Date.now();
+  const maxAgeMs =
+    typeof options?.retentionDays === "number" && options.retentionDays > 0
+      ? options.retentionDays * 24 * 60 * 60 * 1000
+      : Infinity;
+  const maxCount =
+    typeof options?.maxCount === "number" && options.maxCount > 0
+      ? options.maxCount
+      : Infinity;
+
+  // Sort newest first
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+
+  const pruned: string[] = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const entry = sorted[i]!;
+    const age = now - new Date(entry.updatedAt).getTime();
+
+    // Prune if past retention or past count limit
+    if (age > maxAgeMs || i >= maxCount) {
+      const file = sessionFilePath(sessionDir, entry.id);
+      try {
+        if (existsSync(file)) unlinkSync(file);
+        pruned.push(entry.id);
+      } catch {
+        // skip if file is locked or missing
+      }
+    }
+  }
+
+  if (pruned.length > 0) {
+    const remaining = sorted.filter((e) => !pruned.includes(e.id));
+    writeIndex(sessionDir, remaining);
+  }
+
+  return pruned;
+}

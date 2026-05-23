@@ -14,7 +14,6 @@ Jac-native agent project with:
 - `jackal/SYSTEM.md` — custom Jackal system prompt that emphasizes evidence-based decisions, spatial modeling, and OSP-first design
 - `jackal/mcp.json` — wires up the official **Jac MCP server** (`jac mcp`), which exposes the full Jac toolchain as 19 LLM-callable tools (`validate_jac`, `check_syntax`, `run_jac`, `format_jac`, `lint_jac`, `explain_error`, `list_examples`, `get_example`, `search_docs`, `get_resource`, `get_ast`, `py_to_jac`, `jac_to_py`, `jac_to_js`, `graph_visualize`, `list_commands`, `get_command`, `execute_command`, `understand_jac_and_jaseci`) plus 52 doc resources and 9 prompts.
 - `mermaid-renderer` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via a `/mermaid` command.
-- `extensions/jackal-toolchain.ts` — registers Jackal-specific slash commands (`/jac-doctor`, `/jac-check`, `/fix`, `/jac-verbose`, `/osp`, `/create`, `/refactor`, `/plan`, `/subagent-model`, `/commit`) and an auto-check hook that re-validates a `.jac` file after every write/edit. **Does not** register its own jac_* tools — defers to the Jac MCP for all validation, transpilation, examples, etc.
 - **`.jackal` project config** — per-project JSON file that controls Jackal behavior. Read at session_start, walks up from CWD to find it. Keys: `autocheck`, `autoformat`, `verbose`, `plan`, `maxFixAttempts`, `mermaid`, `notify`, `subagents`.
 - `subagents/` and `chains/` — local subagent workflows and saved chain files. Provides support for built-in agent roles (scout, planner, worker, reviewer, oracle, researcher), chain/parallel execution patterns, and model/workflow overrides via project settings.
 - `subagents/agents/` — Jac-specific subagent definitions. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
@@ -99,42 +98,20 @@ jackal/
 ├── README.md
 ├── ROADMAP.md
 ├── jackal.sh                    # launcher script
-├── jackal/
+├── src/                         # headless agent runtime (canonical)
+├── templates/                   # Ink shell (shell.cl.jac + facade)
+├── pi/                          # package data (not a Pi extension runtime)
 │   ├── SYSTEM.md                # Jackal system prompt
-│   ├── settings.json            # Jackal runtime/settings config
-│   └── mcp.json                 # registers `jac mcp` server
-├── package.json                 # npm package with project metadata and dependencies
-├── extensions/
-│   ├── jackal-toolchain.ts      # entry point — flags, shared context
-│   └── jackal/
-│       ├── check.ts             # local jac check helpers
-│       ├── commands.ts          # slash command registrations
-│       ├── config.ts            # .jackal project config loader
-│       ├── hooks.ts             # event handler registrations
-│       ├── plan-mode.ts         # plan mode constants & step tracking
-│       ├── settings.ts          # settings I/O & subagent model pins
-│       └── types.ts             # shared interfaces & state
-├── subagents/
-│   └── agents/                  # Jac-specific subagent definitions
-│       ├── scout.md         # fast recon (Haiku)
-│       ├── architect.md     # OSP design (Sonnet)
-│       ├── implementer.md   # implementation (Sonnet)
-
-├── chains/                      # saved subagent workflows
-│   ├── pipeline.chain.md        # scout → planner → worker
-│   └── scout-and-design.chain.md # scout → planner
-├── patches/                    # patch-package diffs (applied on npm install)
-│   └── @pi-unipi+notify+2.0.1.patch  # brands notifications as "Jackal"
-├── skills/
-│   ├── fix-skill/
-│   ├── osp-skill/
-│   ├── project-skill/
-│   ├── jackal-auth/
-│   └── refactor-skill/
-├── prompts/
-│   └── explain.md           # explain template
+│   ├── settings.json            # model defaults, subagent overrides
+│   ├── mcp.json                 # registers `jac mcp` server
+│   ├── skills/                  # Jac SKILL.md files
+│   ├── prompts/                 # workflow prompt templates
+│   ├── .pi/agents/              # built-in subagent definitions
+│   └── chains/                  # saved subagent chain workflows
+├── docs/
+│   └── CONSOLIDATION_PLAN.md    # runtime consolidation roadmap
 └── reference/
-    └── pi-lsp-extension/        # reference implementation
+    └── pi-lsp-extension/        # legacy reference only
 ```
 
 ## Development
@@ -155,9 +132,9 @@ Current priorities:
 - Stabilize streaming/render behavior in the Ink shell
 - Harden adapter/bridge behavior in `src/`
 - Keep Jac MCP tooling as the primary validate/run/check surface
-- Port remaining workflows (plan mode, subagents, LSP, skills) into the Jackal runtime
+- Port remaining workflows into the Jackal runtime (`src/` + `templates/shell.cl.jac`)
 
-The old Pi-extension stack under `pi/extensions/` is **not maintained** and is not a supported launch path.
+The legacy Pi extension under `pi/extensions/` was **removed** (see `docs/CONSOLIDATION_PLAN.md`). Launch only via `./jackal.sh`.
 
 ## Runtime architecture notes
 

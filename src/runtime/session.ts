@@ -8,6 +8,7 @@ import {
   getLastSession,
   loadSessionById,
   migrateLegacyLatest,
+  pruneSessions,
   saveSessionRecord,
   type SessionRecord,
 } from "./session-index.js";
@@ -75,7 +76,15 @@ export class JackalSessionManager {
 
     migrateLegacyLatest(dir, cwd);
 
+    // Prune old sessions based on config
     const cfg = loadProjectConfig(cwd);
+    if (cfg.sessions?.maxCount || cfg.sessions?.retentionDays) {
+      pruneSessions(dir, {
+        maxCount: cfg.sessions.maxCount,
+        retentionDays: cfg.sessions.retentionDays,
+      });
+    }
+
     const sessionOpts: JackalSessionOptions = {
       autoSave: cfg.sessions?.autoSave ?? options?.autoSave ?? true,
       saveIntervalMs: cfg.sessions?.saveIntervalMs ?? options?.saveIntervalMs,

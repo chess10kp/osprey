@@ -17,24 +17,23 @@ export JACKAL_AGENT_DIR="$PI_DIR"
 
 # Usage:
 #   ./jackal.sh [args...]  -> launch Jackal (Ink TUI + headless runtime)
-#
-# The --pi / JACKAL_CLASSIC_PI paths are unmaintained legacy code; do not use for development.
-USE_CLASSIC=0
-if [[ "${1:-}" == "--pi" ]]; then
-  USE_CLASSIC=1
-  shift
-fi
-if [[ "${JACKAL_CLASSIC_PI:-}" == "1" ]]; then
-  USE_CLASSIC=1
-fi
 
-if [[ "$USE_CLASSIC" == "1" ]]; then
-  export PI_CODING_AGENT_DIR="$PI_DIR"
-  exec -a jackal pi \
-    -e "$PI_DIR/extensions/jackal-toolchain.ts" \
-    --skill "$PI_DIR/skills" \
-    --prompt-template "$PI_DIR/prompts" \
-    "$@"
+if [[ "${1:-}" == "--pi" || "${JACKAL_CLASSIC_PI:-}" == "1" ]]; then
+  cat >&2 <<EOF
+jackal: the legacy Pi extension path was removed.
+
+Use the Jackal shell instead:
+
+  ./jackal.sh
+
+Headless / CI:
+
+  ./jackal.sh --check
+  ./jackal.sh run "your prompt"
+
+See docs/CONSOLIDATION_PLAN.md for migration notes.
+EOF
+  exit 1
 fi
 
 run_smoke_check() {
@@ -148,10 +147,6 @@ Headless modes work without jac-ink:
 
   ./jackal.sh --check
   ./jackal.sh run "your prompt"
-
-Legacy Pi TUI (unmaintained):
-
-  ./jackal.sh --pi
 EOF
   exit 1
 }
@@ -179,6 +174,7 @@ postprocess_tui() {
   perl -0pi -e 's/(rows\.push\(__jacJsx\(Text, \{"color": "cyan", "bold": is_sel\}, \[\(icon \+ label\)\]\)\);\n\s*)(return __jacJsx\(Box, \{"flexDirection": "column", "paddingX": 1\}, \[__jacJsx\(Text, \{"dimColor": true\}, \["Completions:"\]\), rows\]\);)/$1  }\n  $2/s' "$TUI_OUT/module.mjs"
 
   cp "$JACKAL_DIR/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+  node "$JACKAL_DIR/scripts/dedupe-jac-runtime.mjs" "$TUI_OUT/module.mjs"
   node --check "$TUI_OUT/module.mjs" >/dev/null
 }
 

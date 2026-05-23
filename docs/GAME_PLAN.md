@@ -9,7 +9,7 @@
 2. **Live progress** — `docs/PROGRESS.md` updated after each phase milestone.
 3. **Subagents** — Parallel workers per phase; parent merges and unblocks.
 4. **Reference-first** — Port patterns from `reference/nanocoder/` before inventing.
-5. **Legacy reuse** — Port from `pi/extensions/jackal/` into `src/` (not duplicate Pi extension).
+5. **Consolidation** — Single runtime in `src/`; legacy `pi/extensions/` removed (see `docs/CONSOLIDATION_PLAN.md`).
 6. **No jac-ink edits** — Runtime + `templates/shell.cl.jac` only.
 
 ## Build order (strict)

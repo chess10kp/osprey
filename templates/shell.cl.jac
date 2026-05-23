@@ -2,7 +2,7 @@
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
-import from "./components/chathistory.cl.jac" { ChatHistory }
+import from "./components/transcript.cl.jac" { ChatHistory }
 import from "./components/streammsg.cl.jac" { StreamingMessage }
 import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
@@ -1067,7 +1067,6 @@ def:pub app() -> JsxElement {
             {(not compact_layout) and (
                 <Box key={"chat-" + str(transcript_epoch)}>
                     <ChatHistory
-                        start_chat={True}
                         messages={msgs_list}
                         model={model_id}
                         live_component={live_component}

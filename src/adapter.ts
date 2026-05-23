@@ -27,6 +27,9 @@ import {
   runOspWorkflow,
   runConvertPython,
   runIdiomReview,
+  runExplain,
+  runInit,
+  type ExplainMode,
 } from "./runtime/jac-workflows.js";
 import { formatSubagentCatalog } from "./runtime/subagents.js";
 import { formatChainCatalog } from "./runtime/chains.js";
@@ -256,6 +259,8 @@ export async function createNextAgent(
     runOsp: (prompt: string) => Promise<void>;
     runConvertPython: (path: string) => Promise<void>;
     runIdiomReview: (paths?: string[]) => Promise<void>;
+    runExplain: (mode: ExplainMode, args: string) => Promise<void>;
+    runInit: (options?: { force?: boolean; lean?: boolean }) => Promise<void>;
     checkpointCreate: (name?: string) => Promise<CheckpointMetadata>;
     checkpointList: () => Promise<CheckpointListItem[]>;
     checkpointLoad: (
@@ -481,6 +486,16 @@ export async function createNextAgent(
             : "/jac review-idioms";
         store.pushUserMessage(label);
         await runIdiomReview(session, paths);
+      },
+      runExplain: async (mode: ExplainMode, args: string) => {
+        const label = `/jac explain ${mode} ${args}`.trim();
+        store.pushUserMessage(label);
+        await runExplain(session, mode, args);
+      },
+      runInit: async (options?: { force?: boolean; lean?: boolean }) => {
+        store.pushUserMessage("/init");
+        const result = await runInit(session, cwd, options);
+        session.appendAssistantNotice(result);
       },
       checkpointCreate: async (name?: string) => {
         const model = session.currentModel;

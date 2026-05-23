@@ -8,6 +8,12 @@ import { createCoreTools } from "./tools.js";
 import { loadJackalSystemPrompt } from "./system-prompt.js";
 import { JackalMcpClient } from "./mcp-client.js";
 import { computeContextUsage, type ContextUsage } from "./context-usage.js";
+import {
+  shouldAutoCompact,
+  buildMechanicalSummary,
+  resolveAutoCompactConfig,
+  type AutoCompactConfig,
+} from "./auto-compact.js";
 import type { SessionRecord } from "./session-index.js";
 import {
   formatDiagnostics,
@@ -77,6 +83,7 @@ export class JackalAgentSession {
   private _approvalQueue: ToolApprovalQueue;
   private _systemPrompt: string;
   private _contextMaxOverride: number | null;
+  private _autoCompactConfig: AutoCompactConfig;
   private _customCommands: CustomCommand[] = [];
 
   constructor(options: JackalAgentSessionOptions) {
@@ -90,6 +97,7 @@ export class JackalAgentSession {
       typeof options.contextMaxOverride === "number" && options.contextMaxOverride > 0
         ? options.contextMaxOverride
         : null;
+    this._autoCompactConfig = resolveAutoCompactConfig(loadProjectConfig(options.cwd));
 
     const saved = options.sessionManager.model;
     const savedRef = options.sessionManager.savedModelRef;
@@ -243,6 +251,26 @@ export class JackalAgentSession {
     return this._agent.state.model;
   }
 
+  /** Check if auto-compact should trigger and run it if needed. */
+  private _maybeAutoCompact(): void {
+    const usage = this.getContextUsage();
+    if (!shouldAutoCompact(usage, this._autoCompactConfig)) return;
+
+    const result = this.compactContext({
+      keepTail: this._autoCompactConfig.keepTail,
+    });
+
+    if (result.compacted && this._autoCompactConfig.notify) {
+      this._emit({
+        type: "auto_compact",
+        dropped: result.dropped,
+        messageCountBefore: result.messageCountBefore,
+        messageCountAfter: result.messageCountAfter,
+        percentBefore: usage.percent,
+      });
+    }
+  }
+
   /** Restore conversation from a checkpoint (files restored separately). */
   restoreCheckpointConversation(
     messages: AgentMessage[],
@@ -370,6 +398,10 @@ export class JackalAgentSession {
     }
 
     await this._agent.prompt(outgoing);
+
+    // Auto-compact check after each successful turn
+    this._maybeAutoCompact();
+
     return "sent";
   }
 
@@ -617,16 +649,7 @@ export class JackalAgentSession {
     const dropped = all.slice(0, all.length - keepTail);
     const kept = all.slice(all.length - keepTail);
 
-    const lines = dropped
-      .map((m) => {
-        const c = typeof (m as { content?: unknown }).content === "string"
-          ? String((m as { content?: unknown }).content)
-          : JSON.stringify((m as { content?: unknown }).content ?? "");
-        return `${m.role}: ${c.slice(0, 200)}`;
-      })
-      .slice(-30);
-
-    const summaryText = `Context summary (older messages compacted):\n${lines.join("\n")}`;
+    const summaryText = buildMechanicalSummary(dropped);
     const summary: AgentMessage = {
       role: "user",
       content: summaryText,

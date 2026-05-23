@@ -224,6 +224,14 @@ export function bridgeEvents(
         }
         break;
 
+      case "auto_compact": {
+        const percentBefore = typeof event.percentBefore === "number" ? event.percentBefore : "?";
+        store.pushUserMessage(
+          `[auto-compact] Compacted ${String(event.dropped ?? 0)} message(s) — context was at ${String(percentBefore)}%.`,
+        );
+        break;
+      }
+
       // ── Retry ─────────────────────────────────────────────────────
       case "auto_retry_start":
         store.setPhase("retrying");

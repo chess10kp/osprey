@@ -50,7 +50,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Tool detail in UI | Name, status, truncated input/result, duration | Done |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
-| `/compact` | Context compaction command | Partial (basic session compaction + stub tool) |
+| `/compact` | Context compaction command with auto-compact at threshold | Done (mechanical summary + auto-compact + preview/restore) |
 | SIGINT / shutdown UX | Clear messaging on abort vs exit | Partial |
 
 ---
@@ -69,7 +69,7 @@ Without these, Jackal is chat-only and not a coding agent.
 | Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (loads from `pi/mcp.json`, MCP status surfaced; should lazy-load after TUI render) |
 | Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
-| Working directory safety | Sensible defaults, visible command execution | Missing |
+| Working directory safety | Sensible defaults, visible command execution | Done (safeResolve path validation in tools) |
 
 ---
 
@@ -79,24 +79,40 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| `.jackal` project config | Read `autocheck`, `verbose`, `plan`, etc. from project root | Partial (autocheck supported) |
+| `.jackal` project config | Read `autocheck`, `verbose`, `plan`, `autoCompact`, `sessions` from project root | Done |
 | `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Partial |
 | `/jac-check` | Run `jac check`, display diagnostics | Partial |
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
 | `/fix` | Check → patch → re-check loop (capped retries) | Partial (prefers MCP `validate_jac` path when available; CLI fallback remains) |
 | `/create` | Wrapper around `jac create` templates | Partial (tool-driven wrapper) |
-| Skills on demand | Load `pi/skills/*/SKILL.md` when task matches | Missing |
-| Prompt templates | Reusable prompts from `pi/prompts/` | Missing |
+| Skills on demand | Load `pi/skills/*/SKILL.md` when task matches | Done (skill index in system prompt, agent reads via read tool) |
+| Prompt templates | Reusable prompts from `pi/prompts/` | Done (explain, osp, convert-python, review-idioms, explain-walker, explain-error, explain-graph) |
 
-**Still to port into Jackal** (previously lived in the unmaintained Pi extension):
+**Already ported into Jackal runtime (fully implemented):**
 
 | Feature | Notes |
 |---------|-------|
 | Plan mode | Tool gating, read-only exploration phase |
 | Subagents | scout / architect / implementer chains |
+| `/osp` | OSP graph modeling workflow |
+| `/jac explain` | Explain file/walker/error/graph variants |
+| `/init` | Project analyzer → AGENTS.md generation |
+| Dev modes | normal/auto-accept/yolo/plan with Shift+Tab cycling |
+| Tool approval | Pending approval queue with approve/reject |
+| Checkpoints | Create/list/load/delete with file snapshots |
+| Task management | Agent tools + slash commands |
+| Custom commands | `.jackal/commands/*.md` with template expansion |
+| Non-interactive `jackal run` | --mode, --plain flags |
+| Auto-compact | Threshold-based, mechanical summary |
+| Session retention | Configurable maxCount + retentionDays |
+
+**Still to implement (shell/TUI wiring):**
+
+| Feature | Notes |
+|---------|-------|
 | LSP tools | diagnostics, hover, rename |
 | Mermaid rendering | ASCII diagrams in transcript |
-| `/commit`, `/refactor`, `/osp` | Slash command workflows |
+| `/commit`, `/refactor` | Slash command UI in shell |
 
 ---
 
@@ -133,17 +149,21 @@ Jackal agents **do not implement** items in this section. Record the requirement
 
 Run before calling Jackal v1 done:
 
-- [ ] `./jackal.sh` boots in interactive terminal (TUI visible quickly)
-- [ ] MCP connects in background; status bar reflects connection state
-- [ ] `/login` + `/model` + successful prompt on chosen model
-- [ ] 3+ prompt/response cycles with streaming
-- [ ] Restart shell → transcript and model restored
-- [ ] `/clear` → empty transcript and empty agent memory
-- [ ] Agent reads a file and summarizes it
-- [ ] Agent runs `jac check` via MCP or bash
-- [ ] Tool rows appear during multi-tool turn
-- [ ] `/jac-check` surfaces compiler diagnostics
-- [ ] Editing a `.jac` file triggers autocheck (when enabled)
+- [x] `./jackal.sh` boots in interactive terminal (TUI visible quickly)
+- [x] MCP connects in background; status bar reflects connection state
+- [x] `/login` + `/model` + successful prompt on chosen model
+- [x] 3+ prompt/response cycles with streaming
+- [x] Restart shell → transcript and model restored
+- [x] `/clear` → empty transcript and empty agent memory
+- [x] Agent reads a file and summarizes it
+- [x] Agent runs `jac check` via MCP or bash
+- [x] Tool rows appear during multi-tool turn
+- [x] `/jac-check` surfaces compiler diagnostics
+- [x] Editing a `.jac` file triggers autocheck (when enabled)
+- [x] Auto-compact triggers at threshold
+- [x] Skill catalog in system prompt
+- [x] `/init` generates AGENTS.md
+- [x] `/jac explain` works for all variants
 
 ---
 
@@ -155,6 +175,9 @@ Jackal v1 is **done** when `./jackal.sh`:
 2. Runs an agent with file + bash + Jac MCP tools under `pi/SYSTEM.md`
 3. Supports `/jac-check` and autocheck-on-edit for Jac projects
 4. Has a clear path to port plan mode, subagents, and LSP without relying on any alternate launcher
+5. Auto-compact keeps long sessions running smoothly
+6. Skill catalog and `/jac explain` provide Jac-specific intelligence
+7. `/init` bootstraps project documentation
 
 ---
 

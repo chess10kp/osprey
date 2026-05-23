@@ -14,7 +14,7 @@ Stack:
 - Skills: pi/skills/*/SKILL.md (on demand)
 - Project config: .jackal (per-project JSON)
 
-The old Pi extension under pi/extensions/ is not maintained and is not a supported product path.
+The legacy Pi extension was removed. Launch only via ./jackal.sh (see docs/CONSOLIDATION_PLAN.md).
 
 === Launch ===
 
@@ -48,7 +48,7 @@ Implemented in templates/shell.cl.jac and/or src/runtime/tools.ts:
   /create        jac create template wrapper
   /jac <args>    Pass-through to jac CLI
 
-Still to port from the legacy Pi extension: /plan, /osp, /refactor, /commit, subagents, LSP tools, mermaid rendering.
+Still to port into the Jackal runtime: full plan-mode step UI, LSP tools, mermaid rendering.
 See docs/FEATURES.md for status.
 
 === Project config (.jackal) ===

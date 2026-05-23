@@ -36,8 +36,10 @@ Use **`./jackal.sh`** from the directory you want as the agent’s working tree 
   ```
 - Verify Jac + MCP wiring with:
   ```bash
-  /jac-doctor
+  npm run check          # headless smoke (CI-friendly)
+  ./jackal.sh --check    # same via launcher
   ```
+  Or inside the running shell: `/jac-doctor`
 
 ### With Docker
 

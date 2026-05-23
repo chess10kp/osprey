@@ -1,6 +1,6 @@
-"""TranscriptRow — render one finalized store message for Static transcript."""
+"""Transcript UI — Static queue, row renderer, and chat history (single module)."""
 
-import from "ink" { Box, Text }
+import from "ink" { Box, Static, Text }
 import from .usermsg { UserMessage }
 import from .asstmsg { AssistantMessage }
 
@@ -70,6 +70,55 @@ def:pub TranscriptRow(props: any) -> JsxElement {
     return (
         <Box flexDirection="column" paddingX={1} marginBottom={1}>
             <Text dimColor>{"[" + role + "] " + text}</Text>
+        </Box>
+    );
+}
+
+
+def build_transcript_rows(messages: list, model: str) -> list {
+    rows: list = [];
+    for msg in messages {
+        rows.append(<TranscriptRow msg={msg} model={model}/>);
+    }
+    return rows;
+}
+
+
+def render_static_row(row: any, _index: int) -> any {
+    return row;
+}
+
+
+def:pub ChatQueue(props: any) -> JsxElement {
+    messages: list = list(props.messages) if props.messages else [];
+    model: str = str(props.model) if props.model else "";
+    rows: list = build_transcript_rows(messages, model);
+
+    if len(rows) == 0 {
+        return <Box flexDirection="column"></Box>;
+    }
+
+    return (
+        <Box flexDirection="column">
+            <Static items={rows}>{render_static_row}</Static>
+        </Box>
+    );
+}
+
+
+def:pub ChatHistory(props: any) -> JsxElement {
+    messages: any = props.messages;
+    model: any = props.model;
+    live: any = props.live_component;
+
+    return (
+        <Box flexDirection="column" flexGrow={1}>
+            <ChatQueue messages={messages} model={model}/>
+            {live and (
+                <Box flexDirection="column" paddingX={1}>
+                    {live}
+                </Box>
+            )}
         </Box>
     );
 }

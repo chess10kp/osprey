@@ -102,3 +102,68 @@ export async function runIdiomReview(
 ): Promise<void> {
   await session.sendUserMessage(buildIdiomReviewPrompt(paths));
 }
+
+// ── Explain workflows ──────────────────────────────────────────────
+
+export type ExplainMode = "file" | "walker" | "error" | "graph";
+
+/** Build a prompt for /jac explain <mode>. */
+export function buildExplainPrompt(
+  mode: ExplainMode,
+  args: string,
+  packageRoot?: string,
+): string {
+  const trimmed = args.trim();
+
+  switch (mode) {
+    case "walker":
+      return renderPromptTemplate("explain-walker", {
+        code: trimmed || "(provide walker code after the command)",
+      }, packageRoot);
+
+    case "error": {
+      const parts = trimmed.split("--ctx");
+      const errorText = (parts[0] ?? trimmed).trim();
+      const ctx = parts[1]?.trim();
+      return renderPromptTemplate("explain-error", {
+        error: errorText || "(paste the error after the command)",
+        context: ctx ? `Additional context:\n${ctx}` : "",
+      }, packageRoot);
+    }
+
+    case "graph":
+      return renderPromptTemplate("explain-graph", {
+        code: trimmed || "(provide Jac code after the command)",
+      }, packageRoot);
+
+    case "file":
+    default:
+      return renderPromptTemplate("explain", {
+        code: trimmed || "(provide Jac code after the command)",
+      }, packageRoot);
+  }
+}
+
+/** Run /jac explain <mode> <code_or_error>. */
+export async function runExplain(
+  session: JackalAgentSession,
+  mode: ExplainMode,
+  args: string,
+): Promise<void> {
+  const prompt = buildExplainPrompt(mode, args);
+  await session.sendUserMessage(prompt);
+}
+
+/** Run /init — analyze project and generate AGENTS.md. */
+export async function runInit(
+  session: JackalAgentSession,
+  cwd: string,
+  options?: { force?: boolean; lean?: boolean },
+): Promise<string> {
+  const { runProjectInit } = await import("./project-init.js");
+  const result = await runProjectInit(cwd, options);
+  if (result.written) {
+    return `Generated ${result.path}`;
+  }
+  return result.content;
+}
