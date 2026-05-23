@@ -3,22 +3,22 @@
 ## Current State (2026-05-22)
 
 What works (verified, runs):
-- `src/adapter.ts` — `createNextAgent()` boots a Pi session with auth, store, bridge
+- `src/adapter.ts` — `createNextAgent()` boots a Jackal session (`pi-agent-core`) with auth, store, bridge
 - `src/store.ts` — immutable snapshot store
 - `src/bridge.ts` — Pi events → store mutations
 - `src/ui-context.ts` — headless ExtensionUIContext (dialogs, notify)
 - `src/auth-flow.ts` — login state machine
-- `src/auth-actions.ts` — drives AuthStorage/ModelRegistry
+- `src/auth-actions.ts` — drives `JackalAuth` / `JackalModels` (pi-ai)
 - `src/completions.ts` — slash-command autocomplete
 
 What works in jac-ink (`~/repos/jac-tui`):
 - **jac-ink bypasses Vite** — uses plain `ClientBundleBuilder` for Ink apps
 - **`@jac/pi` import injection** — detects hook usage and adds the import
 - **Real Pi shim** — boots headless adapter, exposes all React hooks
-- `--with_pi` flag injects Pi deps into package.json
+- `agent-next/jac.toml` declares `pi-agent-core` + `pi-ai` (no `--with_pi` / no `pi-coding-agent`)
 
 What runs:
-- `jac tui templates/shell.cl.jac --with_pi` → compiles, installs, starts
+- `./jackal.sh` or `jac tui templates/shell.cl.jac` → compiles, installs, starts
 - Ink renders the shell UI with all components
 - Requires an interactive terminal (raw mode for input)
 
@@ -46,7 +46,7 @@ Compiled `agent-next/src/*.ts` → `agent-next/dist/*.js`
 Store, bridge, auth, ExtensionUIContext — no rendering layer
 
 ### Phase C: jac-ink compilation pipeline ✅
-`jac tui templates/shell.cl.jac --with_pi` compiles and runs
+`./jackal.sh` compiles and runs (facade copied into `.jac/tui/`)
 
 ### Phase D: Interactive shell (current)
 **Goal:** Full interactive prompt/response through the Ink shell
@@ -71,7 +71,7 @@ npm run build:agent
 
 # Run the shell (interactive terminal required)
 cd agent-next
-jac tui templates/shell.cl.jac --with_pi
+./jackal.sh
 ```
 
 ## File map

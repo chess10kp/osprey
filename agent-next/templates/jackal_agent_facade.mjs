@@ -1,23 +1,15 @@
 // ────────────────────────────────────────────────────────────────────────────
-// @jac/pi facade — interim adapter shim emitted into .jac/tui/.
+// @jac/pi runtime facade — Jackal agent hooks (not pi-coding-agent).
 //
-// Bridges shell.cl.jac (Ink) to the headless agent-next adapter
-// (agent-next/dist/index.js). Exposes a stable React-hook API that the
-// Jac shell uses for state, streaming, auth, dialogs, and actions.
-//
-// This file overrides the stub jac-ink emits as `jac_pi_runtime_shim.mjs`.
+// Bridges shell.cl.jac (Ink) to agent-next/dist/index.js (pi-agent-core loop).
+// Copied into .jac/tui/jac_pi_runtime_shim.mjs by jackal.sh at launch.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 
-// Path to the compiled headless adapter. Set by the launcher (jackal.sh) via
-// JACKAL_AGENT_DIST. Defaults to <repo>/agent-next/dist/index.js.
 const ADAPTER_PATH =
   process.env.JACKAL_AGENT_DIST ||
-  new URL(
-    "../../agent-next/dist/index.js",
-    import.meta.url,
-  ).pathname;
+  new URL("../../agent-next/dist/index.js", import.meta.url).pathname;
 
 let __fileListCache = { at: 0, cwd: "", files: [] };
 
@@ -62,13 +54,11 @@ async function listProjectFiles(cwd) {
   return out;
 }
 
-// ── Singleton adapter state ────────────────────────────────────────────────
-
 const state = {
   ready: false,
   booting: false,
   error: null,
-  adapter: null, // { store, uiContext, authFlow, authActions, actions }
+  adapter: null,
   listeners: new Set(),
   initPromise: null,
 };
@@ -93,7 +83,6 @@ async function bootAdapter() {
       const cwd = process.env.JACKAL_AGENT_CWD || process.cwd();
       const adapter = await mod.createNextAgent(cwd);
 
-      // Fan-out: any change in store/auth/ui re-emits to all hooks.
       adapter.store.subscribe(emit);
       adapter.authFlow.subscribe(emit);
       adapter.uiContext.subscribe(emit);
@@ -118,14 +107,11 @@ function subscribe(listener) {
   };
 }
 
-// ── React hooks (the @jac/pi developer API) ────────────────────────────────
-
 function useTick() {
   const [, set] = useState(0);
   useEffect(() => subscribe(() => set((v) => v + 1)), []);
 }
 
-/** Ensure the adapter is booting on mount. Returns { ready, booting, error }. */
 function usePiBoot() {
   useTick();
   useEffect(() => {
@@ -138,46 +124,45 @@ function usePiBoot() {
   };
 }
 
-/** Current agent snapshot from the store. */
 function useAgentState() {
   useTick();
   return state.adapter ? state.adapter.store.getSnapshot() : null;
 }
 
-/** Live streaming text (or null when idle). */
 function useAgentStream() {
   const snap = useAgentState();
   return snap?.streamingText ?? null;
 }
 
-/** Full message history. */
 function useMessages() {
   const snap = useAgentState();
   return snap?.messages ?? [];
 }
 
-/** Tool execution timeline (running + done), ordered by insertion. */
 function useToolTimeline() {
   const snap = useAgentState();
   if (!snap) return [];
   return Object.values(snap.toolExecutions);
 }
 
-/** Auth flow state machine snapshot. */
 function useAuthFlow() {
   useTick();
   return state.adapter ? state.adapter.authFlow.state : { step: { kind: "idle" } };
 }
 
-/** Headless UI state (notifications, dialogs, working indicator, status). */
 function useExtensionUI() {
   useTick();
   return state.adapter
     ? state.adapter.uiContext.getUIState()
-    : { notifications: [], dialogs: [], statusEntries: {}, workingMessage: null, workingVisible: false };
+    : {
+        notifications: [],
+        dialogs: [],
+        statusEntries: {},
+        workingMessage: null,
+        workingVisible: false,
+      };
 }
 
-/** Imperative actions on the Pi session. Stable identity. */
 function usePiSession() {
   const actionsRef = useRef(null);
   useTick();
@@ -190,8 +175,6 @@ function usePiSession() {
       setModel: (provider, modelId) => a.actions.setModel(provider, modelId),
       clearSession: () => a.actions.clearSession(),
       dispose: () => a.actions.dispose(),
-
-      // Auth actions
       login: () => a.authActions.login(),
       loginWith: (providerId) => a.authActions.loginWith(providerId),
       logout: (providerId) => a.authActions.logout(providerId),
@@ -215,7 +198,6 @@ function usePiSession() {
   return actionsRef.current;
 }
 
-/** Slash-command completion suggestions for the current input. */
 function useCompletions(input) {
   useTick();
   const [list, setList] = useState([]);
@@ -228,7 +210,9 @@ function useCompletions(input) {
         const a = state.adapter;
         const step = a?.authFlow.state.step ?? { kind: "idle" };
         const providers = a ? a.authActions.listProviders().map((p) => p.id) : [];
-        const models = a ? a.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`) : [];
+        const models = a
+          ? a.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`)
+          : [];
         let authOptions = [];
         if (step.kind === "select") authOptions = step.options.map((o) => o.id);
         const filePaths = await listProjectFiles(process.cwd());
@@ -251,8 +235,6 @@ function useCompletions(input) {
   }, [input]);
   return list;
 }
-
-// ── Exports ────────────────────────────────────────────────────────────────
 
 export {
   usePiBoot,

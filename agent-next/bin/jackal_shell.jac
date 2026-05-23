@@ -28,7 +28,7 @@ def main() {
         child = subprocess.run(
             [
                 "jac", "tui", str(shell_jac),
-                "--with_pi", "--install", "--run",
+                "--install", "--run",
             ],
             cwd=str(agent_next_dir),
         );

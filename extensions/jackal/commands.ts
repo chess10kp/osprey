@@ -815,6 +815,25 @@ function registerJacPlan({ pi }: CommandContext): void {
   });
 }
 
+// ──── /clear ─────────────────────────────────────────────────────────
+
+function registerClearScreen({ pi }: CommandContext): void {
+  const clearHandler = async (): Promise<void> => {
+    // Clear visible screen + scrollback and move cursor to top-left.
+    process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+  };
+
+  pi.registerCommand("clear", {
+    description: "Clear the terminal screen and keep the current session/context.",
+    handler: clearHandler,
+  });
+
+  pi.registerCommand("new", {
+    description: "Alias for /clear.",
+    handler: clearHandler,
+  });
+}
+
 // ──── /subagent-model ───────────────────────────────────────────────
 
 function registerJacSubagentModel({ pi }: CommandContext): void {
@@ -940,7 +959,7 @@ function registerNextAgentSmoke({ pi }: CommandContext): void {
 function registerJackalShell({ pi }: CommandContext): void {
   pi.registerCommand("jackal-shell", {
     description:
-      "Launch Jackal Ink shell via jac-ink (jac tui shell.cl.jac --with_pi).",
+      "Launch Jackal Ink shell via jac-ink (jac tui shell.cl.jac).",
     handler: async (_args, ctx) => {
       const outDir = join(ctx.cwd, ".jac", "jackal-shell");
       mkdirSync(outDir, { recursive: true });
@@ -962,11 +981,10 @@ function registerJackalShell({ pi }: CommandContext): void {
         name: "jackal-shell",
         private: true,
         type: "module",
-        scripts: { start: "jac tui shell.cl.jac --with_pi --run" },
+        scripts: { start: "jac tui shell.cl.jac --run" },
         dependencies: {
           ink: "^7.0.3",
           react: "^19.2.4",
-          "@earendil-works/pi-coding-agent": "0.75.4",
           "@earendil-works/pi-agent-core": "0.75.4",
           "@earendil-works/pi-ai": "0.75.4",
         },
@@ -980,7 +998,7 @@ function registerJackalShell({ pi }: CommandContext): void {
       );
 
       ctx.ui.notify(
-        `Shell template: ${outDir}/shell.cl.jac\nRun: cd agent-next && jac tui templates/shell.cl.jac --with_pi --install --run`,
+        `Shell template: ${outDir}/shell.cl.jac\nRun: ./jackal.sh  (or: cd agent-next && jac tui templates/shell.cl.jac --install --run)`,
         "info",
       );
     },
@@ -1059,6 +1077,7 @@ export function registerCommands(ctx: CommandContext): void {
   registerRefactor(ctx);
   registerCreate(ctx);
   registerJacPlan(ctx);
+  registerClearScreen(ctx);
   registerJacSubagentModel(ctx);
   registerNextAgentSmoke(ctx);
   registerJackalShell(ctx);

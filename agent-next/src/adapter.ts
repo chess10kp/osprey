@@ -1,21 +1,13 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Adapter — creates a headless Pi AgentSession wired into the AgentStore.
-//
-// This is the glue between Pi's SDK and Jackal's store/bridge layer.
-// It does NOT import any rendering code.
-// ────────────────────────────────────────────────────────────────────────────
+// Adapter — Jackal agent runtime wired into the AgentStore (no pi-coding-agent).
 
-import {
-  createAgentSession,
-  SessionManager,
-  AuthStorage,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import { AgentStore } from "./store.js";
 import { bridgeEvents } from "./bridge.js";
 import { InkExtensionUIContext } from "./ui-context.js";
 import { AuthFlowStore } from "./auth-flow.js";
 import { AuthActions } from "./auth-actions.js";
+import { JackalAuth, JackalModels } from "./runtime/auth.js";
+import { JackalSessionManager } from "./runtime/session.js";
+import { JackalAgentSession } from "./runtime/agent-session.js";
 
 export interface NextAgentResult {
   ok: boolean;
@@ -26,13 +18,43 @@ export interface NextAgentResult {
 }
 
 export interface CreateNextAgentOptions {
-  authStorage?: AuthStorage;
-  modelRegistry?: ModelRegistry;
+  authPath?: string;
   sessionDir?: string;
 }
 
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "type" in part && part.type === "text") {
+          return String((part as { text?: string }).text ?? "");
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+function restoreTranscriptFromSession(session: JackalAgentSession, store: AgentStore): void {
+  for (const msg of session.messages) {
+    if (msg.role === "user") {
+      store.pushUserMessage(messageText(msg.content));
+    } else if (msg.role === "assistant") {
+      const text = messageText(msg.content);
+      if (text) {
+        store.beginStreaming();
+        store.appendStreamText(text);
+        store.finalizeStreaming();
+      }
+    }
+  }
+}
+
 /**
- * Phase-0 smoke: boot a headless Pi session, run one prompt turn,
+ * Phase-0 smoke: boot a headless Jackal session, run one prompt turn,
  * and verify the store + bridge + UI context work end-to-end.
  */
 export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
@@ -41,28 +63,34 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
   const eventTypes = new Set<string>();
 
   let snapshotCount = 0;
-  const unsubStore = store.subscribe(() => { snapshotCount++; });
+  const unsubStore = store.subscribe(() => {
+    snapshotCount++;
+  });
 
   let uiMutations = 0;
-  const unsubUI = uiContext.subscribe(() => { uiMutations++; });
+  const unsubUI = uiContext.subscribe(() => {
+    uiMutations++;
+  });
 
   try {
-    const { session } = await createAgentSession({
+    const auth = JackalAuth.create();
+    const models = new JackalModels(auth);
+    const sessionManager = JackalSessionManager.inMemory(cwd);
+    const session = new JackalAgentSession({
       cwd,
-      sessionManager: SessionManager.inMemory(cwd),
-      noTools: "all",
+      auth,
+      models,
+      sessionManager,
     });
 
-    await session.bindExtensions({ uiContext: uiContext as any });
-
-    const unsubEvents = session.subscribe((event: any) => {
+    const unsubEvents = session.subscribe((event) => {
       if (event?.type) eventTypes.add(String(event.type));
     });
-
     const unsubBridge = bridgeEvents(session, store);
 
     try {
       await session.sendUserMessage("Respond with exactly: headless-ok");
+      await new Promise((r) => setTimeout(r, 1500));
     } finally {
       unsubEvents();
       unsubBridge();
@@ -78,53 +106,23 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
       snapshotCount,
       dialogCount: uiMutations,
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     unsubStore();
     unsubUI();
+    const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
       eventTypes: [...eventTypes],
       snapshotCount,
       dialogCount: uiMutations,
-      error: err?.message || String(err),
+      error: message,
     };
   }
 }
 
 /**
- * Create a full adapter: Pi session wired into store + auth + UI context.
- * Returns everything the Ink shell needs to render and interact.
+ * Create a full adapter: Jackal session wired into store + auth + UI context.
  */
-function messageText(content: any): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (part?.type === "text") return String(part.text ?? "");
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-function restoreTranscriptFromSession(session: any, store: AgentStore): void {
-  const history = Array.isArray(session?.messages) ? session.messages : [];
-  for (const msg of history) {
-    if (msg?.role === "user") {
-      store.pushUserMessage(messageText(msg.content));
-    } else if (msg?.role === "assistant") {
-      const text = messageText(msg.content);
-      if (text) {
-        store.beginStreaming();
-        store.appendStreamText(text);
-        store.finalizeStreaming();
-      }
-    }
-  }
-}
-
 export async function createNextAgent(
   cwd: string,
   options?: CreateNextAgentOptions,
@@ -136,7 +134,7 @@ export async function createNextAgent(
   actions: {
     send: (text: string) => Promise<void>;
     abort: () => Promise<void>;
-    resolveDialog: (id: string, value: any) => void;
+    resolveDialog: (id: string, value: unknown) => void;
     setModel: (provider: string, modelId: string) => Promise<void>;
     clearSession: () => Promise<void>;
     dispose: () => void;
@@ -146,20 +144,18 @@ export async function createNextAgent(
   const uiContext = new InkExtensionUIContext(store);
   const authFlow = new AuthFlowStore();
 
-  const authStorage = options?.authStorage ?? AuthStorage.create();
-  const modelRegistry = options?.modelRegistry ?? ModelRegistry.create(authStorage);
-  const authActions = new AuthActions(authStorage, modelRegistry, authFlow);
+  const auth = JackalAuth.create(options?.authPath);
+  const models = new JackalModels(auth);
+  const authActions = new AuthActions(auth, models, authFlow);
 
-  const sessionManager = SessionManager.continueRecent(cwd, options?.sessionDir);
+  const sessionManager = JackalSessionManager.continueRecent(cwd, options?.sessionDir);
 
-  const { session } = await createAgentSession({
+  const session = new JackalAgentSession({
     cwd,
-    authStorage,
-    modelRegistry,
+    auth,
+    models,
     sessionManager,
   });
-
-  await session.bindExtensions({ uiContext: uiContext as any });
 
   const unsubBridge = bridgeEvents(session, store);
   restoreTranscriptFromSession(session, store);
@@ -178,12 +174,11 @@ export async function createNextAgent(
       abort: async () => {
         await session.abort();
       },
-      resolveDialog: (id: string, value: any) => {
+      resolveDialog: (id: string, value: unknown) => {
         uiContext.resolveDialog(id, value);
       },
       setModel: async (provider: string, modelId: string) => {
-        const models = modelRegistry.getAll();
-        const model = models.find((m: any) => m.provider === provider && m.id === modelId);
+        const model = models.find(provider, modelId);
         if (model) {
           await session.setModel(model);
         }

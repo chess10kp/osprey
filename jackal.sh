@@ -45,15 +45,15 @@ fi
 export JACKAL_AGENT_DIST="$JACKAL_DIR/agent-next/dist/index.js"
 export JACKAL_AGENT_CWD="${JACKAL_AGENT_CWD:-$PWD}"
 
-# Compile-only first so we can swap the jac-ink @jac/pi stub for our real facade.
+# Compile-only; swap jac-ink's @jac/pi stub for the Jackal agent runtime facade.
 TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/agent-next/.jac/tui}"
 (
   cd "$JACKAL_DIR/agent-next" \
-    && jac tui templates/shell.cl.jac --with_pi --out "$TUI_OUT" --no_run
+    && jac tui templates/shell.cl.jac --out "$TUI_OUT" --no_run
 )
 
-# Overwrite the jac-ink-emitted stub with our real adapter facade.
-cp "$JACKAL_DIR/agent-next/templates/jac_pi_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+# Overwrite the jac-ink-emitted stub with our Jackal agent facade (no pi-coding-agent).
+cp "$JACKAL_DIR/agent-next/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
 
 # Install deps if needed, then launch.
 if [[ ! -d "$TUI_OUT/node_modules" ]]; then

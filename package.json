@@ -38,11 +38,11 @@
   "scripts": {
     "postinstall": "patch-package",
     "build:agent": "tsc -p agent-next/tsconfig.json",
-    "start:agent-shell": "npm run build:agent && jac tui agent-next/templates/shell.cl.jac --with_pi --install --run"
+    "start:agent-shell": "npm run build:agent && cd agent-next && jac tui templates/shell.cl.jac --install --run"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.74.0",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-agent-core": "^0.75.4",
+    "@earendil-works/pi-ai": "^0.75.4",
     "ink": "^7.0.3",
     "patch-package": "^8.0.1",
     "react": "^19.2.6",

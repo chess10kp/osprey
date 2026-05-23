@@ -1,7 +1,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 // Agent store — immutable snapshot store backed by useSyncExternalStore.
 //
-// The store is the single source of truth for agent state. Pi session events
+// The store is the single source of truth for agent state. Session events
 // are translated into store mutations by the event bridge (bridge.ts).
 // Consumers (Ink components, @jac/pi hooks) subscribe and get immutable snapshots.
 // ────────────────────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ reliable send/receive, auth/model UX, tool visibility, and session persistence.
   [`pi-interop-progress.md`](../../jac-tui/docs/pi-interop-progress.md).
 - Headless adapter in `agent-next/src/*.ts` until merged into jac-ink's
   `jac_pi_adapter.mjs`; UI orchestration in `shell.cl.jac`.
-- Pi SDK deps via `--with_pi` (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`).
+- Runtime deps: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` (via `jac.toml`; no `pi-coding-agent`).
 - Use `reference/nanocoder` for Ink interaction patterns where helpful.
 
 ## Milestone 1 — jac-ink shell boots with adapter

@@ -1,29 +1,22 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Auth actions — imperative actions that drive AuthStorage/ModelRegistry
-// through the AuthFlowStore state machine.
-//
-// The Ink shell calls these on user interaction. Each action translates
-// Pi's auth APIs into state machine transitions.
-// ────────────────────────────────────────────────────────────────────────────
+// Auth actions — drives JackalAuth through the AuthFlowStore state machine.
 
-import type { AuthStorage } from "@earendil-works/pi-coding-agent";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { JackalAuth, JackalModels } from "./runtime/auth.js";
 import { AuthFlowStore, type ProviderEntry, type ModelEntry } from "./auth-flow.js";
 
 export class AuthActions {
-  private _authStorage: AuthStorage;
-  private _modelRegistry: ModelRegistry;
+  private _auth: JackalAuth;
+  private _models: JackalModels;
   private _flow: AuthFlowStore;
   private _onLoginComplete?: () => void;
 
   constructor(
-    authStorage: AuthStorage,
-    modelRegistry: ModelRegistry,
+    auth: JackalAuth,
+    models: JackalModels,
     flow: AuthFlowStore,
     onLoginComplete?: () => void,
   ) {
-    this._authStorage = authStorage;
-    this._modelRegistry = modelRegistry;
+    this._auth = auth;
+    this._models = models;
     this._flow = flow;
     this._onLoginComplete = onLoginComplete;
   }
@@ -32,15 +25,11 @@ export class AuthActions {
     return this._flow;
   }
 
-  // ── Public actions ─────────────────────────────────────────────────
-
-  /** Open the provider picker. */
   login(): void {
     const providers = this._listProviders();
     this._flow.openProviderPicker(providers);
   }
 
-  /** Login with a specific provider (skip picker). */
   loginWith(providerId: string): void {
     const providers = this._listProviders();
     const provider = providers.find((p) => p.id === providerId);
@@ -56,17 +45,14 @@ export class AuthActions {
     }
   }
 
-  /** Logout from a provider. */
   logout(providerId: string): void {
-    this._authStorage.logout(providerId);
+    this._auth.logout(providerId);
   }
 
-  /** Cancel the in-flight auth flow. */
   cancelLogin(): void {
     this._flow.cancel();
   }
 
-  /** Resolve an in-flight prompt (user typed input). */
   submitAuthPrompt(value: string): void {
     const step = this._flow.state.step;
     if (step.kind === "prompt") {
@@ -76,7 +62,6 @@ export class AuthActions {
     }
   }
 
-  /** Resolve an in-flight select (user picked an option). */
   submitAuthSelect(optionId: string): void {
     const step = this._flow.state.step;
     if (step.kind === "select") {
@@ -84,7 +69,6 @@ export class AuthActions {
     }
   }
 
-  /** Resolve an in-flight API key input. */
   submitApiKey(key: string): void {
     const step = this._flow.state.step;
     if (step.kind === "api_key_input") {
@@ -92,59 +76,49 @@ export class AuthActions {
     }
   }
 
-  /** Select a model (from model picker or programmatically). */
-  selectModel(provider: string, modelId: string): void {
-    // This is a hook for the host to apply the model selection.
-    // The actual session.setModel() is called by the adapter.
+  selectModel(_provider: string, _modelId: string): void {
     this._flow.setIdle();
     this._onLoginComplete?.();
   }
 
-  /** List providers (snapshot). */
   listProviders(): ProviderEntry[] {
     return this._listProviders();
   }
 
-  /** List models (snapshot). */
   listModels(provider?: string): ModelEntry[] {
     return this._listModels(provider);
   }
 
-  // ── Internals ──────────────────────────────────────────────────────
-
   private _listProviders(): ProviderEntry[] {
     const entries: ProviderEntry[] = [];
 
-    // OAuth providers
-    for (const oauth of this._authStorage.getOAuthProviders()) {
-      const status = this._authStorage.getAuthStatus(oauth.id);
-      const models = this._listModels(oauth.id);
+    for (const oauth of this._auth.getOAuthProviders()) {
+      const status = this._auth.getAuthStatus(oauth.id);
+      const modelList = this._listModels(oauth.id);
       entries.push({
         id: oauth.id,
         displayName: oauth.name,
         authType: "oauth",
         configured: status.configured,
-        modelCount: models.length,
+        modelCount: modelList.length,
       });
     }
 
-    // API-key providers (from models that aren't OAuth)
     const oauthIds = new Set(entries.map((e) => e.id));
     const seenProviders = new Set<string>();
-    for (const model of (this._modelRegistry as any).models ?? []) {
+    for (const model of this._models.getAll()) {
       if (oauthIds.has(model.provider) || seenProviders.has(model.provider)) continue;
       seenProviders.add(model.provider);
 
-      const status = this._authStorage.getAuthStatus(model.provider);
-      const models = this._listModels(model.provider);
-      const displayName = this._modelRegistry.getProviderDisplayName(model.provider);
+      const status = this._auth.getAuthStatus(model.provider);
+      const modelList = this._listModels(model.provider);
 
       entries.push({
         id: model.provider,
-        displayName,
+        displayName: this._models.getProviderDisplayName(model.provider),
         authType: status.source === "environment" ? "env" : "api_key",
         configured: status.configured,
-        modelCount: models.length,
+        modelCount: modelList.length,
       });
     }
 
@@ -153,7 +127,7 @@ export class AuthActions {
 
   private _listModels(provider?: string): ModelEntry[] {
     const models: ModelEntry[] = [];
-    for (const model of (this._modelRegistry as any).models ?? []) {
+    for (const model of this._models.getAll()) {
       if (provider && model.provider !== provider) continue;
       models.push({
         provider: model.provider,
@@ -168,14 +142,17 @@ export class AuthActions {
     this._flow.setLoggingIn(providerId, "Starting OAuth flow...");
 
     try {
-      await this._authStorage.login(providerId, {
+      await this._auth.login(providerId, {
         signal: this._flow.signal,
         onAuth: (info) => {
           this._flow.setBrowserAuth(providerId, info.url, info.instructions);
         },
         onPrompt: (p) =>
           new Promise((resolve, reject) => {
-            this._flow.setPrompt(providerId, p.message, p.placeholder ?? "", { resolve, reject });
+            this._flow.setPrompt(providerId, p.message, p.placeholder ?? "", {
+              resolve,
+              reject,
+            });
           }),
         onManualCodeInput: () =>
           new Promise((resolve, reject) => {
@@ -183,35 +160,42 @@ export class AuthActions {
           }),
         onSelect: (p) =>
           new Promise((resolve, reject) => {
-            this._flow.setSelect(providerId, p.message, p.options.map((o: any) => ({ id: o.id, label: o.label })), { resolve, reject });
+            this._flow.setSelect(
+              providerId,
+              p.message,
+              p.options.map((o) => ({ id: o.id, label: o.label })),
+              { resolve, reject },
+            );
           }),
         onProgress: (msg) => {
           this._flow.setLoggingIn(providerId, msg);
         },
       });
 
-      // Login succeeded
       this._flow.setLoggedIn(providerId, "model_picker");
 
-      // Auto-open model picker
-      const models = this._listModels(providerId);
-      if (models.length > 0) {
-        this._flow.openModelPicker(models);
+      const modelList = this._listModels(providerId);
+      if (modelList.length > 0) {
+        this._flow.openModelPicker(modelList);
       } else {
         this._flow.setIdle();
         this._onLoginComplete?.();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (this._flow.signal.aborted) {
         this._flow.setIdle();
         return;
       }
-      this._flow.setError(err?.message || String(err), providerId);
+      const message = err instanceof Error ? err.message : String(err);
+      this._flow.setError(message, providerId);
     }
   }
 
   private _startApiKeyLogin(providerId: string): void {
-    const pending: { resolve: (value: string | undefined) => void; reject: (reason?: any) => void } = {
+    const pending: {
+      resolve: (value: string | undefined) => void;
+      reject: (reason?: unknown) => void;
+    } = {
       resolve: () => {},
       reject: () => {},
     };
@@ -222,24 +206,26 @@ export class AuthActions {
 
     this._flow.setApiKeyInput(providerId, pending);
 
-    promise.then((key) => {
-      if (!key) {
-        this._flow.setIdle();
-        return;
-      }
+    promise
+      .then((key) => {
+        if (!key) {
+          this._flow.setIdle();
+          return;
+        }
 
-      this._authStorage.set(providerId, { type: "api_key", key });
-      this._flow.setLoggedIn(providerId, "model_picker");
+        this._auth.set(providerId, { type: "api_key", key });
+        this._flow.setLoggedIn(providerId, "model_picker");
 
-      const models = this._listModels(providerId);
-      if (models.length > 0) {
-        this._flow.openModelPicker(models);
-      } else {
+        const modelList = this._listModels(providerId);
+        if (modelList.length > 0) {
+          this._flow.openModelPicker(modelList);
+        } else {
+          this._flow.setIdle();
+          this._onLoginComplete?.();
+        }
+      })
+      .catch(() => {
         this._flow.setIdle();
-        this._onLoginComplete?.();
-      }
-    }).catch(() => {
-      this._flow.setIdle();
-    });
+      });
   }
 }

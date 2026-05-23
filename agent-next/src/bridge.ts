@@ -1,5 +1,5 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Event bridge — translates Pi AgentSession events into store mutations.
+// Event bridge — translates agent session events into store mutations.
 //
 // Subscribes to session events and normalizes them into the AgentStore
 // snapshot. This is the only code that mutates the store after boot.
@@ -18,14 +18,14 @@ function formatToolPayload(value: unknown): string | undefined {
 }
 
 /**
- * Subscribe a store to a Pi AgentSession event stream.
+ * Subscribe a store to an agent session event stream.
  * Returns an unsubscribe function.
  */
 export function bridgeEvents(
-  session: { subscribe: (handler: (event: any) => void) => () => void },
+  session: { subscribe: (handler: (event: { type?: string; [key: string]: unknown }) => void) => () => void },
   store: AgentStore,
 ): () => void {
-  const handler = (event: any): void => {
+  const handler = (event: { type?: string; [key: string]: unknown }): void => {
     if (!event?.type) return;
 
     switch (event.type) {
@@ -53,18 +53,19 @@ export function bridgeEvents(
         break;
 
       // ── Messages ──────────────────────────────────────────────────
-      case "message_start":
-        // Only stream assistant messages, not user echoes
-        if (event.message?.role === "assistant" || !event.message) {
+      case "message_start": {
+        const msg = event.message as { role?: string } | undefined;
+        if (msg?.role === "assistant" || !msg) {
           store.beginStreaming();
         }
         break;
+      }
 
       case "message_update":
-        // Text delta — Pi SDK puts text in assistantMessageEvent.delta
-        // for text_delta events, or event.text for simpler flows
-        if (event.assistantMessageEvent?.type === "text_delta" && event.assistantMessageEvent.delta) {
-          store.appendStreamText(String(event.assistantMessageEvent.delta));
+        // Text delta — assistantMessageEvent.delta for text_delta events
+        const ame = event.assistantMessageEvent as { type?: string; delta?: string } | undefined;
+        if (ame?.type === "text_delta" && ame.delta) {
+          store.appendStreamText(String(ame.delta));
         } else if (event.text) {
           store.appendStreamText(String(event.text));
         }
@@ -83,7 +84,7 @@ export function bridgeEvents(
           toolCallId: String(event.toolCallId ?? ""),
           toolName: String(event.toolName ?? "unknown"),
           status: "running",
-          input: event.input,
+          input: event.input as Record<string, unknown> | undefined,
         });
         break;
 
@@ -92,7 +93,7 @@ export function bridgeEvents(
           toolCallId: String(event.toolCallId ?? ""),
           toolName: String(event.toolName ?? "unknown"),
           status: "done",
-          input: event.input,
+          input: event.input as Record<string, unknown> | undefined,
           result: formatToolPayload(event.result),
         });
         break;
@@ -129,8 +130,7 @@ export function bridgeEvents(
         break;
 
       default:
-        // Unknown event — ignore silently.
-        // This keeps the bridge forward-compatible with new Pi versions.
+        // Unknown event — ignore silently (forward-compatible).
         break;
     }
   };

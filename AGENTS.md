@@ -276,10 +276,12 @@ pi install -l .
 
 The agent-next shell compiles `.cl.jac` → Ink via jac-ink plugin at `~/repos/jac-tui/jac-ink`.
 
+**Runtime:** `pi-agent-core` + `pi-ai` only — **no** `pi-coding-agent`. Headless adapter in `agent-next/src/`; `@jac/pi` hooks are served by `templates/jackal_agent_facade.mjs` (copied to `jac_pi_runtime_shim.mjs` by `jackal.sh`). Do **not** use `jac tui --with_pi` for agent-next.
+
 **Key patches to site-packages (lost on pip reinstall):**
 1. `jac_client/.../compiler.impl.jac` — `_js_module_stem()` fix for `.cl.jac` files
 2. `jaclang/.../client_bundle.impl.jac` — skip `@jac/pi` in `_process_imports`
-3. `~/repos/jac-tui/jac-ink/.../cli.jac` — Vite bypass, Pi import injection, real shim
+3. `~/repos/jac-tui/jac-ink/.../cli.jac` — Vite bypass, `@jac/pi` import injection
 
 **Why Vite is bypassed:** jac-client's `ViteCompiler` targets browsers (externalizes `node:process`, `node:stream`). Ink needs Node.js APIs. The plain `ClientBundleBuilder` gives raw JS which is what Ink needs.
 

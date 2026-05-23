@@ -1,7 +1,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 // Headless UI context for the jac-ink shell — implements ExtensionUIContext.
 //
-// This provides the "supported" subset of Pi's extension UI surface
+// This provides the "supported" subset of the extension UI surface
 // using the AgentStore as the backing state. Extensions that call
 // unsupported methods (custom factory, setFooter, etc.) get a structured
 // error instead of a silent crash.
