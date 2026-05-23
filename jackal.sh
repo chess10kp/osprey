@@ -13,7 +13,7 @@ if [ -f "$GLOBAL_AUTH" ] && [ ! -e "$LOCAL_AUTH" ]; then
   ln -s "$GLOBAL_AUTH" "$LOCAL_AUTH"
 fi
 
-export PI_CODING_AGENT_DIR="$AGENT_DIR"
+export JACKAL_AGENT_DIR="$AGENT_DIR"
 
 # Usage:
 #   ./jackal.sh                 -> launch next TUI shell (default)
@@ -29,6 +29,7 @@ if [[ "${JACKAL_CLASSIC_PI:-}" == "1" ]]; then
 fi
 
 if [[ "$USE_CLASSIC" == "1" ]]; then
+  export PI_CODING_AGENT_DIR="$AGENT_DIR"
   exec -a jackal pi \
     -e "$JACKAL_DIR/extensions/jackal-toolchain.ts" \
     --skill "$JACKAL_DIR/skills" \
@@ -52,7 +53,14 @@ TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/agent-next/.jac/tui}"
     && jac tui templates/shell.cl.jac --out "$TUI_OUT" --no_run
 )
 
-# Overwrite the jac-ink-emitted stub with our Jackal agent facade (no pi-coding-agent).
+# jac-ink may inject legacy @jac/pi hook names; align with Jackal exports.
+sed -i \
+  -e 's/usePiBoot/useJackalBoot/g' \
+  -e 's/usePiSession/useJackalSession/g' \
+  -e 's/useExtensionUI/useJackalUI/g' \
+  "$TUI_OUT/module.mjs"
+
+# Overwrite the jac-ink-emitted stub with the Jackal runtime facade.
 cp "$JACKAL_DIR/agent-next/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
 
 # Install deps if needed, then launch.

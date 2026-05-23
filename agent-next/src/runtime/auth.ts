@@ -1,4 +1,4 @@
-// Jackal credential + model helpers — pi-ai only, no pi-coding-agent.
+// Jackal credential + model helpers (pi-ai).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -32,9 +32,8 @@ export type AuthStatus = {
 
 function resolveAuthPath(): string {
   const agentDir =
-    process.env.PI_CODING_AGENT_DIR ||
     process.env.JACKAL_AGENT_DIR ||
-    join(homedir(), ".pi", "agent");
+    join(homedir(), ".jackal");
   return join(agentDir, "auth.json");
 }
 

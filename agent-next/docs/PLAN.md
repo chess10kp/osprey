@@ -1,5 +1,16 @@
 # Plan: Jackal Agent-Next to Working TUI
 
+See also:
+- **[FEATURES.md](./FEATURES.md)** — full feature checklist with status
+- **[JAC-TUI.md](./JAC-TUI.md)** — jac-ink / jac-tui work (human-owned)
+- **[../../AGENTS.md](../../AGENTS.md)** — agents do not edit jac-ink shims or plugin code; hand framework changes to the human
+
+## Agent workflow (all phases)
+
+**In this repo:** `agent-next/src/`, `agent-next/templates/shell.cl.jac`, `jackal.sh`, Jackal extensions/skills, docs.
+
+**Not in this repo (human maintains):** `~/repos/jac-tui/jac-ink`, jaclang/jac_client site-packages, any `jac_pi_runtime_shim.mjs` or similar shim scripts. When compilation or `@jac/pi` wiring breaks, document the symptom and recommended fix for the human — do not patch the plugin yourself.
+
 ## Current State (2026-05-22)
 
 What works (verified, runs):
@@ -11,31 +22,25 @@ What works (verified, runs):
 - `src/auth-actions.ts` — drives `JackalAuth` / `JackalModels` (pi-ai)
 - `src/completions.ts` — slash-command autocomplete
 
-What works in jac-ink (`~/repos/jac-tui`):
+What works in jac-ink (`~/repos/jac-tui`) — **maintained by human, not jackal agents**:
 - **jac-ink bypasses Vite** — uses plain `ClientBundleBuilder` for Ink apps
 - **`@jac/pi` import injection** — detects hook usage and adds the import
-- **Real Pi shim** — boots headless adapter, exposes all React hooks
-- `agent-next/jac.toml` declares `pi-agent-core` + `pi-ai` (no `--with_pi` / no `pi-coding-agent`)
+- **`jac_pi_runtime_shim.mjs`** — emitted by jac-ink; boots headless adapter via `JACKAL_AGENT_DIST`
+- `agent-next/jac.toml` declares `pi-agent-core` + `pi-ai` (no `pi-coding-agent`)
 
 What runs:
-- `./jackal.sh` or `jac tui templates/shell.cl.jac` → compiles, installs, starts
-- Ink renders the shell UI with all components
-- Requires an interactive terminal (raw mode for input)
+- `./jackal.sh` → `jac tui` compile + run (interactive terminal required)
+- Ink renders the shell UI from `shell.cl.jac`
 
-## Upstream patches applied (site-packages)
+## Framework changes (human-owned)
 
-1. `jac_client/plugin/src/impl/compiler.impl.jac` — fixed `.cl.jac` stem bug
-   - `module_path.stem` returns `shell.cl` but compiled JS is `shell.js`
-   - Added `_js_module_stem()` helper that strips `.cl.jac` correctly
+These live outside the jackal repo. Agents record requirements; the human applies fixes.
 
-2. `jaclang/runtimelib/impl/client_bundle.impl.jac` — skip `@jac/pi` bundling
-   - `@jac/pi` is a virtual import resolved by jac-ink's shim, not a real module
-   - Prevents the import from being stripped during bundle processing
+1. **`jac_client/.../compiler.impl.jac`** — `.cl.jac` stem → correct `.js` module name
+2. **`jaclang/.../client_bundle.impl.jac`** — skip `@jac/pi` in `_process_imports` (virtual import for jac-ink)
+3. **`jac-tui/jac-ink/.../cli.jac`** — Vite bypass, `@jac/pi` rewrite, adapter shim emission
 
-3. `jac-tui/jac-ink/jac_ink/plugin/cli.jac` — three changes:
-   - Use `ClientBundleBuilder` instead of Vite (Ink runs in Node, not browser)
-   - `_ensure_pi_import()` adds `@jac/pi` import when hooks are detected
-   - Real shim with adapter boot + React hooks (replaces Phase 1 stubs)
+See [JAC-TUI.md](./JAC-TUI.md) for the full handoff checklist.
 
 ## Phases
 
@@ -46,7 +51,7 @@ Compiled `agent-next/src/*.ts` → `agent-next/dist/*.js`
 Store, bridge, auth, ExtensionUIContext — no rendering layer
 
 ### Phase C: jac-ink compilation pipeline ✅
-`./jackal.sh` compiles and runs (facade copied into `.jac/tui/`)
+`./jackal.sh` compiles via jac-ink and runs (adapter wiring via jac-ink shim — human-owned)
 
 ### Phase D: Interactive shell (current)
 **Goal:** Full interactive prompt/response through the Ink shell
@@ -59,18 +64,14 @@ Remaining:
 5. Test multiline input
 
 ### Phase E: Integration
-1. `jackal.sh` / `jackal_shell.jac` launch `jac tui`
-2. Fold TS adapter into jac-ink's `jac_pi_adapter.mjs` (upstream)
+1. `jackal.sh` / `jackal_shell.jac` launch `jac tui` (jackal repo)
+2. Request from human: formal adapter injection in jac-ink (drop any shim copy workarounds)
 
 ## How to run
 
 ```bash
-# Build the adapter
-cd /home/jac/repos/jackal
+# From repo root (interactive terminal required)
 npm run build:agent
-
-# Run the shell (interactive terminal required)
-cd agent-next
 ./jackal.sh
 ```
 
@@ -78,15 +79,14 @@ cd agent-next
 
 ```
 agent-next/
-├── dist/                  # compiled adapter
-├── src/                   # headless adapter (TS)
+├── dist/                  # compiled adapter (jackal agents OK)
+├── src/                   # headless adapter (jackal agents OK)
 ├── templates/
-│   ├── shell.cl.jac       # Ink shell UI
-│   └── jac_pi_facade.mjs  # Reference adapter (now inlined in jac-ink shim)
+│   └── shell.cl.jac       # Ink shell UI (jackal agents OK)
 └── bin/
     └── jackal_shell.jac   # jac tui launcher
 
 ~/repos/jac-tui/
-└── jac-ink/               # compiler + @jac/pi shims
-    └── jac_ink/plugin/cli.jac  # patched: Vite bypass + Pi import injection
+└── jac-ink/               # compiler + @jac/pi shim (human only)
+    └── jac_ink/plugin/cli.jac
 ```

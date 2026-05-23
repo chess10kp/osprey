@@ -5,18 +5,27 @@ Ship a **daily-usable Ink shell** for Jackal via **jac-ink** (jac-tui repo), wit
 reliable send/receive, auth/model UX, tool visibility, and session persistence.
 
 ## Guardrails
-- **UI:** jac-ink + Ink + `shell.cl.jac` only.
-- Renderer lives in **`~/repos/jac-tui`** (jac-ink plugin). Follow
-  [`pi-interop-plan.md`](../../jac-tui/docs/pi-interop-plan.md) and
-  [`pi-interop-progress.md`](../../jac-tui/docs/pi-interop-progress.md).
-- Headless adapter in `agent-next/src/*.ts` until merged into jac-ink's
-  `jac_pi_adapter.mjs`; UI orchestration in `shell.cl.jac`.
-- Runtime deps: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` (via `jac.toml`; no `pi-coding-agent`).
-- Use `reference/nanocoder` for Ink interaction patterns where helpful.
+
+### Jackal repo (agents implement here)
+- **UI:** Ink components in `templates/shell.cl.jac`
+- **Runtime:** headless adapter in `agent-next/src/*.ts`
+- **Launch:** `jackal.sh`, docs, Jackal slash workflows ported to Ink where feasible
+- Runtime deps: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` (via `jac.toml`; no `pi-coding-agent`)
+- Use `reference/nanocoder` for Ink interaction patterns where helpful
+
+### Framework / plugin (human implements — agents hand off)
+- **Do not** edit `~/repos/jac-tui/jac-ink`, jaclang, or jac_client
+- **Do not** write or edit shim scripts (`jac_pi_runtime_shim.mjs`, facades, emitted runtime shims)
+- When jac-ink or compiler changes are needed, **tell the human**: symptom, owning repo, recommended fix
+- Renderer/compiler lives in **`~/repos/jac-tui`**. Reference only:
+  [`pi-interop-plan.md`](../../jac-tui/docs/pi-interop-plan.md),
+  [`pi-interop-progress.md`](../../jac-tui/docs/pi-interop-progress.md),
+  [JAC-TUI.md](./JAC-TUI.md),
+  [`AGENTS.md`](../../AGENTS.md)
 
 ## Milestone 1 — jac-ink shell boots with adapter
-1. `shell.cl.jac` exports `app()` and imports `@jac/pi` (or interim adapter JS).
-2. `jac tui templates/shell.cl.jac --with_pi --install --run` boots from repo.
+1. `shell.cl.jac` exports `app()` and imports `@jac/pi`.
+2. `./jackal.sh` (or `jac tui templates/shell.cl.jac` after human confirms jac-ink flags) boots from repo.
 3. Wire send/stream/abort/dispose in Ink components.
 
 **Acceptance:** 3 prompt/response cycles through jac-ink.
@@ -47,17 +56,18 @@ reliable send/receive, auth/model UX, tool visibility, and session persistence.
 **Acceptance:** long-session usability without input or rendering dead-ends.
 
 ## Milestone 6 — Launch integration
-1. Wire `jackal.sh` / `/jackal-shell` / `jackal_shell.jac` to `jac tui`.
-2. Ensure extension loading and MCP discovery work on the Ink path.
+1. Wire `jackal.sh` / `/jackal-shell` / `jackal_shell.jac` to `jac tui` (jackal repo).
+2. Agent capabilities on Ink path: tools, MCP, Jackal workflows (see [FEATURES.md](./FEATURES.md)).
+3. Any jac-ink compile/adapter gaps → hand off to human ([JAC-TUI.md](./JAC-TUI.md)).
 
 **Acceptance:** one-command launch into jac-ink TUI from repo root.
 
 ## Verification checklist
-- `jac tui agent-next/templates/shell.cl.jac --with_pi --install --run`
-- `npm run build:agent` (while TS adapter is still separate)
+- `npm run build:agent`
+- `./jackal.sh` (interactive terminal)
 - basic prompt/tool turn
 - auth/model flow
 - restart persistence check
 
 ## Suggested execution order
-M1 → M2 → M3 → M4 → M5 → M6
+M1 → M2 → M3 → M4 → M5 → M6 (jackal repo work); parallel jac-ink items via human handoff

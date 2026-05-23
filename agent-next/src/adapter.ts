@@ -1,8 +1,8 @@
-// Adapter — Jackal agent runtime wired into the AgentStore (no pi-coding-agent).
+// Adapter — Jackal agent runtime wired into the AgentStore.
 
 import { AgentStore } from "./store.js";
 import { bridgeEvents } from "./bridge.js";
-import { InkExtensionUIContext } from "./ui-context.js";
+import { JackalUIContext } from "./ui-context.js";
 import { AuthFlowStore } from "./auth-flow.js";
 import { AuthActions } from "./auth-actions.js";
 import { JackalAuth, JackalModels } from "./runtime/auth.js";
@@ -59,7 +59,7 @@ function restoreTranscriptFromSession(session: JackalAgentSession, store: AgentS
  */
 export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
   const store = new AgentStore();
-  const uiContext = new InkExtensionUIContext(store);
+  const uiContext = new JackalUIContext(store);
   const eventTypes = new Set<string>();
 
   let snapshotCount = 0;
@@ -128,7 +128,7 @@ export async function createNextAgent(
   options?: CreateNextAgentOptions,
 ): Promise<{
   store: AgentStore;
-  uiContext: InkExtensionUIContext;
+  uiContext: JackalUIContext;
   authFlow: AuthFlowStore;
   authActions: AuthActions;
   actions: {
@@ -141,7 +141,7 @@ export async function createNextAgent(
   };
 }> {
   const store = new AgentStore();
-  const uiContext = new InkExtensionUIContext(store);
+  const uiContext = new JackalUIContext(store);
   const authFlow = new AuthFlowStore();
 
   const auth = JackalAuth.create(options?.authPath);

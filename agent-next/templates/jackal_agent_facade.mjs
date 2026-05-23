@@ -1,7 +1,7 @@
 // ────────────────────────────────────────────────────────────────────────────
-// @jac/pi runtime facade — Jackal agent hooks (not pi-coding-agent).
+// @jac/pi runtime facade — Jackal React hooks for the Ink shell.
 //
-// Bridges shell.cl.jac (Ink) to agent-next/dist/index.js (pi-agent-core loop).
+// Bridges shell.cl.jac to agent-next/dist/index.js (pi-agent-core loop).
 // Copied into .jac/tui/jac_pi_runtime_shim.mjs by jackal.sh at launch.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ function useTick() {
   useEffect(() => subscribe(() => set((v) => v + 1)), []);
 }
 
-function usePiBoot() {
+function useJackalBoot() {
   useTick();
   useEffect(() => {
     bootAdapter();
@@ -150,7 +150,7 @@ function useAuthFlow() {
   return state.adapter ? state.adapter.authFlow.state : { step: { kind: "idle" } };
 }
 
-function useExtensionUI() {
+function useJackalUI() {
   useTick();
   return state.adapter
     ? state.adapter.uiContext.getUIState()
@@ -163,7 +163,7 @@ function useExtensionUI() {
       };
 }
 
-function usePiSession() {
+function useJackalSession() {
   const actionsRef = useRef(null);
   useTick();
   if (!actionsRef.current && state.adapter) {
@@ -237,13 +237,13 @@ function useCompletions(input) {
 }
 
 export {
-  usePiBoot,
-  usePiSession,
+  useJackalBoot,
+  useJackalSession,
   useAgentState,
   useAgentStream,
   useMessages,
   useToolTimeline,
   useAuthFlow,
-  useExtensionUI,
+  useJackalUI,
   useCompletions,
 };

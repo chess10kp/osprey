@@ -274,24 +274,37 @@ pi install -l .
 
 ### Compilation pipeline (jac-ink)
 
-The agent-next shell compiles `.cl.jac` → Ink via jac-ink plugin at `~/repos/jac-tui/jac-ink`.
+The agent-next shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in the separate **jac-tui** repo (`~/repos/jac-tui/jac-ink`). See `agent-next/docs/JAC-TUI.md` for what belongs in jac-tui vs this repo.
 
-**Runtime:** `pi-agent-core` + `pi-ai` only — **no** `pi-coding-agent`. Headless adapter in `agent-next/src/`; `@jac/pi` hooks are served by `templates/jackal_agent_facade.mjs` (copied to `jac_pi_runtime_shim.mjs` by `jackal.sh`). Do **not** use `jac tui --with_pi` for agent-next.
+**Runtime:** `pi-agent-core` + `pi-ai` only — **no** `pi-coding-agent`. Headless adapter in `agent-next/src/`; Ink UI in `agent-next/templates/shell.cl.jac` talks to the adapter through `@jac/pi` hooks resolved by jac-ink.
 
-**Key patches to site-packages (lost on pip reinstall):**
-1. `jac_client/.../compiler.impl.jac` — `_js_module_stem()` fix for `.cl.jac` files
-2. `jaclang/.../client_bundle.impl.jac` — skip `@jac/pi` in `_process_imports`
-3. `~/repos/jac-tui/jac-ink/.../cli.jac` — Vite bypass, `@jac/pi` import injection
+### Framework / plugin changes — human in the loop
 
-**Why Vite is bypassed:** jac-client's `ViteCompiler` targets browsers (externalizes `node:process`, `node:stream`). Ink needs Node.js APIs. The plain `ClientBundleBuilder` gives raw JS which is what Ink needs.
+**Do not modify jac-ink, jaclang, or jac-client yourself.** Do not write or edit shim scripts (`jac_pi_runtime_shim.mjs`, `jackal_agent_facade.mjs`, emitted runtime shims, etc.). The human maintains the jac-ink plugin and will apply toolchain fixes there.
 
-**Why `@jac/pi` import injection is needed:** The Jac compiler strips `@jac/pi` during bundle processing since it's not a real file. `_ensure_pi_import()` detects hook usage and re-adds the import.
+When agent-next work requires a **framework or plugin change**, stop and **tell the human explicitly**:
+
+- What is broken or missing (symptom + file/line if known)
+- Which repo/layer owns the fix (`jac-tui/jac-ink`, `jaclang`, `jac_client`, upstream Pi)
+- The minimal change you would recommend (design note only — do not implement it in those repos)
+- Any workaround still needed in this repo until the plugin is updated
+
+Examples that belong in jac-tui/jac-ink (describe to human, do not patch):
+
+- Vite bypass / `ClientBundleBuilder` for Ink
+- `@jac/pi` import detection, rewrite, and `_ensure_pi_import()`
+- Adapter injection (`--adapter`, `JACKAL_AGENT_DIST`, etc.) instead of copying shims in `jackal.sh`
+- `.cl.jac` module stem or `@jac/pi` bundling behavior (may be jaclang/jac_client upstream)
+
+**Work in this repo only:** `agent-next/src/` (adapter, store, bridge, auth), `agent-next/templates/shell.cl.jac` (Ink UI), `jackal.sh` launch wiring, docs, and Jackal extension/skills — not jac-ink internals.
 
 ### Running
 
 ```bash
-npm run build:agent  # compile TS adapter
-cd agent-next && jac tui templates/shell.cl.jac --with_pi  # launch shell
+npm run build:agent   # compile TS adapter
+./jackal.sh           # compile shell via jac-ink + run Ink app (interactive terminal required)
 ```
 
-Requires interactive terminal. Non-interactive runs fail on Ink's raw mode.
+Or `./jackal.sh --pi` for the classic Pi TUI path. Non-interactive runs fail on Ink raw mode.
+
+Reference docs: `agent-next/docs/FEATURES.md`, `agent-next/docs/JAC-TUI.md`, `agent-next/docs/PLAN.md`.

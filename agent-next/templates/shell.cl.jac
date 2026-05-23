@@ -1,17 +1,18 @@
-"""Jackal Shell — Ink shell wired to the headless Pi adapter via @jac/pi.
+"""Jackal Shell — Ink shell wired to the headless Jackal adapter via @jac/pi hooks.
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
 import from "@inkjs/ui" { TextInput }
+import from react { useRef }
 import from "@jac/pi" {
-    usePiBoot,
-    usePiSession,
+    useJackalBoot,
+    useJackalSession,
     useAgentState,
     useAgentStream,
     useMessages,
     useToolTimeline,
     useAuthFlow,
-    useExtensionUI,
+    useJackalUI,
     useCompletions
 }
 
@@ -430,23 +431,34 @@ def:pub HelpPanel() -> JsxElement {
 # ── Main app ────────────────────────────────────────────────────────
 
 def:pub app() -> JsxElement {
-    boot: any = usePiBoot();
+    boot: any = useJackalBoot();
     snap: any = useAgentState();
     auth: any = useAuthFlow();
-    ui: any = useExtensionUI();
+    ui: any = useJackalUI();
     messages: any = useMessages();
     tools: any = useToolTimeline();
     streaming: any = useAgentStream();
-    session: any = usePiSession();
+    session: any = useJackalSession();
 
     has input_text: str = "";
     has multiline: bool = False;
     has show_help: bool = False;
     has scroll_offset: int = 0;
     has selected_completion_index: int = 0;
-    has has_shown_welcome: bool = False;
 
     completions: any = useCompletions(input_text);
+
+    # Derived from snap — plain locals, not has (would call setState during render)
+    phase: any = "ready";
+    if snap { phase = to_str(snap.phase); }
+    model_id: any = "(no model)";
+    if snap and snap.model { model_id = to_str(snap.model); }
+    provider_id: any = "";
+    if snap and snap.provider { provider_id = to_str(snap.provider); }
+    session_name: any = "new session";
+    if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
+
+    welcome_shown: any = useRef(False);
 
     def submit_main(text: str) -> None {
         cmd: str = text.strip();
@@ -510,7 +522,7 @@ def:pub app() -> JsxElement {
 
     def submit_auth(text: str) -> None {
         step: any = auth.step;
-        has kind: any = "idle";
+        kind: any = "idle";
         if step { kind = to_str(step.kind); }
 
         if kind == "prompt" or kind == "manual_code" {
@@ -555,7 +567,7 @@ def:pub app() -> JsxElement {
         dialogs: any = ui.dialogs;
         if not dialogs or list_len(dialogs) == 0 { return; }
         dlg: any = dialogs[0];
-        has kind3: any = "";
+        kind3: any = "";
         if dlg { kind3 = to_str(dlg.kind); }
         if kind3 == "select" {
             opts3: list = list(dlg.options) if dlg.options else [];
@@ -655,7 +667,7 @@ def:pub app() -> JsxElement {
 
     # ─── boot / error screens ─────────────────────────────────────────
     if (not boot) or (not boot.ready) {
-        booting_text: str = "Booting Pi adapter...";
+        booting_text: str = "Booting Jackal adapter...";
         err: any = boot.error if boot else None;
         return (
             <Box flexDirection="column" padding={1}>
@@ -665,16 +677,6 @@ def:pub app() -> JsxElement {
             </Box>
         );
     }
-
-    # ─── derived display state ────────────────────────────────────────
-    has phase: any = "ready";
-    if snap { phase = to_str(snap.phase); }
-    has model_id: any = "(no model)";
-    if snap and snap.model { model_id = to_str(snap.model); }
-    has provider_id: any = "";
-    if snap and snap.provider { provider_id = to_str(snap.provider); }
-    has session_name: any = "new session";
-    if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
 
     pc: str = phase_color(str(phase));
 
@@ -702,18 +704,23 @@ def:pub app() -> JsxElement {
     has_dialog: bool = len(dialogs_list) > 0;
     completions_list: list = list(completions) if completions else [];
     show_completions: bool = len(completions_list) > 0;
-    if selected_completion_index >= len(completions_list) and len(completions_list) > 0 {
-        selected_completion_index = 0;
+    completion_selection: int = selected_completion_index;
+    if len(completions_list) > 0 {
+        if completion_selection < 0 or completion_selection >= len(completions_list) {
+            completion_selection = 0;
+        }
+    } else {
+        completion_selection = 0;
     }
 
     divider: str = "-" * 70;
     prompt_marker: str = ">> " if multiline else "> ";
     is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
 
-    # Show welcome on first render
+    # Show welcome once (ref mutation during render is safe; no setState loop)
     welcome_block: list = [];
-    if has_shown_welcome == False {
-        has_shown_welcome = True;
+    if welcome_shown.current == False {
+        welcome_shown.current = True;
         welcome_block = [<WelcomeMessage version=""/>];
     }
 
@@ -771,7 +778,7 @@ def:pub app() -> JsxElement {
                     <Text color="cyan">{to_str(ui.workingMessage)}</Text>
                 </Box>
             )}
-            {show_completions and <CompletionsList items={completions_list} selected_index={selected_completion_index}/>}
+            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
             <Box paddingX={1} marginTop={1}>
                 <Text color="green" bold>{prompt_marker}</Text>
                 <TextInput

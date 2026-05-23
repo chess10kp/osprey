@@ -1,4 +1,4 @@
-// Jackal agent session — pi-agent-core loop without pi-coding-agent.
+// Jackal agent session — pi-agent-core loop.
 
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
