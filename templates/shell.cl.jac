@@ -483,11 +483,11 @@ def:pub PromptBar(props: any) -> JsxElement {
                 <Text>{" "}</Text>
                 {len(input_text) == 0 and <Text color="gray">{"Type a message (or /help)" if multiline == False else "Multiline (Enter=newline, Ctrl+D=send)"}</Text>}
                 {len(input_text) > 0 and (
-                    <>
+                    <Box>
                         <Text>{before}</Text>
                         <Text inverse>{at if at else " "}</Text>
                         <Text>{after}</Text>
-                    </>
+                    </Box>
                 )}
             </Box>
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
