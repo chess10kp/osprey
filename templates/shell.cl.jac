@@ -76,19 +76,33 @@ def phase_color(phase: str) -> str {
     return "gray";
 }
 
+def mode_color(mode: str) -> str {
+    if mode == "yolo" { return "red"; }
+    if mode == "plan" { return "yellow"; }
+    if mode == "auto-accept" { return "cyan"; }
+    return "gray";
+}
+
 def:pub StatusBar(props: any) -> JsxElement {
     phase: str = to_str(props.phase) if props.phase else "ready";
+    mode: str = to_str(props.mode) if props.mode else "normal";
     model: str = to_str(props.model) if props.model else "";
     provider: str = to_str(props.provider) if props.provider else "";
     session_name: str = to_str(props.session_name) if props.session_name else "";
     msg_count: int = int(props.msg_count) if props.msg_count is not None else 0;
     tools_running: int = int(props.tools_running) if props.tools_running is not None else 0;
     mcp_connected: bool = bool(props.mcp_connected) if props.mcp_connected is not None else False;
+    mcp_connecting: bool = bool(props.mcp_connecting) if props.mcp_connecting is not None else False;
     mcp_tools: int = int(props.mcp_tools) if props.mcp_tools is not None else 0;
+    usage_line: str = to_str(props.usage_line) if props.usage_line else "";
     pc: str = phase_color(phase);
+    mc: str = mode_color(mode);
     model_display: str = model if model else "(no model)";
     provider_display: str = provider if provider else "";
     session_display: str = session_name if session_name else "new session";
+    mcp_label: str = "on:" + str(mcp_tools);
+    if mcp_connecting { mcp_label = "connecting"; }
+    elif not mcp_connected { mcp_label = "off"; }
 
     return (
         <Box flexDirection="row" justifyContent="space-between" paddingX={1}>
@@ -96,14 +110,17 @@ def:pub StatusBar(props: any) -> JsxElement {
                 <Text bold color="magenta">{"Jackal"}</Text>
                 <Text>{" "}</Text>
                 <Text color={pc}>{"● " + phase}</Text>
+                <Text>{" "}</Text>
+                <Text color={mc} bold>{mode}</Text>
             </Box>
-            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + ("on:" + str(mcp_tools) if mcp_connected else "off")}</Text>
+            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + mcp_label}</Text>
             <Box flexDirection="row">
                 <Text color="green" bold>{provider_display}</Text>
                 {provider_display and <Text color="gray">{"/"}</Text>}
                 <Text color="green">{model_display}</Text>
             </Box>
             <Text color="gray">{session_display}</Text>
+            {usage_line and <Text color="gray">{"  " + usage_line}</Text>}
         </Box>
     );
 }
@@ -395,6 +412,7 @@ def:pub CompletionsList(props: any) -> JsxElement {
 
 def:pub ToolRow(props: any) -> JsxElement {
     tool: any = props.tool;
+    compact: bool = bool(props.compact) if props.compact is not None else False;
     name: str = str(getattr(tool, "toolName", getattr(tool, "name", "unknown")));
     status: str = str(getattr(tool, "status", "done"));
     running: bool = status == "running";
@@ -405,9 +423,19 @@ def:pub ToolRow(props: any) -> JsxElement {
     if duration_ms is not None {
         duration_label = "  (" + str(duration_ms) + "ms)";
     }
+    input_obj: any = getattr(tool, "input", None);
+    input_preview: str = "";
+    if input_obj is not None {
+        input_preview = str(input_obj);
+        if len(input_preview) > 80 { input_preview = input_preview[:80] + "..."; }
+    }
     result_text: str = to_str(getattr(tool, "result", ""));
-    if len(result_text) > 120 {
-        result_text = result_text[:120] + "...";
+    if compact and len(result_text) > 80 {
+        result_text = result_text[:80] + "...";
+    } elif (not compact) and len(result_text) > 2000 {
+        result_text = result_text[:2000] + "\n...[truncated]";
+    } elif compact and len(result_text) > 0 {
+        result_text = "";
     }
 
     return (
@@ -417,7 +445,21 @@ def:pub ToolRow(props: any) -> JsxElement {
                 <Text bold>{name}</Text>
                 {duration_label and <Text dimColor>{duration_label}</Text>}
             </Box>
+            {input_preview and <Text dimColor>{"  args: " + input_preview}</Text>}
             {result_text and <Text dimColor>{"  " + result_text}</Text>}
+        </Box>
+    );
+}
+
+def:pub ApprovalBanner(props: any) -> JsxElement {
+    pending: any = props.pending;
+    if not pending { return <Text></Text>; }
+    tool_name: str = to_str(getattr(pending, "toolName", "tool"));
+    return (
+        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginTop={1}>
+            <Text bold color="yellow">{"Tool approval required"}</Text>
+            <Text>{"Tool: " + tool_name}</Text>
+            <Text dimColor>{"Enter = approve   Esc = reject   Shift+Tab = change mode"}</Text>
         </Box>
     );
 }
@@ -443,18 +485,23 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/cancel        cancel auth flow"}</Text>
                 <Text color="white">{"/abort         cancel active run"}</Text>
                 <Text color="white">{"/clear,/new    new session"}</Text>
-                <Text color="white">{"/multiline     toggle multiline mode"}</Text>
+                <Text color="white">{"Ctrl+J / Shift+Enter  insert newline"}</Text>
                 <Text color="white">{"/compact       compact context"}</Text>
+                <Text color="white">{"/usage         context utilization"}</Text>
+                <Text color="white">{"/resume [id]   load prior session"}</Text>
+                <Text color="white">{"/checkpoint    snapshot files + chat"}</Text>
+                <Text color="white">{"/tasks         task list"}</Text>
                 <Text color="white">{"/jac-check     run jac check"}</Text>
                 <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
                 <Text color="white">{"/jac <args>    run jac cli via tool"}</Text>
                 <Text color="white">{"/fix           jac check/fix loop"}</Text>
+                <Text color="white">{"/osp <desc>    OSP graph design"}</Text>
                 <Text color="white">{"/create        list jac templates"}</Text>
-                <Text color="white">{"/create <tpl> [name]  run jac create"}</Text>
+                <Text color="white">{"/agents        list subagents"}</Text>
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"Readline: Ctrl+A/E, Ctrl+K/U/W, Ctrl+D, Alt+B/F, ←/→, Backspace/Delete"}
+                {"Keys: Shift+Tab mode  Esc abort/clear  Ctrl+O compact tools  Ctrl+J newline  @file  !cmd"}
             </Text>
         </Box>
     );
@@ -466,7 +513,6 @@ def:pub PromptBar(props: any) -> JsxElement {
     prompt_marker: str = props.prompt_marker;
     input_text: str = props.input_text;
     input_cursor: int = props.input_cursor;
-    multiline: bool = props.multiline;
     show_completions: bool = props.show_completions;
     completions_list: list = props.completions_list;
     completion_selection: int = props.completion_selection;
@@ -486,7 +532,7 @@ def:pub PromptBar(props: any) -> JsxElement {
                     <Text inverse>{at if at else " "}</Text>
                     <Text>{after}</Text>
                 </Box>
-                {len(input_text) == 0 and <Text color="gray">{" Type a message (or /help)" if multiline == False else " Multiline (Enter=newline, Ctrl+D=send)"}</Text>}
+                {len(input_text) == 0 and <Text color="gray">{" Type a message (Enter=send, Ctrl+J=newline, /help)"}</Text>}
             </Box>
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
@@ -508,10 +554,11 @@ def:pub app() -> JsxElement {
     has input_text: str = "";
     has input_cursor: int = 0;
     has input_reset_key: int = 0;
-    has multiline: bool = False;
+    # multiline is always enabled -- Enter submits, Ctrl+J / Shift+Enter inserts newline
     has show_help: bool = False;
     has scroll_offset: int = 0;
     has selected_completion_index: int = 0;
+    has compact_tools: bool = False;
 
     completions: any = useCompletions(input_text);
 
@@ -524,6 +571,14 @@ def:pub app() -> JsxElement {
     if snap and snap.provider { provider_id = to_str(snap.provider); }
     session_name: any = "new session";
     if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
+    dev_mode: any = "normal";
+    if snap and snap.mode { dev_mode = to_str(snap.mode); }
+    pending_approval: any = None;
+    if snap and snap.pendingApproval { pending_approval = snap.pendingApproval; }
+    usage_line: str = "";
+    if session and hasattr(session, "getUsageLine") {
+        usage_line = to_str(session.getUsageLine());
+    }
 
 
     def submit_main(text: str) -> None {
@@ -550,13 +605,95 @@ def:pub app() -> JsxElement {
             if session { session.abort(); }
             return;
         }
-        if cmd == "/multiline" {
-            multiline = not multiline;
+
+        if cmd == "/compact" or cmd.startswith("/compact ") {
+            if session and hasattr(session, "compactSession") {
+                session.compactSession();
+            }
             return;
         }
-        if cmd == "/compact" {
-            if session and hasattr(session, "compactSession") { session.compactSession(); }
-            elif session { session.send("Compact the conversation context now. Use the compact_context tool."); }
+        if cmd == "/usage" {
+            if session and hasattr(session, "getUsageLine") {
+                session.send("[usage] " + session.getUsageLine());
+            }
+            return;
+        }
+        if cmd == "/resume" {
+            if session and hasattr(session, "showSessions") { session.showSessions(); }
+            return;
+        }
+        if cmd.startswith("/resume ") {
+            target: str = cmd[8:].strip();
+            if session and hasattr(session, "resumeSession") { session.resumeSession(target); }
+            return;
+        }
+        if cmd.startswith("/rename ") {
+            new_name: str = cmd[8:].strip();
+            if session and new_name and hasattr(session, "renameSession") { session.renameSession(new_name); }
+            return;
+        }
+        if cmd == "/export" {
+            if session and hasattr(session, "exportSessionMarkdown") {
+                md: str = session.exportSessionMarkdown();
+                session.send("[export]\n" + md[:4000]);
+            }
+            return;
+        }
+        if cmd.startswith("/checkpoint") {
+            if not session { return; }
+            cp_parts: list = cmd.split(" ");
+            if len(cp_parts) == 1 or (len(cp_parts) > 1 and cp_parts[1] == "list") {
+                if hasattr(session, "showCheckpoints") { session.showCheckpoints(); }
+                return;
+            }
+            sub: str = cp_parts[1] if len(cp_parts) > 1 else "";
+            if sub == "create" {
+                cname: str = " ".join(cp_parts[2:]) if len(cp_parts) > 2 else "";
+                if hasattr(session, "checkpointCreate") { session.checkpointCreate(cname if cname else None); }
+            } elif sub == "load" and len(cp_parts) > 2 and hasattr(session, "checkpointLoad") {
+                session.checkpointLoad(cp_parts[2]);
+            } elif sub == "delete" and len(cp_parts) > 2 and hasattr(session, "checkpointDelete") {
+                session.checkpointDelete(cp_parts[2]);
+            }
+            return;
+        }
+        if cmd.startswith("/tasks") {
+            if not session { return; }
+            tp: list = cmd.split(" ", 2);
+            if len(tp) == 1 or tp[1] == "list" {
+                if hasattr(session, "showTasks") { session.showTasks(); }
+                return;
+            }
+            if tp[1] == "add" and len(tp) > 2 and hasattr(session, "tasksAdd") {
+                session.tasksAdd(tp[2]);
+            } elif tp[1] == "remove" and len(tp) > 2 and hasattr(session, "tasksRemove") {
+                session.tasksRemove(int(tp[2]));
+            } elif tp[1] == "clear" and hasattr(session, "tasksClear") {
+                session.tasksClear();
+            }
+            return;
+        }
+        if cmd == "/mcp" {
+            mcp_on: bool = bool(getattr(snap, "mcpConnected", False)) if snap else False;
+            mcp_n: int = int(getattr(snap, "mcpToolCount", 0)) if snap else 0;
+            session.send("[mcp] connected=" + str(mcp_on) + " tools=" + str(mcp_n));
+            return;
+        }
+        if cmd.startswith("/osp") {
+            desc: str = cmd[4:].strip() if len(cmd) > 4 else "";
+            if session and desc and hasattr(session, "runOsp") { session.runOsp(desc); }
+            elif session and not desc { session.send("Usage: /osp <domain description>"); }
+            return;
+        }
+        if cmd.startswith("/jac convert-python") {
+            py_path: str = cmd[21:].strip();
+            if session and py_path and hasattr(session, "runConvertPython") { session.runConvertPython(py_path); }
+            return;
+        }
+        if cmd.startswith("/jac review-idioms") {
+            rest: str = cmd[18:].strip();
+            paths: list = rest.split(" ") if rest else [];
+            if session and hasattr(session, "runIdiomReview") { session.runIdiomReview(paths); }
             return;
         }
         if cmd == "/jac-check" {
@@ -635,6 +772,14 @@ def:pub app() -> JsxElement {
         }
         if cmd == "/cancel" {
             if session { session.cancelLogin(); }
+            return;
+        }
+        if cmd == "/agents" {
+            if session and hasattr(session, "showAgents") { session.showAgents(); }
+            return;
+        }
+        if cmd == "/commands" {
+            if session and hasattr(session, "showCommands") { session.showCommands(); }
             return;
         }
         if session { session.send(cmd); }
@@ -730,6 +875,10 @@ def:pub app() -> JsxElement {
     useInput(
         lambda (ch: str, key: any) -> None {
             if key.escape {
+                if pending_approval and session {
+                    session.rejectTool();
+                    return;
+                }
                 if ui.dialogs and len(list(ui.dialogs)) > 0 {
                     dlg2: any = list(ui.dialogs)[0];
                     if session { session.resolveDialog(to_str(dlg2.id), None); }
@@ -749,12 +898,23 @@ def:pub app() -> JsxElement {
                     if session { session.abort(); }
                     return;
                 }
-            }
-            if key.ctrl and ch == "d" {
-                if multiline {
-                    handle_submit();
+                if len(input_text) > 0 {
+                    input_text = "";
+                    input_cursor = 0;
+                    input_reset_key = input_reset_key + 1;
                     return;
                 }
+                return;
+            }
+            if key.shift and key.tab {
+                if session and hasattr(session, "cycleMode") { session.cycleMode(); }
+                return;
+            }
+            if key.ctrl and ch == "o" {
+                compact_tools = not compact_tools;
+                return;
+            }
+            if key.ctrl and ch == "d" {
                 if len(input_text) > 0 and input_cursor < len(input_text) {
                     input_text = input_text[:input_cursor] + input_text[input_cursor + 1:];
                     return;
@@ -790,26 +950,32 @@ def:pub app() -> JsxElement {
                 input_reset_key = input_reset_key + 1;
                 return;
             }
+            # Insert newline: Ctrl+J, raw \n without key.return, or Shift+Enter
+            # (Matches nanocoder's always-available multiline input behavior)
+            if (key.ctrl and ch == "j") or (ch == "\n" and not key.return) or (key.return and key.shift) {
+                input_text = input_text[:input_cursor] + "\n" + input_text[input_cursor:];
+                input_cursor = input_cursor + 1;
+                return;
+            }
             if key.return {
-                if multiline {
-                    input_text = input_text[:input_cursor] + "\n" + input_text[input_cursor:];
-                    input_cursor = input_cursor + 1;
-                } else {
-                    use_selected_completion: bool = False;
-                    if completion_count > 0 {
-                        if not input_text.strip() {
-                            use_selected_completion = True;
-                        } elif to_str(auth.step.kind) == "model_picker" and "/" not in input_text.strip() {
-                            use_selected_completion = True;
-                        }
-                    }
-                    if use_selected_completion {
-                        idx_enter: int = selected_completion_index;
-                        if idx_enter < 0 or idx_enter >= completion_count { idx_enter = 0; }
-                        input_text = str(completion_items[idx_enter].value);
-                    }
-                    handle_submit();
+                if pending_approval and session {
+                    session.approveTool();
+                    return;
                 }
+                use_selected_completion: bool = False;
+                if completion_count > 0 {
+                    if not input_text.strip() {
+                        use_selected_completion = True;
+                    } elif to_str(auth.step.kind) == "model_picker" and "/" not in input_text.strip() {
+                        use_selected_completion = True;
+                    }
+                }
+                if use_selected_completion {
+                    idx_enter: int = selected_completion_index;
+                    if idx_enter < 0 or idx_enter >= completion_count { idx_enter = 0; }
+                    input_text = str(completion_items[idx_enter].value);
+                }
+                handle_submit();
                 return;
             }
             if key.leftArrow {
@@ -913,7 +1079,7 @@ def:pub app() -> JsxElement {
         t for t in tools_list if to_str(t.status) == "running"
     ];
     recent_tools: list = tools_list[-5:] if len(tools_list) > 5 else tools_list;
-    tool_rows: list = [<ToolRow tool={t}/> for t in recent_tools];
+    tool_rows: list = [<ToolRow tool={t} compact={compact_tools}/> for t in recent_tools];
 
     auth_kind: any = "idle";
     if auth and auth.step { auth_kind = to_str(auth.step.kind); }
@@ -949,7 +1115,6 @@ def:pub app() -> JsxElement {
         "input_reset_key": input_reset_key,
         "input_text": input_text,
         "input_cursor": input_cursor,
-        "multiline": multiline,
         "show_completions": show_completions,
         "completions_list": completions_list,
         "completion_selection": completion_selection,
@@ -959,14 +1124,18 @@ def:pub app() -> JsxElement {
         <Box flexDirection="column" padding={0}>
             <StatusBar
                 phase={phase}
+                mode={dev_mode}
                 model={model_id}
                 provider={provider_id}
                 session_name={session_name}
                 msg_count={total}
                 tools_running={len(running_tools)}
                 mcp_connected={bool(getattr(snap, "mcpConnected", False))}
+                mcp_connecting={bool(getattr(snap, "mcpConnecting", False))}
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
+                usage_line={usage_line}
             />
+            {pending_approval and <ApprovalBanner pending={pending_approval}/>}
             <Text color="gray">{divider}</Text>
             {show_help and <HelpPanel/>}
             {compact_layout and <PromptBar {...prompt_props}/>}
