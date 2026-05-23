@@ -1,4 +1,4 @@
-# Jackal — Pi-powered Jac coding agent
+# Jackal — Jac-native coding agent
 
 ## Guidelines
 
@@ -6,26 +6,26 @@
 
 ## What
 
-A Pi package that turns Pi into a specialized coding agent for Jac/Jaseci development. Installs as a local Pi package — does not touch `~/.pi/` global config.
+A full-fledged coding agent written in Jac for Jac/Jaseci development. Jackal now runs through `agent-next` and does **not** depend on Pi as its runtime shell.
 
 ## Architecture
 
-Pi package with:
+Jac-native agent project with:
 - `jackal/SYSTEM.md` — custom Jackal system prompt that emphasizes evidence-based decisions, spatial modeling, and OSP-first design
 - `jackal/mcp.json` — wires up the official **Jac MCP server** (`jac mcp`), which exposes the full Jac toolchain as 19 LLM-callable tools (`validate_jac`, `check_syntax`, `run_jac`, `format_jac`, `lint_jac`, `explain_error`, `list_examples`, `get_example`, `search_docs`, `get_resource`, `get_ast`, `py_to_jac`, `jac_to_py`, `jac_to_js`, `graph_visualize`, `list_commands`, `get_command`, `execute_command`, `understand_jac_and_jaseci`) plus 52 doc resources and 9 prompts.
-- `pi-mermaid` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via `/pi-mermaid` command.
+- `mermaid-renderer` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via a `/mermaid` command.
 - `extensions/jackal-toolchain.ts` — registers Jackal-specific slash commands (`/jac-doctor`, `/jac-check`, `/fix`, `/jac-verbose`, `/osp`, `/create`, `/refactor`, `/plan`, `/subagent-model`, `/commit`) and an auto-check hook that re-validates a `.jac` file after every write/edit. **Does not** register its own jac_* tools — defers to the Jac MCP for all validation, transpilation, examples, etc.
 - **`.jackal` project config** — per-project JSON file that controls Jackal behavior. Read at session_start, walks up from CWD to find it. Keys: `autocheck`, `autoformat`, `verbose`, `plan`, `maxFixAttempts`, `mermaid`, `notify`, `subagents`.
-- [pi-subagents](https://pi.dev/packages/pi-subagents) — installed as an npm package (`npm:pi-subagents`). Provides the `subagent` tool, chain/parallel/background execution, built-in agents (scout, planner, worker, reviewer, oracle, researcher), saved `.chain.md` workflows, and model overrides via settings. No hand-rolled subagent code.
-- `.pi/agents/` — Jac-specific subagent definitions that extend pi-subagents' builtins. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
+- `subagents/` and `chains/` — local subagent workflows and saved chain files. Provides support for built-in agent roles (scout, planner, worker, reviewer, oracle, researcher), chain/parallel execution patterns, and model/workflow overrides via project settings.
+- `subagents/agents/` — Jac-specific subagent definitions. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
   - `scout` — Fast Jac codebase recon (Haiku, cheap/fast)
   - `architect` — OSP graph design and planning (Sonnet, reasoning)
   - `implementer` — Code implementation with full edit capabilities (Sonnet)
 
-- `chains/` — Saved `.chain.md` workflow files for pi-subagents:
+- `chains/` — Saved `.chain.md` workflow files for subagent workflows:
   - `pipeline` — scout → planner → worker (full pipeline)
 - `patches/` — `patch-package` diffs applied on `npm install` via `postinstall` script:
-  - `@pi-unipi+notify+2.0.1.patch` — brands notifications as "Jackal" instead of "Pi"
+  - `@unipi+notify+2.0.1.patch` — brands notifications as "Jackal".
   - `scout-and-design` — scout → planner (investigate + design)
 
 - `skills/` — Agent Skills (SKILL.md files) the LLM reads on-demand for Jac-specific workflows.
@@ -84,21 +84,12 @@ The canonical set of tools Jackal may use, organized by tier.
 
 ## Reference implementation
 
-`reference/pi-lsp-extension/` — cloned from https://github.com/samfoy/pi-lsp-extension
+`reference/pi-lsp-extension/` remains a **legacy reference** for older Pi-extension patterns (kept for historical context).
 
-This is the **primary reference** for the extension pattern. It:
-- Registers multiple LLM-callable tools via `pi.registerTool()` with TypeBox schemas
-- Registers slash commands via `pi.registerCommand()`
-- Uses `pi.on("session_start", ...)` for initialization
-- Uses `pi.on("tool_result", ...)` for post-execution hooks
-- Uses `pi.on("session_shutdown", ...)` for cleanup
-- Organizes tool implementations in `src/tools/` as factory functions
-
-Key API patterns to follow:
-- `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";`
-- `import { Type } from "typebox";` for parameter schemas
-- Default export: `export default function (pi: ExtensionAPI) { ... }`
-- Tool `execute` signature: `(toolCallId, params, signal, onUpdate, ctx) => Promise<AgentToolResult>`
+For active development, treat `agent-next/` as primary and keep architecture/runtime decisions aligned with:
+- `agent-next/docs/FEATURES.md`
+- `agent-next/docs/JAC-TUI.md`
+- `agent-next/docs/PLAN.md`
 
 ## Project structure
 
@@ -107,12 +98,12 @@ jackal/
 ├── AGENTS.md                    # this file
 ├── README.md
 ├── ROADMAP.md
-├── jackal.sh                    # launcher script (isolated Pi env)
+├── jackal.sh                    # launcher script for agent-next shell
 ├── jackal/
 │   ├── SYSTEM.md                # Jackal system prompt
-│   ├── settings.json            # isolated Pi settings (model, packages, subagent overrides)
+│   ├── settings.json            # Jackal runtime/settings config
 │   └── mcp.json                 # registers `jac mcp` server
-├── package.json                 # npm package with pi manifest + pi-subagents dep
+├── package.json                 # npm package with project metadata and dependencies
 ├── extensions/
 │   ├── jackal-toolchain.ts      # entry point — flags, shared context
 │   └── jackal/
@@ -123,7 +114,7 @@ jackal/
 │       ├── plan-mode.ts         # plan mode constants & step tracking
 │       ├── settings.ts          # settings I/O & subagent model pins
 │       └── types.ts             # shared interfaces & state
-├── .pi/
+├── subagents/
 │   └── agents/                  # Jac-specific subagent definitions
 │       ├── scout.md         # fast recon (Haiku)
 │       ├── architect.md     # OSP design (Sonnet)
@@ -148,126 +139,31 @@ jackal/
 
 ## Development
 
-Jackal uses `PI_CODING_AGENT_DIR` to point to an isolated config directory (`jackal/`) so global Pi packages never load. The launcher script wraps this:
+Primary workflow is the Jac-native `agent-next` shell:
 
 ```bash
-# Launch from repo root (any cwd, no global packages)
-cd /some/project
-/path/to/jackal/jackal.sh
-
-# Or install as a symlink in PATH
-ln -s /path/to/jackal/jackal.sh ~/.local/bin/jackal
-jackal
+npm run build:agent   # compile TS adapter
+./jackal.sh           # compile .cl.jac via jac-ink and run Ink app
 ```
 
-### Manual flags (without launcher)
+Classic Pi-based flow is now legacy and should only be used for compatibility checks (`./jackal.sh --pi`).
+
+## Status and roadmap
+
+Jackal has transitioned from the old Pi-extension model to a Jac-native `agent-next` runtime.
+
+Current priorities:
+- Stabilize streaming/render behavior in the Ink shell
+- Harden adapter/bridge behavior in `agent-next/src/`
+- Keep Jac MCP tooling as the primary validate/run/check surface
+- Maintain compatibility path (`./jackal.sh --pi`) only for regression checks
+
+Historical Pi-era roadmap notes are now considered legacy context.
+## Legacy Pi extension testing (compat only)
 
 ```bash
-PI_CODING_AGENT_DIR=./jackal pi --no-extensions \
-  -e ./extensions/jackal-toolchain.ts \
-  --skill ./skills \
-  --prompt-template ./prompts
-```
-
-### Project-local install (shares .pi/, still picks up packages)
-
-```bash
-pi install -l .
-```
-
-## Implementation plan
-
-### v0.1 — The Bare Loop (current)
-
-**Status: scaffold complete, core stubs written**
-
-What we have:
-- Pi package with manifest
-- Custom `SYSTEM.md` — defines Jackal's philosophy: evidence-based decisions, spatial modeling, correctness first
-- Jac MCP server provides all toolchain tools (no local jac_check/jac_run stubs)
-- `/jac-doctor` — detects Jac binary, version, MCP availability, .jac files
-- `/jac-check` — runs `jac check`, displays diagnostics in TUI
-- `/fix` — runs check + asks agent to fix errors via Jac MCP (3-attempt cap)
-- `/create` — thin TUI wrapper around `jac create`: lists available jacpack templates, picks one, runs the CLI
-- `fix-skill` — SKILL.md for iterative error fixing
-- `jac-project-skill` — SKILL.md for project detection
-- `explain` — prompt template
-- `reference/pi-lsp-extension/` — cloned reference
-
-**Next:**
-1. Implement `/fix` — the core check/fix/verify loop (capped at 3 retries, shows diff, re-runs `jac check`)
-2. Write `fix-skill` — SKILL.md that guides the agent through the fix workflow
-3. Test `/create` with `jac create` templates
-4. Test against real `.jac` files
-
-### v0.2 — Conversation State
-
-Planned:
-- Track "current working file" across turns via `pi.appendEntry()`
-- Modifications update working file rather than regenerating from scratch
-- Run `jac check` automatically after every write/edit
-- Session saves working file alongside Pi's session history
-
-### v0.3 — Verbose/Silent Mode
-
-Planned:
-- Config flag for verbose retries (`pi.registerFlag`)
-- `/set verbose-retries on|off` command
-- Verbose: surface each attempt + compiler output as distinct messages
-- Silent: final result only, always exposes failure on exhaustion
-
-### v0.4 — Model Selection
-
-Planned:
-- Config for model choice as first-class option
-- `/set model <name>` command
-- Sensible default
-
-### v0.5 — Example Library
-
-Planned:
-- Curated `.jac` examples organized by category
-- Keyword-based retrieval to inject relevant examples at generation time
-- Categories: basic types/functions, node/edge, walker/OSP, `by llm()`, access modifiers
-
-### v0.6 — OSP Support
-
-Planned:
-- Dedicated handling for walker/node/edge generation tasks
-- Richer few-shot examples for traversal patterns
-- Detect OSP intent from user prompt
-
-### v0.7 — Plan Mode
-
-**Status: implemented**
-
-What we have:
-- `/plan` — toggle plan mode (read-only exploration, then execute with full access)
-- `plan` flag — start in plan mode via `--plan`
-- Plan mode restricts Jac MCP tools to read-only operations
-- Agent creates numbered plan under `Plan:` header
-- Execution mode restores full Jac tool access
-- Progress tracking with `[DONE:n]` markers
-- TUI widget shows completion status
-- Session persistence via `pi.appendEntry()`
-- `/jac-doctor` shows plan mode status
-
-Features:
-- Plan mode: `validate_jac`, `check_syntax`, `explain_error`, `search_docs`, `get_resource`, `list_examples`, `get_example`, `get_ast`
-- Execution mode: all Jac MCP tools + read/write/edit/bash
-- Agent creates numbered plan under `Plan:` header and execution support
-
-## Development
-
-```bash
-# Test extension in isolation (no global config touched)
-pi --no-extensions -e ./extensions/jac-toolchain.ts
-
-# Test with skills
-pi --no-extensions -e ./extensions/jac-toolchain.ts --skill ./skills
-
-# Install as project-local package (writes .pi/, not ~/.pi/)
-pi install -l .
+# Optional compatibility path only
+./jackal.sh --pi
 ```
 
 ## agent-next migration notes
@@ -276,7 +172,7 @@ pi install -l .
 
 The agent-next shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in the separate **jac-tui** repo (`~/repos/jac-tui/jac-ink`). See `agent-next/docs/JAC-TUI.md` for what belongs in jac-tui vs this repo.
 
-**Runtime:** `pi-agent-core` + `pi-ai` only — **no** `pi-coding-agent`. Headless adapter in `agent-next/src/`; Ink UI in `agent-next/templates/shell.cl.jac` talks to the adapter through `@jac/pi` hooks resolved by jac-ink.
+**Runtime:** agent-next runtime (node adapter + AI backend). Headless adapter in `agent-next/src/`; Ink UI in `agent-next/templates/shell.cl.jac` talks to the adapter through jac-ink-provided hooks.
 
 ### Framework / plugin changes — human in the loop
 
@@ -285,7 +181,7 @@ The agent-next shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in th
 When agent-next work requires a **framework or plugin change**, stop and **tell the human explicitly**:
 
 - What is broken or missing (symptom + file/line if known)
-- Which repo/layer owns the fix (`jac-tui/jac-ink`, `jaclang`, `jac_client`, upstream Pi)
+- Which repo/layer owns the fix (`jac-tui/jac-ink`, `jaclang`, `jac_client`, upstream components)
 - The minimal change you would recommend (design note only — do not implement it in those repos)
 - Any workaround still needed in this repo until the plugin is updated
 

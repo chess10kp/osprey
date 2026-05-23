@@ -1,4 +1,4 @@
-**A Pi-powered, terminal-native Jac coding agent** that gives Jac developers the agentic workflow Jac Coder has, but outside VS Code, with better keyboard ergonomics, multimodal context, CLI/toolchain awareness, and Jac-specific project intelligence.
+**A Jac-native, terminal-first Jac coding agent** that gives Jac developers the agentic workflow Jac Coder has, but outside VS Code, with better keyboard ergonomics, multimodal context, CLI/toolchain awareness, and Jac-specific project intelligence.
 
 ## 3. Jac-specific reasoning
 
@@ -81,9 +81,9 @@ That shows why Jac exists.
 
 # Architecture
 
-## Layer 1 — Pi package
+## Layer 1 — Agent runtime
 
-Use Pi’s extension/package mechanism.
+Use the agent-next runtime and jac-ink integration.
 
 Responsibilities:
 
@@ -136,7 +136,7 @@ A curated, versioned corpus:
 * common errors
 * project templates
 
-This should be packaged as Pi skills/docs, not just shoved into the system prompt.
+This should be packaged as agent skills/docs, not just shoved into the system prompt.
 
 ## Layer 4 — Multimodal context ingestion
 
@@ -167,7 +167,7 @@ Use stronger multimodal/frontier models for:
 * large refactors
 * ambiguous design tasks
 
-Pi supports custom providers and provider configuration, so model routing can be layered in without owning model infra. ([pi.dev][7])
+The agent runtime supports custom providers and provider configuration, so model routing can be layered in without owning model infra.
 
 ---
 
@@ -231,7 +231,7 @@ Pi supports custom providers and provider configuration, so model routing can be
 
 ### 2. One-line description
 
-A terminal-native Pi package that turns Pi into a specialized coding agent for Jac/Jaseci development.
+A terminal-native agent runtime that provides a specialized coding agent for Jac/Jaseci development.
 
 ### 3. Problem
 
@@ -253,7 +253,7 @@ Jackal will not initially:
 * replace the Jac compiler
 * replace Jac LSP
 * build a full IDE
-* fork Pi internals unless unavoidable
+* avoid forking runtime internals unless unavoidable
 * host models
 * provide cloud deployment infrastructure
 * guarantee formal verification of Jac programs
@@ -420,7 +420,7 @@ Support at least:
 * clipboard text
 * selected terminal output
 * selected code region
-* pasted screenshots if Pi/runtime supports it
+* pasted screenshots if the runtime supports it
 * diagram-to-Jac generation using multimodal-capable model
 
 ## FR-8: Keyboard workflow
@@ -464,17 +464,7 @@ Generate tests for:
 
 ## NFR-1: Lightweight
 
-Installation should be one command:
-
-```bash
-pi install npm:jacpi
-```
-
-or:
-
-```bash
-pi install git:https://github.com/yourname/jacpi
-```
+Installation should be simple: clone the repo and run `npm install`, or use the provided Docker image.
 
 ## NFR-2: No VS Code dependency
 
@@ -516,11 +506,11 @@ Users should be able to add their own:
 
 # MVP implementation plan
 
-## Phase 1 — Pi package skeleton
+## Phase 1 — agent-next runtime skeleton
 
 Deliver:
 
-* installable Pi package
+* installable agent runtime package
 * one extension
 * one Jac skill
 * basic `/jac doctor`
@@ -610,7 +600,7 @@ That sequence avoids building flashy features before the core agent is reliable.
 
 # Best first technical milestone
 
-Build a Pi package that can:
+Build an agent runtime package that can:
 
 1. detect a Jac repo
 2. run `jac check`
@@ -627,6 +617,4 @@ Everything else compounds from there.
 [2]: https://github.com/jaseci-labs/jac-vscode?utm_source=chatgpt.com "jaseci-labs/jac-vscode: vs code extension which ..."
 [3]: https://github.com/jaseci-labs/jaseci?utm_source=chatgpt.com "The Official Jaseci Code Repository"
 [4]: https://docs.jaseci.org/tutorials/ai/multimodal/?utm_source=chatgpt.com "Multimodal - AI-Native Full-Stack Development"
-[5]: https://pi.dev/docs/latest/skills?utm_source=chatgpt.com "Skills - Pi Coding Agent"
-[6]: https://pi.dev/docs/latest/packages?utm_source=chatgpt.com "Pi Packages - Pi Coding Agent"
-[7]: https://pi.dev/docs/latest/providers?utm_source=chatgpt.com "Providers - Pi Coding Agent"
+

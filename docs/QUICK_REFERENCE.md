@@ -2,7 +2,7 @@
 
 ## What is Jackal?
 
-Jackal is a Pi-powered Jac coding agent with:
+Jackal is a Jac-native coding agent with:
 - Custom system prompt emphasizing evidence-based decisions and spatial modeling
 - Full Jac MCP toolchain integration
 - Plan mode for read-only exploration
@@ -25,7 +25,7 @@ Jackal is a Pi-powered Jac coding agent with:
 | `/jac-verbose [on|off]` | Toggle verbose output |
 | `/subagent-model ...` | List/set model pins for subagent roles |
 | `/commit [message]` | Review git changes and commit with a conventional message |
-| `/pi-mermaid` | Render mermaid blocks in last assistant message as ASCII |
+| `/mermaid` | Render mermaid blocks in last assistant message as ASCII |
 
 ## CLI Flags
 
@@ -62,7 +62,7 @@ Create a `.jackal` file in your project root to configure Jackal per-project. Va
 | `verbose` | boolean | `false` | Show full check output and per-attempt detail |
 | `plan` | boolean | `false` | Start in plan mode |
 | `maxFixAttempts` | number | `2` | Max auto-fix retries per file |
-| `mermaid` | boolean | `true` | Enable pi-mermaid diagram rendering |
+| `mermaid` | boolean | `true` | Enable mermaid diagram rendering |
 | `notify` | boolean | `true` | Enable @pi-unipi/notify notifications |
 | `subagents.model` | string | — | Default model for all subagents |
 | `subagents.<agent>.model` | string | — | Model override per agent (scout, worker, planner) |
@@ -180,7 +180,7 @@ See `docs/jackal_mcp_reference.md` for full details.
 - `jackal-auth` — Authentication templates
 - `refactor-skill` — Guided refactoring workflow
 - `commit-review-skill` — Review git diffs and commit with conventional messages
-- `pi-subagents` — Subagent delegation patterns
+- `subagents` — Subagent delegation patterns
 
 ## Common Workflows
 
