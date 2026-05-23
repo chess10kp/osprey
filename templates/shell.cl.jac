@@ -285,14 +285,6 @@ def:pub AuthPromptView(props: any) -> JsxElement {
 def:pub ModelPicker(props: any) -> JsxElement {
     step: any = props.step;
     models: list = list(step.models) if hasattr(step, "models") and step.models else [];
-    shown: list = models[:12];
-    rows: list = [];
-    for m in shown {
-        prov: str = str(m.get("provider", "")) if hasattr(m, "get") else str(getattr(m, "provider", ""));
-        mid: str = str(m.get("modelId", "")) if hasattr(m, "get") else str(getattr(m, "modelId", ""));
-        rows.append(<Text>{"  " + prov + "/" + mid}</Text>);
-    }
-    extra: int = len(models) - 12;
 
     return (
         <Box
@@ -305,8 +297,7 @@ def:pub ModelPicker(props: any) -> JsxElement {
         >
             <Text bold color="cyan">{"Select a model"}</Text>
             <Text dimColor>{"Type 'provider/model' and Enter. Esc to cancel."}</Text>
-            {rows}
-            {extra > 0 and <Text dimColor>{"  ... " + str(extra) + " more"}</Text>}
+            {len(models) > 0 and <Text dimColor>{str(len(models)) + " models available (shown in completions below)."}</Text>}
         </Box>
     );
 }
@@ -485,8 +476,9 @@ def:pub PromptBar(props: any) -> JsxElement {
 
     return (
         <Box flexDirection="column" paddingX={1} marginTop={1}>
-            <Box>
+            <Box borderStyle="single" borderColor="gray" paddingX={1}>
                 <Text color="green" bold>{prompt_marker}</Text>
+                <Text>{" "}</Text>
                 <TextInput
                     key={str(input_reset_key)}
                     defaultValue={input_text}
@@ -894,6 +886,7 @@ def:pub app() -> JsxElement {
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
             />
             <Text color="gray">{divider}</Text>
+            {show_help and <HelpPanel/>}
             {compact_layout and <PromptBar {...prompt_props}/>}
             {(not compact_layout) and (
                 <Box flexDirection="column" paddingX={1}>
@@ -937,7 +930,6 @@ def:pub app() -> JsxElement {
                 </Box>
             )}
             {has_dialog and <DialogOverlay dialog={dialogs_list[0]} input_text={input_text}/>}
-            {show_help and <HelpPanel/>}
             {ui.workingVisible and ui.workingMessage and (
                 <Box paddingX={1}>
                     <Text color="cyan">{"(working) "}</Text>

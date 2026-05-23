@@ -97,13 +97,6 @@ def:pub ModelPicker(models: list, query: str) -> JsxElement {
         }
     }
 
-    shown: list = filtered[:12];
-    rows: list = [
-        <Text>{"  " + str(m.get("provider", "")) + "/" + str(m.get("modelId", ""))}</Text>
-        for m in shown
-    ];
-    extra: int = len(filtered) - 12;
-
     return (
         <Box
             flexDirection="column"
@@ -115,8 +108,7 @@ def:pub ModelPicker(models: list, query: str) -> JsxElement {
         >
             <Text bold color={INFO}>{"Select a model"}</Text>
             <Text dimColor>{"Type 'provider/model' and Enter. Esc to cancel."}</Text>
-            {rows}
-            {extra > 0 and <Text dimColor>{"  … " + str(extra) + " more"}</Text>}
+            {len(filtered) > 0 and <Text dimColor>{str(len(filtered)) + " models available (shown in completions below)."}</Text>}
         </Box>
     );
 }
