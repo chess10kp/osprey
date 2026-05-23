@@ -106,7 +106,9 @@ export class JackalAgentSession {
         ...this._agent.state.tools,
         ...mcpTools.filter((t) => !existing.has(t.name)),
       ];
-    } catch {
+      this._emit({ type: "mcp_status", connected: true, server: "jac", toolCount: defs.length, error: null });
+    } catch (error) {
+      this._emit({ type: "mcp_status", connected: false, server: "jac", toolCount: 0, error: String(error) });
       // keep running without MCP tools
     }
   }
@@ -120,6 +122,35 @@ export class JackalAgentSession {
 
   async abort(): Promise<void> {
     this._agent.abort();
+  }
+
+  async runFixFlow(maxAttempts = 3): Promise<string> {
+    const hasValidate = this._agent.state.tools.some((t) => t.name === "validate_jac");
+    if (!hasValidate) {
+      return this.runTool("jac_fix", { maxAttempts });
+    }
+
+    const lines: string[] = [];
+    for (let i = 1; i <= maxAttempts; i++) {
+      try {
+        const validate = await this.runTool("validate_jac", {});
+        lines.push(`attempt ${i}: validate_jac ok`);
+        lines.push(validate.slice(0, 400));
+        try {
+          const runOut = await this.runTool("run_jac", {});
+          lines.push(`attempt ${i}: run_jac ok`);
+          lines.push(runOut.slice(0, 400));
+        } catch {
+          lines.push(`attempt ${i}: run_jac unavailable/failed`);
+        }
+        return lines.join("\n");
+      } catch (error) {
+        lines.push(`attempt ${i}: validate_jac failed: ${String(error)}`);
+        await this.runTool("jac_cli", { args: ["format", "."] }).catch(() => undefined);
+      }
+    }
+
+    return lines.join("\n") || "fix flow failed";
   }
 
   async runTool(name: string, params: Record<string, unknown> = {}): Promise<string> {

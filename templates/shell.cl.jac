@@ -84,6 +84,8 @@ def:pub StatusBar(props: any) -> JsxElement {
     session_name: str = to_str(props.session_name) if props.session_name else "";
     msg_count: int = int(props.msg_count) if props.msg_count is not None else 0;
     tools_running: int = int(props.tools_running) if props.tools_running is not None else 0;
+    mcp_connected: bool = bool(props.mcp_connected) if props.mcp_connected is not None else False;
+    mcp_tools: int = int(props.mcp_tools) if props.mcp_tools is not None else 0;
     pc: str = phase_color(phase);
     model_display: str = model if model else "(no model)";
     provider_display: str = provider if provider else "";
@@ -96,7 +98,7 @@ def:pub StatusBar(props: any) -> JsxElement {
                 <Text>{" "}</Text>
                 <Text color={pc}>{"● " + phase}</Text>
             </Box>
-            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running)}</Text>
+            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + ("on:" + str(mcp_tools) if mcp_connected else "off")}</Text>
             <Box flexDirection="row">
                 <Text color="green" bold>{provider_display}</Text>
                 {provider_display and <Text color="gray">{"/"}</Text>}
@@ -550,7 +552,8 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/fix" {
-            if session and hasattr(session, "runTool") { session.runTool("jac_fix", {"maxAttempts": 3}); }
+            if session and hasattr(session, "runFixFlow") { session.runFixFlow(3); }
+            elif session and hasattr(session, "runTool") { session.runTool("jac_fix", {"maxAttempts": 3}); }
             elif session { session.send("Use jac_fix tool with maxAttempts=3 and summarize the result."); }
             return;
         }
@@ -785,6 +788,7 @@ def:pub app() -> JsxElement {
 
     notifs: list = list(ui.notifications) if ui.notifications else [];
     last_notif: any = notifs[-1] if len(notifs) > 0 else None;
+    mcp_error: str = to_str(getattr(snap, "mcpError", "")) if snap else "";
 
     tools_list: list = list(tools) if tools else [];
     running_tools: list = [
@@ -824,6 +828,8 @@ def:pub app() -> JsxElement {
                 session_name={session_name}
                 msg_count={total}
                 tools_running={len(running_tools)}
+                mcp_connected={bool(getattr(snap, "mcpConnected", False))}
+                mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
             />
             <Text color="gray">{divider}</Text>
             <Box flexDirection="column" paddingX={1}>
@@ -846,6 +852,11 @@ def:pub app() -> JsxElement {
                 <Box paddingX={1}>
                     <Text color="yellow">{"! "}</Text>
                     <Text color="yellow">{to_str(last_notif.message)}</Text>
+                </Box>
+            )}
+            {mcp_error and (
+                <Box paddingX={1}>
+                    <Text color="red">{"mcp error: " + mcp_error}</Text>
                 </Box>
             )}
             {auth_kind == "provider_picker" and <ProviderPicker step={auth.step}/>}

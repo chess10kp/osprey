@@ -51,12 +51,12 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
       models,
       sessionManager,
     });
-    await session.initialize();
 
     const unsubEvents = session.subscribe((event) => {
       if (event?.type) eventTypes.add(String(event.type));
     });
     const unsubBridge = bridgeEvents(session, store);
+    await session.initialize();
 
     try {
       await session.sendUserMessage("Respond with exactly: headless-ok");
@@ -109,6 +109,7 @@ export async function createNextAgent(
     clearSession: () => Promise<void>;
     compactSession: () => Promise<{ compacted: boolean; dropped: number }>;
     runTool: (name: string, params?: Record<string, unknown>) => Promise<string>;
+    runFixFlow: (maxAttempts?: number) => Promise<string>;
     dispose: () => void;
   };
 }> {
@@ -128,9 +129,9 @@ export async function createNextAgent(
     models,
     sessionManager,
   });
-  await session.initialize();
 
   const unsubBridge = bridgeEvents(session, store);
+  await session.initialize();
   store.markReady();
 
   return {
@@ -164,6 +165,9 @@ export async function createNextAgent(
       },
       runTool: async (name: string, params?: Record<string, unknown>) => {
         return session.runTool(name, params ?? {});
+      },
+      runFixFlow: async (maxAttempts?: number) => {
+        return session.runFixFlow(maxAttempts ?? 3);
       },
       dispose: () => {
         unsubBridge();

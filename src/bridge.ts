@@ -120,6 +120,16 @@ export function bridgeEvents(
         );
         break;
 
+      // ── MCP ───────────────────────────────────────────────────────
+      case "mcp_status":
+        store.setMcpStatus({
+          connected: Boolean(event.connected),
+          server: event.server ? String(event.server) : undefined,
+          toolCount: typeof event.toolCount === "number" ? event.toolCount : undefined,
+          error: event.error ? String(event.error) : null,
+        });
+        break;
+
       // ── Compaction ────────────────────────────────────────────────
       case "compaction_start":
         store.setPhase("compacting");

@@ -35,6 +35,10 @@ export interface AgentSnapshot {
   provider: string;
   sessionId: string;
   sessionName: string;
+  mcpConnected: boolean;
+  mcpServer: string;
+  mcpToolCount: number;
+  mcpError: string | null;
   messages: AgentMessage[];
   /** In-flight assistant message text (null when idle). */
   streamingText: string | null;
@@ -50,6 +54,10 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
   provider: "",
   sessionId: "",
   sessionName: "",
+  mcpConnected: false,
+  mcpServer: "",
+  mcpToolCount: 0,
+  mcpError: null,
   messages: [],
   streamingText: null,
   toolExecutions: {},
@@ -93,6 +101,20 @@ export class AgentStore {
 
   setError(error: string | null): void {
     this._patch({ error, phase: error ? "error" : "ready" });
+  }
+
+  setMcpStatus(status: {
+    connected: boolean;
+    server?: string;
+    toolCount?: number;
+    error?: string | null;
+  }): void {
+    this._patch({
+      mcpConnected: status.connected,
+      mcpServer: status.server ?? this._snapshot.mcpServer,
+      mcpToolCount: status.toolCount ?? this._snapshot.mcpToolCount,
+      mcpError: status.error ?? null,
+    });
   }
 
   /** Start a new streaming assistant message. */

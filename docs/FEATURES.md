@@ -66,7 +66,7 @@ Without these, agent-next is chat-only and not a coding agent.
 | Write tool | Create / overwrite files | Done |
 | Edit tool | Targeted file edits | Done |
 | Bash tool | Run shell commands (`jac`, `git`, etc.) | Done |
-| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (agent-next now loads MCP tools from `pi/mcp.json`; hardening still needed) |
+| Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Partial (loads from `pi/mcp.json`, MCP status surfaced, basic arg coercion/validation) |
 | Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
 | Working directory safety | Sensible defaults, visible command execution | Missing |
@@ -83,7 +83,7 @@ Port from classic extension without requiring full `pi-coding-agent`.
 | `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Partial |
 | `/jac-check` | Run `jac check`, display diagnostics | Partial |
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
-| `/fix` | Check → patch → re-check loop (capped retries) | Partial (tool-driven check/format/check loop) |
+| `/fix` | Check → patch → re-check loop (capped retries) | Partial (prefers MCP `validate_jac` path when available; CLI fallback remains) |
 | `/create` | Wrapper around `jac create` templates | Partial (tool-driven wrapper) |
 | Skills on demand | Load `skills/*/SKILL.md` when task matches | Missing |
 | Prompt templates | Reusable prompts from `prompts/` | Missing |
