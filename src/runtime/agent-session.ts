@@ -117,7 +117,15 @@ export class JackalAgentSession {
         await new Promise((r) => setTimeout(r, 250));
         await initOnce();
       } catch (finalError) {
-        this._emit({ type: "mcp_status", connected: false, server: "jac", toolCount: 0, error: String(finalError ?? error) });
+        const errText = String(finalError ?? error);
+        const missingJacMcp = errText.includes("Jac MCP is unavailable in this Jac CLI build");
+        this._emit({
+          type: "mcp_status",
+          connected: false,
+          server: "jac",
+          toolCount: 0,
+          error: missingJacMcp ? null : errText,
+        });
         // keep running without MCP tools
       }
     }
