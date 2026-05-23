@@ -470,6 +470,36 @@ def:pub HelpPanel(_props: any) -> JsxElement {
     );
 }
 
+# ── Prompt input ────────────────────────────────────────────────────
+
+def:pub PromptBar(props: any) -> JsxElement {
+    prompt_marker: str = props.prompt_marker;
+    input_reset_key: int = props.input_reset_key;
+    input_text: str = props.input_text;
+    multiline: bool = props.multiline;
+    show_completions: bool = props.show_completions;
+    completions_list: list = props.completions_list;
+    completion_selection: int = props.completion_selection;
+    on_change: any = props.on_change;
+    on_submit: any = props.on_submit;
+
+    return (
+        <Box flexDirection="column" paddingX={1} marginTop={1}>
+            <Box>
+                <Text color="green" bold>{prompt_marker}</Text>
+                <TextInput
+                    key={str(input_reset_key)}
+                    defaultValue={input_text}
+                    placeholder={"Type a message (or /help)" if multiline == False else "Multiline (Ctrl+D to send)"}
+                    onChange={on_change}
+                    onSubmit={on_submit}
+                />
+            </Box>
+            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
+        </Box>
+    );
+}
+
 # ── Main app ────────────────────────────────────────────────────────
 
 def:pub app() -> JsxElement {
@@ -516,6 +546,9 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/clear" or cmd == "/new" {
+            scroll_offset = 0;
+            show_help = False;
+            selected_completion_index = 0;
             if session { session.clearSession(); }
             return;
         }
@@ -819,6 +852,35 @@ def:pub app() -> JsxElement {
     # Welcome banner disabled.
     show_welcome: bool = False;
 
+    compact_layout: bool = (
+        total == 0
+        and (not is_streaming)
+        and auth_kind == "idle"
+        and (not has_dialog)
+    );
+
+    prompt_props: dict = {
+        "prompt_marker": prompt_marker,
+        "input_reset_key": input_reset_key,
+        "input_text": input_text,
+        "multiline": multiline,
+        "show_completions": show_completions,
+        "completions_list": completions_list,
+        "completion_selection": completion_selection,
+        "on_change": lambda (v: str) -> None {
+            input_text = v;
+            selected_completion_index = 0;
+        },
+        "on_submit": lambda (v: str) -> None {
+            if multiline {
+                input_text = v + "\n";
+                input_reset_key = input_reset_key + 1;
+            } else {
+                handle_submit(v);
+            }
+        },
+    };
+
     return (
         <Box flexDirection="column" padding={0}>
             <StatusBar
@@ -832,17 +894,20 @@ def:pub app() -> JsxElement {
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
             />
             <Text color="gray">{divider}</Text>
-            <Box flexDirection="column" paddingX={1}>
-                {msg_rows}
-                {is_streaming and (
-                    <Box>
-                        <Text color="cyan" bold>{"⎇ "}</Text>
-                        <Text>{to_str(streaming)}</Text>
-                        <Text color="cyan">{"_"}</Text>
-                    </Box>
-                )}
-            </Box>
-            {len(tools_list) > 0 and (
+            {compact_layout and <PromptBar {...prompt_props}/>}
+            {(not compact_layout) and (
+                <Box flexDirection="column" paddingX={1}>
+                    {msg_rows}
+                    {is_streaming and (
+                        <Box>
+                            <Text color="cyan" bold>{"⎇ "}</Text>
+                            <Text>{to_str(streaming)}</Text>
+                            <Text color="cyan">{"_"}</Text>
+                        </Box>
+                    )}
+                </Box>
+            )}
+            {(not compact_layout) and len(tools_list) > 0 and (
                 <Box flexDirection="column" paddingX={1} marginTop={1}>
                     <Text dimColor bold>{"Tools"}</Text>
                     {tool_rows}
@@ -879,27 +944,7 @@ def:pub app() -> JsxElement {
                     <Text color="cyan">{to_str(ui.workingMessage)}</Text>
                 </Box>
             )}
-            <Box paddingX={1} marginTop={1}>
-                <Text color="green" bold>{prompt_marker}</Text>
-                <TextInput
-                    key={str(input_reset_key)}
-                    defaultValue={input_text}
-                    placeholder={"Type a message (or /help)" if multiline == False else "Multiline (Ctrl+D to send)"}
-                    onChange={lambda (v: str) -> None {
-                        input_text = v;
-                        selected_completion_index = 0;
-                    }}
-                    onSubmit={lambda (v: str) -> None {
-                        if multiline {
-                            input_text = v + "\n";
-                            input_reset_key = input_reset_key + 1;
-                        } else {
-                            handle_submit(v);
-                        }
-                    }}
-                />
-            </Box>
-            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
+            {(not compact_layout) and <PromptBar {...prompt_props}/>}
         </Box>
     );
 }

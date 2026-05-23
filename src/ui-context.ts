@@ -110,6 +110,25 @@ export class JackalUIContext {
     this._emit();
   }
 
+  /** Clear overlays and transient UI state (e.g. after /clear). */
+  reset(): void {
+    for (const dialog of this._uiState.dialogs) {
+      try {
+        dialog.resolve(undefined);
+      } catch {
+        /* swallow */
+      }
+    }
+    this._uiState = {
+      notifications: [],
+      dialogs: [],
+      statusEntries: {},
+      workingMessage: null,
+      workingVisible: false,
+    };
+    this._emit();
+  }
+
   private _dialog(
     req: Omit<DialogRequest, "id" | "resolve">,
     opts?: { timeout?: number; signal?: AbortSignal },

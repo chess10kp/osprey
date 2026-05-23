@@ -9,6 +9,10 @@ import { JackalAuth, JackalModels } from "./runtime/auth.js";
 import { JackalSessionManager } from "./runtime/session.js";
 import { JackalAgentSession } from "./runtime/agent-session.js";
 
+function clearTerminalScreen(): void {
+  process.stdout.write("\x1b[r\x1b[?6l\x1b[2J\x1b[3J\x1b[H");
+}
+
 export interface NextAgentResult {
   ok: boolean;
   eventTypes: string[];
@@ -158,7 +162,16 @@ export async function createNextAgent(
         authFlow.setIdle();
       },
       clearSession: async () => {
+        try {
+          await session.abort();
+        } catch {
+          /* ignore */
+        }
+        store.clearTranscript();
+        uiContext.reset();
         session.resetForNewSession();
+        clearTerminalScreen();
+        uiContext.notify("Chat cleared.", "success");
       },
       compactSession: async () => {
         return session.compactContext();
