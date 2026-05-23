@@ -455,6 +455,8 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/compact       compact context"}</Text>
                 <Text color="white">{"/jac-check     run jac check"}</Text>
                 <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
+                <Text color="white">{"/fix           jac check/fix loop"}</Text>
+                <Text color="white">{"/create <tpl>  run jac create template"}</Text>
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
@@ -530,7 +532,18 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/jac-doctor" {
-            if session { session.send("Run Jac environment checks (jac --version, project scan for .jac files, mcp availability) using bash/read and summarize."); }
+            if session { session.send("Use jac_doctor tool and summarize findings."); }
+            return;
+        }
+        if cmd == "/fix" {
+            if session { session.send("Run jac_check first. If errors exist, edit files to fix them, then re-run jac_check. Repeat up to 3 attempts and summarize changes."); }
+            return;
+        }
+        if cmd.startswith("/create ") {
+            tpl: str = cmd[8:].strip();
+            if session and tpl {
+                session.send("Use bash to run jac create template: " + tpl + " and summarize results.");
+            }
             return;
         }
         if cmd == "/login" {

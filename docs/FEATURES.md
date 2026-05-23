@@ -22,8 +22,8 @@ These must work before anything else is useful.
 | pi-ai auth + models | OAuth, API keys, model picker; shared `jackal/auth.json` | Done |
 | Session persistence | Disk-backed `.jackal/sessions/latest.json` | Partial |
 | Session restore (messages) | Reload transcript on startup | Done |
-| Session restore (model) | Apply persisted provider/model on boot | Missing |
-| `/clear` / `/new` | Reset store, session file, **and** agent message memory | Missing |
+| Session restore (model) | Apply persisted provider/model on boot | Done |
+| `/clear` / `/new` | Reset store, session file, **and** agent message memory | Done |
 | Graceful dispose | `/exit`, Ctrl+C cleanup without corrupting session | Done |
 | Smoke / CI path | Non-interactive verification of adapter boot | Missing |
 
@@ -50,7 +50,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Tool detail in UI | Name, status, truncated input/result, duration | Missing |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
-| `/compact` | Context compaction command | Missing |
+| `/compact` | Context compaction command | Partial (command + stub tool) |
 | SIGINT / shutdown UX | Clear messaging on abort vs exit | Partial |
 
 ---
@@ -61,13 +61,13 @@ Without these, agent-next is chat-only and not a coding agent.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| Jackal system prompt | Load `jackal/SYSTEM.md` at session boot | Missing |
-| Read tool | Read project files | Missing |
-| Write tool | Create / overwrite files | Missing |
-| Edit tool | Targeted file edits | Missing |
-| Bash tool | Run shell commands (`jac`, `git`, etc.) | Missing |
+| Jackal system prompt | Load `jackal/SYSTEM.md` at session boot | Done |
+| Read tool | Read project files | Done |
+| Write tool | Create / overwrite files | Done |
+| Edit tool | Targeted file edits | Done |
+| Bash tool | Run shell commands (`jac`, `git`, etc.) | Done |
 | Jac MCP | Spawn `jac mcp`; expose validate/run/docs/format/etc. | Missing |
-| Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Partial |
+| Tool event bridge | Map tool start/end → store (bridge exists; needs tools) | Done |
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Done |
 | Working directory safety | Sensible defaults, visible command execution | Missing |
 
@@ -79,12 +79,12 @@ Port from classic extension without requiring full `pi-coding-agent`.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| `.jackal` project config | Read `autocheck`, `verbose`, `plan`, etc. from project root | Missing |
-| `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Missing |
-| `/jac-check` | Run `jac check`, display diagnostics | Missing |
-| Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Missing |
-| `/fix` | Check → patch → re-check loop (capped retries) | Missing |
-| `/create` | Wrapper around `jac create` templates | Missing |
+| `.jackal` project config | Read `autocheck`, `verbose`, `plan`, etc. from project root | Partial (autocheck supported) |
+| `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Partial |
+| `/jac-check` | Run `jac check`, display diagnostics | Partial |
+| Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
+| `/fix` | Check → patch → re-check loop (capped retries) | Partial (agent-driven prompt flow) |
+| `/create` | Wrapper around `jac create` templates | Partial |
 | Skills on demand | Load `skills/*/SKILL.md` when task matches | Missing |
 | Prompt templates | Reusable prompts from `prompts/` | Missing |
 

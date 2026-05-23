@@ -4,6 +4,7 @@ import { dirname, isAbsolute, normalize, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { loadProjectConfig } from "./project-config.js";
 
 const MAX_TOOL_TEXT = 50_000;
 
@@ -18,6 +19,48 @@ function safeResolve(cwd: string, inputPath: string): string {
     throw new Error(`Path escapes cwd: ${inputPath}`);
   }
   return abs;
+}
+
+async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promise<{ stdout: string; stderr: string; code: number | null; durationMs: number }> {
+  const timeoutMs = timeoutSeconds * 1000;
+  const startedAt = Date.now();
+
+  const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolveP, reject) => {
+    const child = spawn("bash", ["-lc", command], {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => { stdout += String(d); });
+    child.stderr.on("data", (d) => { stderr += String(d); });
+    child.on("error", reject);
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+    }, timeoutMs);
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolveP({ stdout, stderr, code });
+    });
+  });
+
+  return { ...result, durationMs: Date.now() - startedAt };
+}
+
+async function maybeAutoCheck(cwd: string, path: string): Promise<string | null> {
+  const cfg = loadProjectConfig(cwd);
+  if (!cfg.autocheck || !path.endsWith(".jac")) return null;
+  const out = await runBash(cwd, "jac check", 120);
+  return [
+    "[autocheck] jac check",
+    `exit=${String(out.code)}`,
+    out.stdout ? `stdout:\n${limitText(out.stdout)}` : "",
+    out.stderr ? `stderr:\n${limitText(out.stderr)}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 export function createCoreTools(cwd: string): AgentTool[] {
@@ -52,9 +95,10 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const abs = safeResolve(cwd, params.path);
       await mkdir(dirname(abs), { recursive: true });
       await writeFile(abs, params.content, "utf-8");
+      const autocheck = await maybeAutoCheck(cwd, params.path);
       return {
-        content: [{ type: "text", text: `Wrote ${params.path}` }],
-        details: { path: params.path, bytes: params.content.length },
+        content: [{ type: "text", text: autocheck ? `Wrote ${params.path}\n\n${autocheck}` : `Wrote ${params.path}` }],
+        details: { path: params.path, bytes: params.content.length, autocheck },
       };
     },
   };
@@ -91,9 +135,10 @@ export function createCoreTools(cwd: string): AgentTool[] {
       }
 
       await writeFile(abs, updated, "utf-8");
+      const autocheck = await maybeAutoCheck(cwd, params.path);
       return {
-        content: [{ type: "text", text: `Edited ${params.path}` }],
-        details: { path: params.path, edits: params.edits.length },
+        content: [{ type: "text", text: autocheck ? `Edited ${params.path}\n\n${autocheck}` : `Edited ${params.path}` }],
+        details: { path: params.path, edits: params.edits.length, autocheck },
       };
     },
   };
@@ -108,38 +153,13 @@ export function createCoreTools(cwd: string): AgentTool[] {
     }),
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as { command: string; timeout?: number };
-      const timeoutMs = (params.timeout ?? 60) * 1000;
-      const startedAt = Date.now();
-
-      const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolveP, reject) => {
-        const child = spawn("bash", ["-lc", params.command], {
-          cwd,
-          env: process.env,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (d) => { stdout += String(d); });
-        child.stderr.on("data", (d) => { stderr += String(d); });
-        child.on("error", reject);
-
-        const timer = setTimeout(() => {
-          child.kill("SIGTERM");
-        }, timeoutMs);
-
-        child.on("close", (code) => {
-          clearTimeout(timer);
-          resolveP({ stdout, stderr, code });
-        });
-      });
-
+      const result = await runBash(cwd, params.command, params.timeout ?? 60);
       const payload = JSON.stringify(
         {
           code: result.code,
           stdout: limitText(result.stdout),
           stderr: limitText(result.stderr),
-          durationMs: Date.now() - startedAt,
+          durationMs: result.durationMs,
         },
         null,
         2,
@@ -147,12 +167,48 @@ export function createCoreTools(cwd: string): AgentTool[] {
 
       return {
         content: [{ type: "text", text: payload }],
-        details: {
-          code: result.code,
-          stdout: result.stdout,
-          stderr: result.stderr,
-          durationMs: Date.now() - startedAt,
-        },
+        details: result,
+      };
+    },
+  };
+
+  const jacCheckTool: AgentTool = {
+    name: "jac_check",
+    label: "Jac Check",
+    description: "Run jac check and return diagnostics.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const result = await runBash(cwd, "jac check", 120);
+      const text = [
+        `exit=${String(result.code)}`,
+        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+      ].filter(Boolean).join("\n\n");
+      return { content: [{ type: "text", text }], details: result };
+    },
+  };
+
+  const jacDoctorTool: AgentTool = {
+    name: "jac_doctor",
+    label: "Jac Doctor",
+    description: "Check jac CLI, project files, and MCP availability.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const cmd = [
+        "set +e",
+        "echo '== jac --version =='",
+        "jac --version 2>&1",
+        "echo ''",
+        "echo '== jac files =='",
+        "find . -name '*.jac' | head -n 20",
+        "echo ''",
+        "echo '== jac mcp == '",
+        "jac mcp --help 2>&1 | head -n 20",
+      ].join("\n");
+      const result = await runBash(cwd, cmd, 120);
+      return {
+        content: [{ type: "text", text: `${limitText(result.stdout)}\n${limitText(result.stderr)}` }],
+        details: result,
       };
     },
   };
@@ -171,5 +227,5 @@ export function createCoreTools(cwd: string): AgentTool[] {
     }),
   };
 
-  return [readTool, writeTool, editTool, bashTool, compactTool];
+  return [readTool, writeTool, editTool, bashTool, jacCheckTool, jacDoctorTool, compactTool];
 }
