@@ -2,7 +2,7 @@
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
-import from "@inkjs/ui" { TextInput, Spinner }
+import from "@inkjs/ui" { TextInput }
 import from "@jac/pi" {
     usePiBoot,
     usePiSession,
@@ -15,12 +15,22 @@ import from "@jac/pi" {
     useCompletions
 }
 
-# ── Component functions ──────────────────────────────────────────────
+def to_str(value: any) -> str {
+    if value is None { return ""; }
+    
+    return str(value);
+}
 
+def exit_app(code: int) -> None {
+    a: int = code;
+}
 
-# ── welcomemsg.cl.jac ──
+def list_len(value: any) -> int {
+    if value is None { return 0; }
+    return len(list(value));
+}
 
-
+# ── Welcome banner ──────────────────────────────────────────────────
 
 def:pub WelcomeMessage(version: str) -> JsxElement {
     return (
@@ -36,29 +46,26 @@ def:pub WelcomeMessage(version: str) -> JsxElement {
             <Box
                 flexDirection="column"
                 borderStyle="round"
-                borderColor={PRIMARY}
+                borderColor="magenta"
                 paddingX={2}
                 paddingY={1}
                 marginBottom={1}
             >
                 <Box marginBottom={1}>
-                    <Text color="magenta" bold>{"✻ Welcome to Jackal" + (version if version else "") + " ✻"}</Text>
+                    <Text color="magenta" bold>{"Welcome to Jackal" + (version if version else "") + " -- Jac/Jaseci Coding Agent"}</Text>
                 </Box>
                 <Box paddingBottom={1} flexDirection="column">
-                    <Text color="gray">{"1. Use natural language to describe your task."}</Text>
-                    <Text color="gray">{"2. Ask for file analysis, editing, bash commands and more."}</Text>
-                    <Text color="gray">{"3. Be specific for best results."}</Text>
-                    <Text color="gray">{"4. Type /help for commands, /exit or Ctrl+C to quit."}</Text>
+                    <Text color="gray">{"  1. Use natural language to describe your task."}</Text>
+                    <Text color="gray">{"  2. Ask for file analysis, editing, bash commands and more."}</Text>
+                    <Text color="gray">{"  3. Be specific for best results."}</Text>
+                    <Text color="gray">{"  4. Type /help for commands, /exit or Ctrl+C to quit."}</Text>
                 </Box>
-                <Text color="white">{"/help for help"}</Text>
             </Box>
         </Box>
     );
 }
 
-# ── statusbar.cl.jac ──
-
-
+# ── Status bar ──────────────────────────────────────────────────────
 
 def phase_color(phase: str) -> str {
     if phase == "streaming" { return "cyan"; }
@@ -69,370 +76,130 @@ def phase_color(phase: str) -> str {
     return "gray";
 }
 
-
-def phase_label(phase: str) -> str {
-    if phase == "booting" { return "Booting..."; }
-    if phase == "ready" { return "Ready"; }
-    if phase == "streaming" { return "Thinking"; }
-    if phase == "compacting" { return "Compacting"; }
-    if phase == "retrying" { return "Retrying"; }
-    if phase == "error" { return "Error"; }
-    return phase;
-}
-
-
 def:pub StatusBar(
     phase: str,
     model: str,
     provider: str,
     session_name: str,
-    context_percent: float,
-    mcp_connected: int,
-    mcp_total: int,
+    msg_count: int,
+    tools_running: int,
 ) -> JsxElement {
-    model_display: str = model if model else "(no model)";
-    session_display: str = session_name if session_name else "new session";
     pc: str = phase_color(phase);
-    pl: str = phase_label(phase);
-
-    has ctx_color: str = "green";
-    if context_percent >= 80.0 {
-        ctx_color = "yellow";
-    }
-    elif context_percent >= 60.0 {
-        ctx_color = "yellow";
-    }
-
-    has ctx_text: str = "Context: " + str(int(context_percent)) + "%";
-    if context_percent >= 60.0 {
-        ctx_text = ctx_text + " (use /compact)";
-    }
+    model_display: str = model if model else "(no model)";
+    provider_display: str = provider if provider else "";
+    session_display: str = session_name if session_name else "new session";
 
     return (
-        <Box
-            flexDirection="column"
-            borderStyle="round"
-            borderColor="cyan"
-            paddingX={2}
-            paddingY={0}
-        >
-            <Box flexDirection="row" justifyContent="space-between">
-                <Box flexDirection="row">
-                    <Text color="magenta" bold>{"Jackal"}</Text>
-                    <Text>{" "}</Text>
-                    <Text color={pc}>{"● " + pl}</Text>
-                </Box>
-                <Box flexDirection="row">
-                    <Text color="green" bold>{provider}</Text>
-                    <Text color="gray">{"/"}</Text>
-                    <Text color="green">{model_display}</Text>
-                </Box>
-                <Text color="gray">{session_display}</Text>
-            </Box>
+        <Box flexDirection="row" justifyContent="space-between" paddingX={1}>
             <Box flexDirection="row">
-                <Text color={ctx_color}>{ctx_text}</Text>
-                {mcp_total > 0 and (
-                    <Text color="gray">{"  MCP: " + str(mcp_connected) + "/" + str(mcp_total)}</Text>
-                )}
+                <Text bold color="magenta">{"Jackal"}</Text>
+                <Text>{" "}</Text>
+                <Text color={pc}>{"● " + phase}</Text>
             </Box>
+            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running)}</Text>
+            <Box flexDirection="row">
+                <Text color="green" bold>{provider_display}</Text>
+                {provider_display and <Text color="gray">{"/"}</Text>}
+                <Text color="green">{model_display}</Text>
+            </Box>
+            <Text color="gray">{session_display}</Text>
         </Box>
     );
 }
 
-# ── usermsg.cl.jac ──
+# ── Message rendering ───────────────────────────────────────────────
 
-
-
-def:pub UserMessage(message: str, tokens: int) -> JsxElement {
-    # Simple token estimate
-    token_str: str = "~" + str(tokens) if tokens > 0 else "";
-
-    return (
-        <Box flexDirection="column">
-            <Box marginBottom={1}>
-                <Text color="magenta" bold>{"You:"}</Text>
-            </Box>
-            <Box
-                flexDirection="column"
-                marginBottom={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor="magenta"
-            >
-                <Text>{message}</Text>
-            </Box>
-            {token_str and (
-                <Box marginBottom={1}>
-                    <Text color="gray">{token_str + " tokens"}</Text>
-                </Box>
-            )}
-        </Box>
-    );
+def safe_text(msg: any) -> str {
+    if not msg { return ""; }
+    
+    # message objects have .content or .text
+    has content: any = None;
+    if hasattr(msg, "content") {
+        content = msg.content;
+    }
+    elif hasattr(msg, "text") {
+        content = msg.text;
+    }
+    elif hasattr(msg, "keys") {
+        if "content" in msg {
+            content = msg["content"];
+        }
+        elif "text" in msg {
+            content = msg["text"];
+        }
+    }
+    if content is not None {
+        
+        return str(content);
+    }
+    return str(msg);
 }
 
-# ── streammsg.cl.jac ──
-
-
-
-def stream_truncate(text: str, max_lines: int) -> str {
-    if not text { return ""; }
-    lines: list = text.split("\n");
-    if len(lines) <= max_lines { return text; }
-    return "…" + "\n".join(lines[-max_lines:]);
+def msg_role(msg: any) -> str {
+    if hasattr(msg, "role") { return str(msg.role); }
+    if "role" in msg and hasattr(msg, "keys") and "role" in msg { return str(msg["role"]); }
+    return "unknown";
 }
 
+def:pub MessageRow(msg: any) -> JsxElement {
+    role: str = msg_role(msg);
+    text: str = safe_text(msg);
+    # truncate for display
+    display: str = text;
+    if len(display) > 500 {
+        display = display[:500] + "...";
+    }
 
-def stream_estimate_tokens(text: str) -> int {
-    if not text { return 0; }
-    # Rough estimate: ~4 chars per token
-    return int(len(text) / 4);
-}
-
-
-def:pub StreamingMessage(streaming_text: str, model: str) -> JsxElement {
-    # Show tail of content to keep render small
-    display: str = stream_truncate(streaming_text, 15);
-    tokens: int = stream_estimate_tokens(streaming_text);
-
-    return (
-        <Box flexDirection="column">
-            <Box marginBottom={1} marginTop={1}>
-                <Text color="cyan" bold>
-                    <Spinner type="dots" /> {" " + (model if model else "Thinking")}
-                </Text>
-                <Text>
-                    {"  ~" + str(tokens) + " tokens"}
-                </Text>
-            </Box>
-            <Box
-                flexDirection="column"
-                marginBottom={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor="gray"
-            >
+    if role == "user" {
+        return (
+            <Box flexDirection="column" paddingX={1}>
+                <Text color="green" bold>{"> "}</Text>
                 <Text>{display}</Text>
             </Box>
-        </Box>
-    );
-}
-
-# ── asstmsg.cl.jac ──
-
-
-
-def asst_estimate_tokens(text: str) -> int {
-    if not text { return 0; }
-    return int(len(text) / 4);
-}
-
-
-def:pub AssistantMessage(message: str, model: str) -> JsxElement {
-    tokens: int = asst_estimate_tokens(message);
-    display: str = str(message).strip() if message else "";
-
-    return (
-        <Box flexDirection="column">
-            <Box marginBottom={1} marginTop={1}>
-                <Text color="cyan" bold>{(model if model else "Assistant") + ":"}</Text>
-            </Box>
-            <Box
-                flexDirection="column"
-                marginBottom={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor="gray"
-            >
+        );
+    }
+    if role == "assistant" {
+        return (
+            <Box flexDirection="column" paddingX={1}>
+                <Text color="cyan" bold>{"⎇ "}</Text>
                 <Text>{display}</Text>
             </Box>
-            <Box marginBottom={1}>
-                <Text color="gray">{"~" + str(tokens) + " tokens"}</Text>
-            </Box>
-        </Box>
-    );
-}
-
-# ── toolline.cl.jac ──
-
-
-
-def:pub ToolRow(
-    tool_name: str,
-    status: str,
-    input_preview: str,
-) -> JsxElement {
-    running: bool = status == "running";
-    has color: str = "green";
-    if running { color = "yellow"; }
-    has icon: str = "✓";
-    if running { icon = "⏵"; }
-    detail: str = input_preview if input_preview else "";
-
-    # Truncate detail to 60 chars
-    if len(detail) > 60 {
-        detail = detail[:60] + "…";
-    }
-
-    return (
-        <Box>
-            <Text color={color}>{icon + " "}</Text>
-            <Text bold>{tool_name}</Text>
-            {detail and <Text dimColor>{"  " + detail}</Text>}
-        </Box>
-    );
-}
-
-
-def:pub ToolTimeline(
-    tool_name_list: list,
-    tool_status_list: list,
-    tool_input_list: list,
-) -> JsxElement {
-    # Show last 8 tools
-    count: int = len(tool_name_list);
-    start: int = 0;
-    if count > 8 {
-        start = count - 8;
-    }
-
-    rows: list = [];
-    for i in range(start, count) {
-        name: str = "unknown";
-        if i < len(tool_name_list) {
-            name = tool_name_list[i];
-        }
-        status: str = "done";
-        if i < len(tool_status_list) {
-            status = tool_status_list[i];
-        }
-        input_str: str = "";
-        rows.append(
-            <ToolRow tool_name={name} status={status} input_preview={input_str}/>
         );
     }
-
+    # system / tool / other
     return (
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
-            <Text dimColor bold>{"Tools"}</Text>
-            {rows}
+        <Box flexDirection="column" paddingX={1}>
+            <Text dimColor>{"[" + role + "] " + display}</Text>
         </Box>
     );
 }
 
-# ── userinput.cl.jac ──
+# ── Auth overlays ───────────────────────────────────────────────────
 
-
-
-def:pub CompletionList(items: list, selected_index: int) -> JsxElement {
-    shown: list = items[:8];
-    rows: list = [];
-    for (i, s) in enumerate(shown) {
-        is_sel: bool = i == selected_index;
-        icon: str = "▸ " if is_sel else "  ";
-        rows.append(
-            <Text color="cyan" bold={is_sel}>{icon + str(s)}</Text>
-        );
-    }
-    return (
-        <Box flexDirection="column" marginTop={1}>
-            <Text color="gray">{"Available commands:"}</Text>
-            {rows}
-        </Box>
-    );
-}
-
-
-def:pub UserInput(
-    input_text: str,
-    placeholder: str,
-    completions: list,
-    completion_index: int,
-    disabled: bool,
-    on_change: any,
-    on_submit: any,
-) -> JsxElement {
-    is_bash: bool = input_text.startswith("!");
-    prompt_text: str = "What would you like me to help with?";
-    if is_bash {
-        prompt_text = "Bash mode";
-    }
-
-    return (
-        <Box flexDirection="column">
-            {disabled == False and (
-                <Text color={ "blue" if is_bash else "magenta"} bold>{prompt_text}</Text>
-            )}
-            <Box
-                flexDirection="column"
-                marginTop={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor={ "blue" if is_bash else "magenta" }
-            >
-                <Box>
-                    {len(input_text) == 0 and <Text color="gray">{"> "}</Text>}
-                    <TextInput
-                        value={input_text}
-                        placeholder={placeholder if placeholder else "/ commands, ! bash"}
-                        onChange={on_change}
-                        onSubmit={on_submit}
-                    />
-                </Box>
-            </Box>
-
-            {len(completions) > 0 and <CompletionList items={completions} selected_index={completion_index}/>}
-
-            {disabled and (
-                <Box paddingY={1} marginTop={1}>
-                    <Text color="gray">{"Press Esc to cancel"}</Text>
-                </Box>
-            )}
-        </Box>
-    );
-}
-
-# ── authflow.cl.jac ──
-
-
-
-def:pub ProviderPicker(providers: list) -> JsxElement {
+def:pub ProviderPicker(step: any) -> JsxElement {
+    providers: list = list(step.providers) if hasattr(step, "providers") and step.providers else [];
     rows: list = [];
     for p in providers {
         has marker: str = "○";
         has color: str = "yellow";
-        if p.get("configured", False) {
+        configured: bool = False;
+        if hasattr(p, "configured") and p.configured {
+            configured = True;
+        }
+        elif hasattr(p, "get") and p.get("configured", False) {
+            configured = True;
+        }
+        if configured {
             marker = "●";
             color = "green";
         }
-        name: str = str(p.get("id", ""));
-        display: str = str(p.get("displayName", ""));
-        auth_type: str = str(p.get("authType", ""));
-        models: str = str(p.get("modelCount", 0));
+        name: str = str(p.get("id", "")) if hasattr(p, "get") else str(getattr(p, "id", ""));
+        display: str = str(p.get("displayName", "")) if hasattr(p, "get") else str(getattr(p, "displayName", ""));
         rows.append(
             <Box>
                 <Text color={color}>{marker + " "}</Text>
                 <Text bold>{name}</Text>
-                <Text dimColor>{"  " + display + "  (" + auth_type + ", " + models + " models)"}</Text>
+                <Text dimColor>{"  " + display}</Text>
             </Box>
         );
     }
@@ -453,8 +220,9 @@ def:pub ProviderPicker(providers: list) -> JsxElement {
     );
 }
 
-
-def:pub BrowserAuthView(url: str, instructions: str) -> JsxElement {
+def:pub BrowserAuthView(step: any) -> JsxElement {
+    url: str = str(getattr(step, "url", "")) if hasattr(step, "url") else "";
+    instructions: str = str(getattr(step, "instructions", "")) if hasattr(step, "instructions") else "";
     return (
         <Box
             flexDirection="column"
@@ -473,9 +241,9 @@ def:pub BrowserAuthView(url: str, instructions: str) -> JsxElement {
     );
 }
 
-
-def:pub AuthPromptView(message: str, input_text: str, placeholder: str) -> JsxElement {
-    msg: str = message if message else "Input required";
+def:pub AuthPromptView(step: any, input_text: str) -> JsxElement {
+    message: str = str(getattr(step, "message", "")) if hasattr(step, "message") else "Input required";
+    placeholder: str = str(getattr(step, "placeholder", "")) if hasattr(step, "placeholder") else "";
     return (
         <Box
             flexDirection="column"
@@ -485,7 +253,8 @@ def:pub AuthPromptView(message: str, input_text: str, placeholder: str) -> JsxEl
             paddingY={1}
             marginTop={1}
         >
-            <Text bold color="yellow">{msg}</Text>
+            <Text bold color="yellow">{message}</Text>
+            {placeholder and <Text dimColor>{"(" + placeholder + ")"}</Text>}
             <Box>
                 <Text color="green">{"> "}</Text>
                 <Text>{input_text if input_text else ""}</Text>
@@ -496,23 +265,16 @@ def:pub AuthPromptView(message: str, input_text: str, placeholder: str) -> JsxEl
     );
 }
 
-
-def:pub ModelPicker(models: list, query: str) -> JsxElement {
-    filtered: list = [];
-    q: str = query.lower() if query else "";
-    for m in models {
-        label: str = (str(m.get("provider", "")) + "/" + str(m.get("modelId", ""))).lower();
-        if not q or q in label {
-            filtered.append(m);
-        }
+def:pub ModelPicker(step: any) -> JsxElement {
+    models: list = list(step.models) if hasattr(step, "models") and step.models else [];
+    shown: list = models[:12];
+    rows: list = [];
+    for m in shown {
+        prov: str = str(m.get("provider", "")) if hasattr(m, "get") else str(getattr(m, "provider", ""));
+        mid: str = str(m.get("modelId", "")) if hasattr(m, "get") else str(getattr(m, "modelId", ""));
+        rows.append(<Text>{"  " + prov + "/" + mid}</Text>);
     }
-
-    shown: list = filtered[:12];
-    rows: list = [
-        <Text>{"  " + str(m.get("provider", "")) + "/" + str(m.get("modelId", ""))}</Text>
-        for m in shown
-    ];
-    extra: int = len(filtered) - 12;
+    extra: int = len(models) - 12;
 
     return (
         <Box
@@ -526,13 +288,13 @@ def:pub ModelPicker(models: list, query: str) -> JsxElement {
             <Text bold color="cyan">{"Select a model"}</Text>
             <Text dimColor>{"Type 'provider/model' and Enter. Esc to cancel."}</Text>
             {rows}
-            {extra > 0 and <Text dimColor>{"  … " + str(extra) + " more"}</Text>}
+            {extra > 0 and <Text dimColor>{"  ... " + str(extra) + " more"}</Text>}
         </Box>
     );
 }
 
-
-def:pub AuthErrorView(message: str) -> JsxElement {
+def:pub AuthErrorView(step: any) -> JsxElement {
+    message: str = str(getattr(step, "message", "")) if hasattr(step, "message") else "Unknown error";
     return (
         <Box
             flexDirection="column"
@@ -549,9 +311,91 @@ def:pub AuthErrorView(message: str) -> JsxElement {
     );
 }
 
-# ── helppanel.cl.jac ──
+# ── Dialog overlay ──────────────────────────────────────────────────
 
+def:pub DialogOption(label: str, selected: bool) -> JsxElement {
+    icon: str = "▸ " if selected else "  ";
+    return <Text bold={selected}>{icon + label}</Text>;
+}
 
+def:pub DialogOverlay(dialog: any, input_text: str) -> JsxElement {
+    kind: str = str(getattr(dialog, "kind", ""));
+    title: str = str(getattr(dialog, "title", "Dialog"));
+    opts: list = [];
+    if hasattr(dialog, "options") and dialog.options {
+        opts = list(dialog.options);
+    }
+
+    return (
+        <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="magenta"
+            paddingX={2}
+            paddingY={1}
+            marginTop={1}
+        >
+            <Text bold color="magenta">{title}</Text>
+            {kind == "select" and [
+                <Text dimColor>{"Type number or text and Enter."}</Text>,
+                [<DialogOption label={str(getattr(o, "label", str(o)))} selected={False}/> for o in opts]
+            ]}
+            {kind == "confirm" and (
+                <Text dimColor>{"y/n + Enter."}</Text>
+            )}
+            {kind == "input" and (
+                <Box>
+                    <Text color="green">{"> "}</Text>
+                    <Text>{input_text}</Text>
+                    <Text dimColor>{"_"}</Text>
+                </Box>
+            )}
+            <Text dimColor>{"Esc to dismiss."}</Text>
+        </Box>
+    );
+}
+
+# ── Completions ─────────────────────────────────────────────────────
+
+def:pub CompletionsList(items: list, selected_index: int) -> JsxElement {
+    rows: list = [];
+    shown: list = items[:8];
+    for (i, c) in enumerate(shown) {
+        is_sel: bool = i == selected_index;
+        icon: str = "▸ " if is_sel else "  ";
+        label: str = str(getattr(c, "label", str(c)));
+        rows.append(
+            <Text color="cyan" bold={is_sel}>{icon + label}</Text>
+        );
+    }
+    return (
+        <Box flexDirection="column" paddingX={1}>
+            <Text dimColor>{"Completions:"}</Text>
+            {rows}
+        </Box>
+    );
+}
+
+# ── Tool rows ───────────────────────────────────────────────────────
+
+def:pub ToolRow(tool: any) -> JsxElement {
+    name: str = str(getattr(tool, "name", "unknown"));
+    status: str = str(getattr(tool, "status", "done"));
+    running: bool = status == "running";
+    has color: str = "green";
+    if running { color = "yellow"; }
+    has icon: str = "✓";
+    if running { icon = "⏵"; }
+
+    return (
+        <Box>
+            <Text color={color}>{icon + " "}</Text>
+            <Text bold>{name}</Text>
+        </Box>
+    );
+}
+
+# ── Help panel ──────────────────────────────────────────────────────
 
 def:pub HelpPanel() -> JsxElement {
     return (
@@ -577,11 +421,375 @@ def:pub HelpPanel() -> JsxElement {
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"↑/↓ = history   Tab = autocomplete   Esc = cancel   Ctrl+C = exit"}
+                {"Esc = cancel   Tab = autocomplete   Ctrl+C = exit"}
             </Text>
         </Box>
     );
 }
 
-# ── Shell helpers ──────────────────────────────────────────────────
+# ── Main app ────────────────────────────────────────────────────────
 
+def:pub app() -> JsxElement {
+    boot: any = usePiBoot();
+    snap: any = useAgentState();
+    auth: any = useAuthFlow();
+    ui: any = useExtensionUI();
+    messages: any = useMessages();
+    tools: any = useToolTimeline();
+    streaming: any = useAgentStream();
+    session: any = usePiSession();
+
+    has input_text: str = "";
+    has multiline: bool = False;
+    has show_help: bool = False;
+    has scroll_offset: int = 0;
+    has selected_completion_index: int = 0;
+    has has_shown_welcome: bool = False;
+
+    completions: any = useCompletions(input_text);
+
+    def submit_main(text: str) -> None {
+        cmd: str = text.strip();
+        if not cmd { return; }
+
+        if cmd == "/exit" or cmd == "/quit" {
+            if session { session.dispose(); }
+            exit_app(0);
+            return;
+        }
+        if cmd == "/help" {
+            show_help = not show_help;
+            return;
+        }
+        if cmd == "/clear" or cmd == "/new" {
+            if session { session.clearSession(); }
+            return;
+        }
+        if cmd == "/abort" {
+            if session { session.abort(); }
+            return;
+        }
+        if cmd == "/multiline" {
+            multiline = not multiline;
+            return;
+        }
+        if cmd == "/login" {
+            if session { session.login(); }
+            return;
+        }
+        if cmd.startswith("/login ") {
+            pid: str = cmd[7:].strip();
+            if session and pid { session.loginWith(pid); }
+            return;
+        }
+        if cmd.startswith("/logout ") {
+            pid2: str = cmd[8:].strip();
+            if session and pid2 { session.logout(pid2); }
+            return;
+        }
+        if cmd == "/model" {
+            if session { session.openModelPicker(); }
+            return;
+        }
+        if cmd.startswith("/model ") {
+            spec: str = cmd[7:].strip();
+            if "/" in spec {
+                parts: list = spec.split("/", 1);
+                if session and len(parts) == 2 {
+                    session.selectModel(parts[0], parts[1]);
+                }
+            }
+            return;
+        }
+        if cmd == "/cancel" {
+            if session { session.cancelLogin(); }
+            return;
+        }
+        if session { session.send(cmd); }
+    }
+
+    def submit_auth(text: str) -> None {
+        step: any = auth.step;
+        has kind: any = "idle";
+        if step { kind = to_str(step.kind); }
+
+        if kind == "prompt" or kind == "manual_code" {
+            if session { session.submitAuthPrompt(text); }
+            return;
+        }
+        if kind == "select" {
+            value: str = text.strip();
+            if value.isdigit() {
+                idx: int = int(value) - 1;
+                opts: list = list(step.options);
+                if 0 <= idx and idx < len(opts) {
+                    if session { session.submitAuthSelect(to_str(opts[idx].id)); }
+                    return;
+                }
+            }
+            if session { session.submitAuthSelect(value); }
+            return;
+        }
+        if kind == "api_key_input" {
+            if session { session.submitApiKey(text); }
+            return;
+        }
+        if kind == "provider_picker" {
+            pid: str = text.strip();
+            if session and pid { session.loginWith(pid); }
+            return;
+        }
+        if kind == "model_picker" {
+            spec: str = text.strip();
+            if "/" in spec {
+                parts2: list = spec.split("/", 1);
+                if session and len(parts2) == 2 {
+                    session.selectModel(parts2[0], parts2[1]);
+                }
+            }
+            return;
+        }
+    }
+
+    def submit_dialog(text: str) -> None {
+        dialogs: any = ui.dialogs;
+        if not dialogs or list_len(dialogs) == 0 { return; }
+        dlg: any = dialogs[0];
+        has kind3: any = "";
+        if dlg { kind3 = to_str(dlg.kind); }
+        if kind3 == "select" {
+            opts3: list = list(dlg.options) if dlg.options else [];
+            value3: str = text.strip();
+            if value3.isdigit() {
+                idx3: int = int(value3) - 1;
+                if 0 <= idx3 and idx3 < len(opts3) {
+                    if session { session.resolveDialog(to_str(dlg.id), opts3[idx3]); }
+                    return;
+                }
+            }
+            if session { session.resolveDialog(to_str(dlg.id), value3); }
+            return;
+        }
+        if kind3 == "confirm" {
+            ok: bool = text.strip().lower() in ["y", "yes", "true", "1"];
+            if session { session.resolveDialog(to_str(dlg.id), ok); }
+            return;
+        }
+        if session { session.resolveDialog(to_str(dlg.id), text); }
+    }
+
+    def handle_submit() -> None {
+        text: str = input_text;
+        input_text = "";
+        if ui.dialogs and len(list(ui.dialogs)) > 0 {
+            submit_dialog(text);
+            return;
+        }
+        if to_str(auth.step.kind) != "idle" {
+            submit_auth(text);
+            return;
+        }
+        submit_main(text);
+    }
+
+    useInput(
+        lambda (ch: str, key: any) -> None {
+            if key.escape {
+                if ui.dialogs and len(list(ui.dialogs)) > 0 {
+                    dlg2: any = list(ui.dialogs)[0];
+                    if session { session.resolveDialog(to_str(dlg2.id), None); }
+                    input_text = "";
+                    return;
+                }
+                if to_str(auth.step.kind) != "idle" {
+                    if session { session.cancelLogin(); }
+                    input_text = "";
+                    return;
+                }
+                if streaming or (snap and to_str(snap.phase) == "streaming") {
+                    if session { session.abort(); }
+                    return;
+                }
+            }
+            if key.ctrl and ch == "d" {
+                if multiline {
+                    handle_submit();
+                    return;
+                }
+            }
+            if key.ctrl and ch == "c" {
+                if streaming or (snap and to_str(snap.phase) == "streaming") {
+                    if session { session.abort(); }
+                } else {
+                    if session { session.dispose(); }
+                    exit_app(0);
+                }
+                return;
+            }
+            if key.pageUp {
+                scroll_offset = scroll_offset + 10;
+                return;
+            }
+            if key.pageDown {
+                scroll_offset = max(0, scroll_offset - 10);
+                return;
+            }
+            completion_items: list = list(completions) if completions else [];
+            completion_count: int = len(completion_items);
+            if key.upArrow and completion_count > 0 {
+                selected_completion_index = (selected_completion_index - 1 + completion_count) % completion_count;
+                return;
+            }
+            if key.downArrow and completion_count > 0 {
+                selected_completion_index = (selected_completion_index + 1) % completion_count;
+                return;
+            }
+            if key.tab and completion_count > 0 {
+                idx: any = selected_completion_index;
+                if idx < 0 or idx >= completion_count { idx = 0; }
+                input_text = str(completion_items[idx].value);
+                return;
+            }
+        }
+    );
+
+    # ─── boot / error screens ─────────────────────────────────────────
+    if (not boot) or (not boot.ready) {
+        booting_text: str = "Booting Pi adapter...";
+        err: any = boot.error if boot else None;
+        return (
+            <Box flexDirection="column" padding={1}>
+                <Text bold color="magenta">{"Jackal"}</Text>
+                <Text dimColor>{booting_text}</Text>
+                {err and <Text color="red">{to_str(err)}</Text>}
+            </Box>
+        );
+    }
+
+    # ─── derived display state ────────────────────────────────────────
+    has phase: any = "ready";
+    if snap { phase = to_str(snap.phase); }
+    has model_id: any = "(no model)";
+    if snap and snap.model { model_id = to_str(snap.model); }
+    has provider_id: any = "";
+    if snap and snap.provider { provider_id = to_str(snap.provider); }
+    has session_name: any = "new session";
+    if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
+
+    pc: str = phase_color(str(phase));
+
+    # transcript with scrollback
+    msgs_list: list = list(messages) if messages else [];
+    total: int = len(msgs_list);
+    end_idx: int = max(1, total - scroll_offset);
+    start_idx: int = max(0, end_idx - 20);
+    visible_msgs: list = msgs_list[start_idx:end_idx];
+    msg_rows: list = [<MessageRow msg={m}/> for m in visible_msgs];
+
+    notifs: list = list(ui.notifications) if ui.notifications else [];
+    last_notif: any = notifs[-1] if len(notifs) > 0 else None;
+
+    tools_list: list = list(tools) if tools else [];
+    running_tools: list = [
+        t for t in tools_list if to_str(t.status) == "running"
+    ];
+    recent_tools: list = tools_list[-5:] if len(tools_list) > 5 else tools_list;
+    tool_rows: list = [<ToolRow tool={t}/> for t in recent_tools];
+
+    auth_kind: any = "idle";
+    if auth and auth.step { auth_kind = to_str(auth.step.kind); }
+    dialogs_list: list = list(ui.dialogs) if ui.dialogs else [];
+    has_dialog: bool = len(dialogs_list) > 0;
+    completions_list: list = list(completions) if completions else [];
+    show_completions: bool = len(completions_list) > 0;
+    if selected_completion_index >= len(completions_list) and len(completions_list) > 0 {
+        selected_completion_index = 0;
+    }
+
+    divider: str = "-" * 70;
+    prompt_marker: str = ">> " if multiline else "> ";
+    is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
+
+    # Show welcome on first render
+    welcome_block: list = [];
+    if has_shown_welcome == False {
+        has_shown_welcome = True;
+        welcome_block = [<WelcomeMessage version=""/>];
+    }
+
+    return (
+        <Box flexDirection="column" padding={0}>
+            <StatusBar
+                phase={phase}
+                model={model_id}
+                provider={provider_id}
+                session_name={session_name}
+                msg_count={total}
+                tools_running={len(running_tools)}
+            />
+            <Text color="gray">{divider}</Text>
+            {welcome_block}
+            <Box flexDirection="column" paddingX={1}>
+                {msg_rows}
+                {is_streaming and (
+                    <Box>
+                        <Text color="cyan" bold>{"⎇ "}</Text>
+                        <Text>{to_str(streaming)}</Text>
+                        <Text color="cyan">{"_"}</Text>
+                    </Box>
+                )}
+            </Box>
+            {len(tools_list) > 0 and (
+                <Box flexDirection="column" paddingX={1} marginTop={1}>
+                    <Text dimColor bold>{"Tools"}</Text>
+                    {tool_rows}
+                </Box>
+            )}
+            {last_notif and (
+                <Box paddingX={1}>
+                    <Text color="yellow">{"! "}</Text>
+                    <Text color="yellow">{to_str(last_notif.message)}</Text>
+                </Box>
+            )}
+            {auth_kind == "provider_picker" and <ProviderPicker step={auth.step}/>}
+            {auth_kind == "browser_auth" and <BrowserAuthView step={auth.step}/>}
+            {(auth_kind == "prompt" or auth_kind == "manual_code" or auth_kind == "api_key_input" or auth_kind == "select")
+                and <AuthPromptView step={auth.step} input_text={input_text}/>}
+            {auth_kind == "model_picker" and <ModelPicker step={auth.step}/>}
+            {auth_kind == "error" and <AuthErrorView step={auth.step}/>}
+            {auth_kind == "logging_in" and (
+                <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+                    <Text color="cyan">{"(loading) "}</Text>
+                    <Text color="cyan">{to_str(auth.step.status)}</Text>
+                </Box>
+            )}
+            {has_dialog and <DialogOverlay dialog={dialogs_list[0]} input_text={input_text}/>}
+            {show_help and <HelpPanel/>}
+            {ui.workingVisible and ui.workingMessage and (
+                <Box paddingX={1}>
+                    <Text color="cyan">{"(working) "}</Text>
+                    <Text color="cyan">{to_str(ui.workingMessage)}</Text>
+                </Box>
+            )}
+            {show_completions and <CompletionsList items={completions_list} selected_index={selected_completion_index}/>}
+            <Box paddingX={1} marginTop={1}>
+                <Text color="green" bold>{prompt_marker}</Text>
+                <TextInput
+                    value={input_text}
+                    placeholder={"Type a message (or /help)" if multiline == False else "Multiline (Ctrl+D to send)"}
+                    onChange={lambda (v: str) -> None {
+                        input_text = v;
+                        selected_completion_index = 0;
+                    }}
+                    onSubmit={lambda (_v: str) -> None {
+                        if multiline {
+                            input_text = input_text + "\n";
+                        } else {
+                            handle_submit();
+                        }
+                    }}
+                />
+            </Box>
+        </Box>
+    );
+}
