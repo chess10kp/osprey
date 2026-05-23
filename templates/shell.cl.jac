@@ -3,7 +3,7 @@ Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
 import from "@inkjs/ui" { TextInput }
-import from "@jac/pi" {
+import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
     useJackalSession,
     useAgentState,
