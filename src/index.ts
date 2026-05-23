@@ -115,6 +115,19 @@ export {
 } from "./runtime/mermaid-render.js";
 export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./runtime/mermaid-render.js";
 
+// LSP tools
+export {
+  getFileDiagnostics,
+  getMultiFileDiagnostics,
+  getHoverInfo,
+  findDefinitions,
+  findReferences,
+  formatLspDiagnostics,
+  formatHoverInfo,
+  formatLocations,
+} from "./runtime/lsp-tools.js";
+export type { LspDiagnostic, LspHoverInfo, LspLocation } from "./runtime/lsp-tools.js";
+
 import { pathToFileURL } from "node:url";
 import { runNextAgentSmoke } from "./adapter.js";
 import { parseRunArgs, printRunUsage, runCli } from "./cli-run.js";

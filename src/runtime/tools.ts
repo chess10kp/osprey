@@ -17,6 +17,16 @@ import { runJacDoctor } from "./jac-doctor.js";
 import type { JacDiagnostic } from "./jac-types.js";
 import { createTaskTools } from "./task-tools.js";
 import { renderMermaidAscii } from "./mermaid-render.js";
+import {
+  getFileDiagnostics,
+  getMultiFileDiagnostics,
+  getHoverInfo,
+  findDefinitions,
+  findReferences,
+  formatLspDiagnostics,
+  formatHoverInfo,
+  formatLocations,
+} from "./lsp-tools.js";
 
 const MAX_TOOL_TEXT = 50_000;
 
@@ -488,6 +498,96 @@ export function createCoreTools(cwd: string): AgentTool[] {
     },
   };
 
+  const lspDiagTool: AgentTool = {
+    name: "diagnostics",
+    label: "Get Diagnostics",
+    description: "Get compiler diagnostics for one or more files. Returns errors, warnings, and info.",
+    parameters: Type.Object({
+      files: Type.Array(Type.String({ description: "File paths to check" })),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { files: string[] };
+      if (params.files.length === 0) throw new Error("At least one file is required");
+      if (params.files.length === 1) {
+        const diags = await getFileDiagnostics(cwd, params.files[0]!);
+        return {
+          content: [{ type: "text", text: formatLspDiagnostics(diags) }],
+          details: { file: params.files[0], diagnostics: diags },
+        };
+      }
+      const multiDiags = await getMultiFileDiagnostics(cwd, params.files);
+      const parts: string[] = [];
+      for (const [file, diags] of multiDiags) {
+        if (diags.length > 0) {
+          parts.push(`--- ${file} ---`);
+          parts.push(formatLspDiagnostics(diags));
+        }
+      }
+      const text = parts.length > 0 ? parts.join("\n\n") : "No diagnostics in any file.";
+      return {
+        content: [{ type: "text", text }],
+        details: { allDiagnostics: Object.fromEntries(multiDiags) },
+      };
+    },
+  };
+
+  const lspHoverTool: AgentTool = {
+    name: "hover",
+    label: "Get Type Info",
+    description: "Get type information and context at a specific position in a file.",
+    parameters: Type.Object({
+      file: Type.String({ description: "File path" }),
+      line: Type.Number({ description: "Line number (1-based)" }),
+      character: Type.Number({ description: "Character position (0-based)" }),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { file: string; line: number; character: number };
+      const info = await getHoverInfo(cwd, params.file, params.line, params.character);
+      return {
+        content: [{ type: "text", text: formatHoverInfo(info) }],
+        details: info,
+      };
+    },
+  };
+
+  const lspDefTool: AgentTool = {
+    name: "definition",
+    label: "Go to Definition",
+    description: "Find the definition of a symbol at a position in a file.",
+    parameters: Type.Object({
+      file: Type.String({ description: "File path" }),
+      line: Type.Number({ description: "Line number (1-based)" }),
+      character: Type.Number({ description: "Character position (0-based)" }),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { file: string; line: number; character: number };
+      const defs = await findDefinitions(cwd, params.file, params.line, params.character);
+      return {
+        content: [{ type: "text", text: formatLocations(defs, "Definitions") }],
+        details: { definitions: defs },
+      };
+    },
+  };
+
+  const lspRefsTool: AgentTool = {
+    name: "references",
+    label: "Find References",
+    description: "Find all references to the symbol at a position in a file.",
+    parameters: Type.Object({
+      file: Type.String({ description: "File path" }),
+      line: Type.Number({ description: "Line number (1-based)" }),
+      character: Type.Number({ description: "Character position (0-based)" }),
+    }),
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as { file: string; line: number; character: number };
+      const refs = await findReferences(cwd, params.file, params.line, params.character);
+      return {
+        content: [{ type: "text", text: formatLocations(refs, "References") }],
+        details: { references: refs },
+      };
+    },
+  };
+
   const mermaidTool: AgentTool = {
     name: "mermaid",
     label: "Render Mermaid",
@@ -534,6 +634,10 @@ export function createCoreTools(cwd: string): AgentTool[] {
     jacFormatTool,
     jacRunTool,
     globTool,
+    lspDiagTool,
+    lspHoverTool,
+    lspDefTool,
+    lspRefsTool,
     mermaidTool,
     compactTool,
     ...createTaskTools(cwd),

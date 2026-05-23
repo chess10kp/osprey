@@ -108,9 +108,7 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 
 **Still to implement (shell/TUI wiring):**
 
-| Feature | Notes |
-|---------|-------|
-| LSP tools | diagnostics, hover, rename |
+*(No remaining features — all runtime capabilities are implemented. Shell/TUI wiring is the remaining work.)*
 
 ---
 
