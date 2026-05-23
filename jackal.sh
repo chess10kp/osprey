@@ -46,11 +46,18 @@ fi
 export JACKAL_AGENT_DIST="$JACKAL_DIR/dist/index.js"
 export JACKAL_AGENT_CWD="${JACKAL_AGENT_CWD:-$PWD}"
 
+# Avoid noisy desktop plugin load warnings in CLI environments.
+if [[ -z "${JAC_DISABLED_PLUGINS:-}" ]]; then
+  export JAC_DISABLED_PLUGINS="jac-desktop:desktop"
+else
+  export JAC_DISABLED_PLUGINS="${JAC_DISABLED_PLUGINS},jac-desktop:desktop"
+fi
+
 # Compile-only; swap jac-ink's @jac/pi stub for the Jackal agent runtime facade.
 TUI_OUT="${JACKAL_TUI_OUT:-$JACKAL_DIR/.jac/tui}"
 (
   cd "$JACKAL_DIR" \
-    && jac tui templates/shell.cl.jac --out "$TUI_OUT" --no_run
+    && jac tui templates/shell.cl.jac --out "$TUI_OUT" --no_run --quiet
 )
 
 # jac-ink may inject legacy @jac/pi hook names; align with Jackal exports.
@@ -60,8 +67,15 @@ sed -i \
   -e 's/useExtensionUI/useJackalUI/g' \
   "$TUI_OUT/module.mjs"
 
+# Work around a jac2ink codegen bug: missing closing brace in CompletionsList.
+# (until fixed upstream in jac-ink/jaclang)
+perl -0pi -e 's/(rows\.push\(__jacJsx\(Text, \{"color": "cyan", "bold": is_sel\}, \[\(icon \+ label\)\]\)\);\n\s*)(return __jacJsx\(Box, \{"flexDirection": "column", "paddingX": 1\}, \[__jacJsx\(Text, \{"dimColor": true\}, \["Completions:"\]\), rows\]\);)/$1  }\n  $2/s' "$TUI_OUT/module.mjs"
+
 # Overwrite the jac-ink-emitted stub with the Jackal runtime facade.
 cp "$JACKAL_DIR/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+
+# Fail fast with a clear error if jac2ink emitted invalid JS.
+node --check "$TUI_OUT/module.mjs" >/dev/null
 
 # Install deps if needed, then launch.
 if [[ ! -d "$TUI_OUT/node_modules" ]]; then
