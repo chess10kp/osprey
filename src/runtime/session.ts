@@ -12,6 +12,11 @@ export interface SessionSnapshot {
   messages: AgentMessage[];
 }
 
+export interface SavedModelRef {
+  provider: string;
+  id: string;
+}
+
 export class JackalSessionManager {
   private _cwd: string;
   private _sessionDir: string;
@@ -19,6 +24,7 @@ export class JackalSessionManager {
   private _sessionName: string;
   private _messages: AgentMessage[] = [];
   private _model?: Model<Api>;
+  private _savedModelRef?: SavedModelRef;
 
   private constructor(
     cwd: string,
@@ -44,7 +50,13 @@ export class JackalSessionManager {
     if (loaded) {
       mgr._sessionId = loaded.sessionId;
       mgr._sessionName = loaded.sessionName;
-      mgr._messages = loaded.messages;
+      mgr._messages = loaded.messages ?? [];
+      if (loaded.model?.provider && loaded.model?.id) {
+        mgr._savedModelRef = {
+          provider: loaded.model.provider,
+          id: loaded.model.id,
+        };
+      }
     }
     return mgr;
   }
@@ -78,8 +90,13 @@ export class JackalSessionManager {
     return this._model;
   }
 
+  get savedModelRef(): SavedModelRef | undefined {
+    return this._savedModelRef;
+  }
+
   setModel(model: Model<Api>): void {
     this._model = model;
+    this._savedModelRef = { provider: model.provider, id: model.id };
     this._persist();
   }
 
@@ -117,9 +134,7 @@ export class JackalSessionManager {
     const snap: SessionSnapshot = {
       sessionId: this._sessionId,
       sessionName: this._sessionName,
-      model: this._model
-        ? { provider: this._model.provider, id: this._model.id }
-        : undefined,
+      model: this._savedModelRef,
       messages: this._messages,
     };
     writeFileSync(this._sessionFile(), JSON.stringify(snap, null, 2) + "\n", "utf-8");

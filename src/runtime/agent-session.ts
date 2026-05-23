@@ -33,8 +33,13 @@ export class JackalAgentSession {
     this._sessionManager = options.sessionManager;
 
     const saved = options.sessionManager.model;
-    const initialModel =
+    const savedRef = options.sessionManager.savedModelRef;
+    const resolvedSaved =
       saved ??
+      (savedRef ? this._models.find(savedRef.provider, savedRef.id) : undefined);
+
+    const initialModel =
+      resolvedSaved ??
       this._models.getAvailable()[0] ??
       this._models.getAll()[0];
 
@@ -52,8 +57,8 @@ export class JackalAgentSession {
       getApiKey: (provider) => this._auth.getApiKey(provider),
     });
 
-    if (saved) {
-      this._sessionManager.setModel(saved);
+    if (resolvedSaved) {
+      this._sessionManager.setModel(resolvedSaved);
     }
 
     this._unsubAgent = this._agent.subscribe((event) => {
@@ -107,6 +112,18 @@ export class JackalAgentSession {
       type: "model_select",
       provider: model.provider,
       model: model.id,
+    });
+  }
+
+  /** Start a fresh session: clear agent context and persist an empty transcript. */
+  resetForNewSession(): void {
+    this._sessionManager.newSession();
+    this._agent.state.messages = [];
+    this._emit({
+      type: "session_start",
+      reason: "new",
+      sessionId: this._sessionManager.sessionId,
+      sessionName: this._sessionManager.sessionName,
     });
   }
 
