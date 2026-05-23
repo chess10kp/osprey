@@ -107,6 +107,7 @@ export async function createNextAgent(
     setModel: (provider: string, modelId: string) => Promise<void>;
     clearSession: () => Promise<void>;
     compactSession: () => Promise<{ compacted: boolean; dropped: number }>;
+    runTool: (name: string, params?: Record<string, unknown>) => Promise<string>;
     dispose: () => void;
   };
 }> {
@@ -158,6 +159,9 @@ export async function createNextAgent(
       },
       compactSession: async () => {
         return session.compactContext();
+      },
+      runTool: async (name: string, params?: Record<string, unknown>) => {
+        return session.runTool(name, params ?? {});
       },
       dispose: () => {
         unsubBridge();

@@ -104,6 +104,43 @@ export class JackalAgentSession {
     this._agent.abort();
   }
 
+  async runTool(name: string, params: Record<string, unknown> = {}): Promise<string> {
+    const tool = this._agent.state.tools.find((t) => t.name === name);
+    if (!tool) {
+      throw new Error(`Tool not available: ${name}`);
+    }
+
+    const toolCallId = `manual_${name}_${Date.now()}`;
+    this._emit({ type: "tool_execution_start", toolCallId, toolName: name, input: params });
+
+    try {
+      const result = await tool.execute(toolCallId, params);
+      this._emit({ type: "tool_execution_end", toolCallId, toolName: name, input: params, result: result.details });
+
+      const text = (result.content ?? [])
+        .filter((c) => c.type === "text")
+        .map((c) => c.text)
+        .join("\n");
+
+      const finalText = text || `${name} completed`;
+      const msg = {
+        role: "assistant",
+        content: [{ type: "text", text: finalText }],
+        timestamp: Date.now(),
+      } as unknown as AgentMessage;
+      this._agent.state.messages = [...this._agent.state.messages, msg];
+      this._sessionManager.setMessages(this._agent.state.messages);
+
+      this._emit({ type: "message_start", message: msg });
+      this._emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: finalText } });
+      this._emit({ type: "message_end", message: msg });
+      return finalText;
+    } catch (error) {
+      this._emit({ type: "tool_execution_end", toolCallId, toolName: name, input: params, result: { error: String(error) } });
+      throw error;
+    }
+  }
+
   async setModel(model: Model<Api>): Promise<void> {
     this._agent.state.model = model;
     this._sessionManager.setModel(model);

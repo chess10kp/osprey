@@ -531,26 +531,32 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/jac-check" {
-            if session { session.send("Use jac_check tool and report diagnostics."); }
+            if session and hasattr(session, "runTool") { session.runTool("jac_check", {}); }
+            elif session { session.send("Use jac_check tool and report diagnostics."); }
             return;
         }
         if cmd == "/jac-doctor" {
-            if session { session.send("Use jac_doctor tool and summarize findings."); }
+            if session and hasattr(session, "runTool") { session.runTool("jac_doctor", {}); }
+            elif session { session.send("Use jac_doctor tool and summarize findings."); }
             return;
         }
         if cmd.startswith("/jac ") {
             tail: str = cmd[5:].strip();
             if session and tail {
-                session.send("Use jac_cli with args split from: " + tail);
+                parts_jac: list = tail.split(" ");
+                if hasattr(session, "runTool") { session.runTool("jac_cli", {"args": parts_jac}); }
+                else { session.send("Use jac_cli with args split from: " + tail); }
             }
             return;
         }
         if cmd == "/fix" {
-            if session { session.send("Use jac_fix tool with maxAttempts=3 and summarize the result."); }
+            if session and hasattr(session, "runTool") { session.runTool("jac_fix", {"maxAttempts": 3}); }
+            elif session { session.send("Use jac_fix tool with maxAttempts=3 and summarize the result."); }
             return;
         }
         if cmd == "/create" {
-            if session { session.send("Use jac_list_templates and show available templates."); }
+            if session and hasattr(session, "runTool") { session.runTool("jac_list_templates", {}); }
+            elif session { session.send("Use jac_list_templates and show available templates."); }
             return;
         }
         if cmd.startswith("/create ") {
@@ -560,9 +566,11 @@ def:pub app() -> JsxElement {
                 tpl: str = parts[0] if len(parts) > 0 else "";
                 name: str = parts[1] if len(parts) > 1 else "";
                 if tpl and name {
-                    session.send("Use jac_create with template='" + tpl + "' and name='" + name + "'.");
+                    if hasattr(session, "runTool") { session.runTool("jac_create", {"template": tpl, "name": name}); }
+                    else { session.send("Use jac_create with template='" + tpl + "' and name='" + name + "'."); }
                 } elif tpl {
-                    session.send("Use jac_create with template='" + tpl + "'.");
+                    if hasattr(session, "runTool") { session.runTool("jac_create", {"template": tpl}); }
+                    else { session.send("Use jac_create with template='" + tpl + "'."); }
                 }
             }
             return;
