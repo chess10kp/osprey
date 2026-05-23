@@ -479,16 +479,14 @@ def:pub PromptBar(props: any) -> JsxElement {
     return (
         <Box flexDirection="column" paddingX={1} marginTop={1}>
             <Box borderStyle="single" borderColor="gray" paddingX={1}>
-                <Text color="green" bold>{prompt_marker}</Text>
-                <Text>{" "}</Text>
-                {len(input_text) == 0 and <Text color="gray">{"Type a message (or /help)" if multiline == False else "Multiline (Enter=newline, Ctrl+D=send)"}</Text>}
-                {len(input_text) > 0 and (
-                    <Box>
-                        <Text>{before}</Text>
-                        <Text inverse>{at if at else " "}</Text>
-                        <Text>{after}</Text>
-                    </Box>
-                )}
+                {prompt_marker and <Text color="green" bold>{prompt_marker}</Text>}
+                {prompt_marker and <Text>{" "}</Text>}
+                <Box>
+                    <Text>{before}</Text>
+                    <Text inverse>{at if at else " "}</Text>
+                    <Text>{after}</Text>
+                </Box>
+                {len(input_text) == 0 and <Text color="gray">{" Type a message (or /help)" if multiline == False else " Multiline (Enter=newline, Ctrl+D=send)"}</Text>}
             </Box>
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
@@ -933,7 +931,7 @@ def:pub app() -> JsxElement {
     }
 
     divider: str = "-" * 70;
-    prompt_marker: str = ">> " if multiline else "> ";
+    prompt_marker: str = "";
     is_streaming: bool = (streaming is not None and to_str(streaming) != "") or phase == "streaming";
 
     # Welcome banner disabled.
