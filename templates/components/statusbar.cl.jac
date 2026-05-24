@@ -25,15 +25,32 @@ def phase_label(phase: str) -> str {
 
 
 def context_color(percent: float) -> str {
+    if percent >= 85.0 { return "red"; }
     if percent >= 60.0 { return "yellow"; }
     return "green";
 }
 
 
 def context_text(percent: float) -> str {
-    base: str = "Context: " + str(int(percent)) + "%";
-    if percent >= 60.0 { return base + " (use /compact)"; }
+    base: str = str(int(percent)) + "%";
+    if percent >= 60.0 { return base + " · /compact"; }
     return base;
+}
+
+
+def context_progress_bar(percent: float, width: int) -> str {
+    pct: float = percent;
+    if pct < 0.0 { pct = 0.0; }
+    if pct > 100.0 { pct = 100.0; }
+    bar_w: int = width;
+    if bar_w < 4 { bar_w = 4; }
+    filled: int = int(round((bar_w * pct) / 100.0));
+    if filled > bar_w { filled = bar_w; }
+    empty: int = bar_w - filled;
+    bar: str = "";
+    for _ in range(filled) { bar = bar + "█"; }
+    for _ in range(empty) { bar = bar + "░"; }
+    return bar;
 }
 
 
@@ -50,6 +67,7 @@ def:pub StatusBar(
     pl: str = phase_label(phase);
     ctx_color: str = context_color(context_percent);
     ctx_text: str = context_text(context_percent);
+    ctx_bar: str = context_progress_bar(context_percent, 10);
 
     return (
         <Box
@@ -72,6 +90,8 @@ def:pub StatusBar(
                 </Box>
             </Box>
             <Box flexDirection="row">
+                <Text color={ctx_color}>{ctx_bar}</Text>
+                <Text>{" "}</Text>
                 <Text color={ctx_color}>{ctx_text}</Text>
                 {mcp_total > 0 and (
                     <Text color="gray">{"  MCP: " + str(mcp_connected) + "/" + str(mcp_total)}</Text>

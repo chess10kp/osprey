@@ -89,6 +89,84 @@ def mode_color(mode: str) -> str {
     return "gray";
 }
 
+def phase_label(phase: str) -> str {
+    if phase == "booting" { return "Booting..."; }
+    if phase == "ready" { return "Ready"; }
+    if phase == "streaming" { return "Thinking"; }
+    if phase == "compacting" { return "Compacting"; }
+    if phase == "retrying" { return "Retrying"; }
+    if phase == "error" { return "Error"; }
+    return phase;
+}
+
+def context_usage_color(percent: float) -> str {
+    if percent >= 85.0 { return "red"; }
+    if percent >= 60.0 { return "yellow"; }
+    return "green";
+}
+
+def context_usage_hint(percent: float) -> str {
+    base: str = str(int(percent)) + "%";
+    if percent >= 60.0 { return base + " · /compact"; }
+    return base;
+}
+
+def format_compact_tokens(count: int) -> str {
+    if count >= 1000000 { return str(count // 1000000) + "M"; }
+    if count >= 1000 { return str(count // 1000) + "k"; }
+    return str(count);
+}
+
+def context_progress_bar(percent: float, width: int) -> str {
+    pct: float = percent;
+    if pct < 0.0 { pct = 0.0; }
+    if pct > 100.0 { pct = 100.0; }
+    bar_w: int = width;
+    if bar_w < 4 { bar_w = 4; }
+    filled: int = int(round((bar_w * pct) / 100.0));
+    if filled > bar_w { filled = bar_w; }
+    empty: int = bar_w - filled;
+    bar: str = "";
+    for _ in range(filled) { bar = bar + "█"; }
+    for _ in range(empty) { bar = bar + "░"; }
+    return bar;
+}
+
+def:pub UsageDetailOverlay(props: any) -> JsxElement {
+    if not bool(props.active) { return <Text></Text>; }
+    percent: float = float(props.percent) if props.percent is not None else 0.0;
+    used: int = int(props.used) if props.used is not None else 0;
+    max_tokens: int = int(props.max) if props.max is not None else 0;
+    system_tokens: int = int(props.system_tokens) if props.system_tokens is not None else 0;
+    message_tokens: int = int(props.message_tokens) if props.message_tokens is not None else 0;
+    ctx_color: str = context_usage_color(percent);
+    bar: str = context_progress_bar(percent, 24);
+    available: int = max_tokens - used;
+    if available < 0 { available = 0; }
+    return (
+        <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="cyan"
+            paddingX={2}
+            paddingY={1}
+            marginTop={1}
+        >
+            <Text bold color="cyan">{"Context usage"}</Text>
+            <Box flexDirection="row" marginTop={1}>
+                <Text color={ctx_color}>{bar}</Text>
+                <Text>{" "}</Text>
+                <Text color={ctx_color} bold>{context_usage_hint(percent)}</Text>
+            </Box>
+            <Text color="gray">
+                {format_compact_tokens(used) + "/" + format_compact_tokens(max_tokens) + " tokens"}
+            </Text>
+            <Text dimColor>{"system " + str(system_tokens) + " · messages " + str(message_tokens) + " · free " + format_compact_tokens(available)}</Text>
+            <Text dimColor>{"Esc or /usage to close"}</Text>
+        </Box>
+    );
+}
+
 def:pub StatusBar(props: any) -> JsxElement {
     phase: str = to_str(props.phase) if props.phase else "ready";
     mode: str = to_str(props.mode) if props.mode else "normal";
@@ -99,31 +177,46 @@ def:pub StatusBar(props: any) -> JsxElement {
     mcp_connected: bool = bool(props.mcp_connected) if props.mcp_connected is not None else False;
     mcp_connecting: bool = bool(props.mcp_connecting) if props.mcp_connecting is not None else False;
     mcp_tools: int = int(props.mcp_tools) if props.mcp_tools is not None else 0;
-    usage_line: str = to_str(props.usage_line) if props.usage_line else "";
+    context_percent: float = float(props.context_percent) if props.context_percent is not None else 0.0;
+    context_used: int = int(props.context_used) if props.context_used is not None else 0;
+    context_max: int = int(props.context_max) if props.context_max is not None else 0;
     pc: str = phase_color(phase);
     mc: str = mode_color(mode);
+    pl: str = phase_label(phase);
+    ctx_color: str = context_usage_color(context_percent);
+    ctx_bar: str = context_progress_bar(context_percent, 10);
     model_display: str = model if model else "(no model)";
     provider_display: str = provider if provider else "";
     mcp_label: str = "on:" + str(mcp_tools);
     if mcp_connecting { mcp_label = "connecting"; }
     elif not mcp_connected { mcp_label = "off"; }
+    token_summary: str = format_compact_tokens(context_used) + "/" + format_compact_tokens(context_max);
 
     return (
-        <Box flexDirection="row" justifyContent="space-between" paddingX={1}>
-            <Box flexDirection="row">
-                <Text bold color="magenta">{"Jackal"}</Text>
-                <Text>{" "}</Text>
-                <Text color={pc}>{"● " + phase}</Text>
-                <Text>{" "}</Text>
-                <Text color={mc} bold>{mode}</Text>
+        <Box flexDirection="column" paddingX={1} marginTop={1}>
+            <Box flexDirection="row" justifyContent="space-between">
+                <Box flexDirection="row">
+                    <Text bold color="magenta">{"Jackal"}</Text>
+                    <Text>{" "}</Text>
+                    <Text color={pc}>{"● " + pl}</Text>
+                    <Text>{" "}</Text>
+                    <Text color={mc} bold>{mode}</Text>
+                </Box>
+                <Box flexDirection="row">
+                    <Text color="green" bold>{provider_display}</Text>
+                    {provider_display and <Text color="gray">{"/"}</Text>}
+                    <Text color="green">{model_display}</Text>
+                </Box>
             </Box>
-            <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + mcp_label}</Text>
-            <Box flexDirection="row">
-                <Text color="green" bold>{provider_display}</Text>
-                {provider_display and <Text color="gray">{"/"}</Text>}
-                <Text color="green">{model_display}</Text>
+            <Box flexDirection="row" justifyContent="space-between">
+                <Box flexDirection="row">
+                    <Text color={ctx_color}>{ctx_bar}</Text>
+                    <Text>{" "}</Text>
+                    <Text color={ctx_color}>{context_usage_hint(context_percent)}</Text>
+                    <Text color="gray">{" " + token_summary}</Text>
+                </Box>
+                <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + mcp_label}</Text>
             </Box>
-            {usage_line and <Text color="gray">{usage_line}</Text>}
         </Box>
     );
 }
@@ -521,7 +614,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/clear,/new    new session"}</Text>
                 <Text color="white">{"Ctrl+J / Shift+Enter  insert newline"}</Text>
                 <Text color="white">{"/compact       compact context (--preview, --restore)"}</Text>
-                <Text color="white">{"/usage         context utilization"}</Text>
+                <Text color="white">{"/usage         toggle context usage panel"}</Text>
                 <Text color="white">{"/context-max   set/show max context tokens"}</Text>
                 <Text color="white">{"/resume [--all]  pick prior session (Enter to load)"}</Text>
                 <Text color="white">{"/rename <name> rename current session"}</Text>
@@ -611,6 +704,7 @@ def:pub app() -> JsxElement {
     has resume_picker_items: list = [];
     has resume_picker_index: int = 0;
     has resume_picker_show_all: bool = False;
+    has show_usage_detail: bool = False;
 
     completions: any = useCompletions(input_text);
 
@@ -626,9 +720,18 @@ def:pub app() -> JsxElement {
     pending_approval: any = None;
     if snap and snap.pendingSubagentApproval { pending_approval = snap.pendingSubagentApproval; }
     elif snap and snap.pendingApproval { pending_approval = snap.pendingApproval; }
-    usage_line: str = "";
-    if session and hasattr(session, "getUsageLine") {
-        usage_line = to_str(session.getUsageLine());
+    context_percent: float = 0.0;
+    context_used: int = 0;
+    context_max: int = 0;
+    context_system_tokens: int = 0;
+    context_message_tokens: int = 0;
+    if session and hasattr(session, "getContextUsage") {
+        usage: any = session.getContextUsage();
+        context_percent = float(getattr(usage, "percent", 0));
+        context_used = int(getattr(usage, "used", 0));
+        context_max = int(getattr(usage, "max", 0));
+        context_system_tokens = int(getattr(usage, "systemPromptTokens", 0));
+        context_message_tokens = int(getattr(usage, "messageTokens", 0));
     }
 
     def close_resume_picker() -> None {
@@ -710,9 +813,7 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/usage" {
-            if session and hasattr(session, "getUsageLine") {
-                session.send("[usage] " + session.getUsageLine());
-            }
+            show_usage_detail = not show_usage_detail;
             return;
         }
         if cmd == "/context-max" {
@@ -1128,6 +1229,10 @@ def:pub app() -> JsxElement {
             }
 
             if key.escape {
+                if show_usage_detail {
+                    show_usage_detail = False;
+                    return;
+                }
                 if resume_picker_active {
                     close_resume_picker();
                     return;
@@ -1426,6 +1531,16 @@ def:pub app() -> JsxElement {
                     show_all={resume_picker_show_all}
                 />
             )}
+            {show_usage_detail and (
+                <UsageDetailOverlay
+                    active={show_usage_detail}
+                    percent={context_percent}
+                    used={context_used}
+                    max={context_max}
+                    system_tokens={context_system_tokens}
+                    message_tokens={context_message_tokens}
+                />
+            )}
             {(not compact_layout) and (
                 <Box key={"chat-" + str(transcript_epoch)}>
                     <ChatHistory
@@ -1478,7 +1593,9 @@ def:pub app() -> JsxElement {
                 mcp_connected={bool(getattr(snap, "mcpConnected", False))}
                 mcp_connecting={bool(getattr(snap, "mcpConnecting", False))}
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
-                usage_line={usage_line}
+                context_percent={context_percent}
+                context_used={context_used}
+                context_max={context_max}
             />
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>

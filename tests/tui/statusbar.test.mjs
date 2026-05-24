@@ -142,8 +142,9 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       context_percent: 65,
     });
     const out = frame();
-    expect(out).toMatch(/Context: 65%/);
-    expect(out).toMatch(/\(use \/compact\)/);
+    expect(out).toMatch(/65%/);
+    expect(out).toMatch(/\/compact/);
+    expect(out).toMatch(/█/);
     unmount();
   });
 
