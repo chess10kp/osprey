@@ -174,6 +174,7 @@ postprocess_tui() {
   cp "$JACKAL_DIR/templates/markdown.mjs" "$TUI_OUT/markdown.mjs"
   node "$JACKAL_DIR/scripts/dedupe-jac-runtime.mjs" "$TUI_OUT/module.mjs"
   node "$JACKAL_DIR/scripts/fix-tui-module.mjs" "$TUI_OUT/module.mjs"
+  node "$JACKAL_DIR/scripts/patch-tui-runner.mjs" "$TUI_OUT/runner.mjs"
   node --check "$TUI_OUT/module.mjs" >/dev/null
 }
 

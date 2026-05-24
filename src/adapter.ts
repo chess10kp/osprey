@@ -88,10 +88,6 @@ function resolveContextMax(cwd: string, options?: CreateNextAgentOptions): numbe
   return null;
 }
 
-function clearTerminalScreen(): void {
-  process.stdout.write("\x1b[r\x1b[?6l\x1b[2J\x1b[3J\x1b[H");
-}
-
 function sessionStorageDir(cwd: string, override?: string): string {
   return override ?? join(cwd, ".jackal", "sessions");
 }
@@ -396,7 +392,6 @@ export async function createNextAgent(
         uiContext.reset();
         session.resetForNewSession();
         await clearTasks(cwd);
-        clearTerminalScreen();
         uiContext.notify("Chat cleared.", "success");
       },
       compactSession: async (compactOptions?: CompactContextOptions) => {
