@@ -11,9 +11,16 @@ export {
   restoreCheckpointFiles,
   getModifiedFiles,
   formatCheckpointList,
+  formatCheckpointOverlayRow,
+  formatRelativeTime,
   validateCheckpointName,
   checkpointsDir,
 } from "./workflow/checkpoints.js";
+export {
+  formatTaskOverlayRow,
+  formatTasksOverlayHeader,
+  taskStatusIcon,
+} from "./ui/overlay-rows.js";
 export type { CheckpointData } from "./workflow/checkpoints.js";
 export {
   loadTasks,

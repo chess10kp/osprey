@@ -17,6 +17,8 @@ import from "./jac_pi_runtime_shim.mjs" {
     useJackalUI,
     useCompletions,
     useExplorerState,
+    useTasksOverlayState,
+    useCheckpointOverlayState,
     useScreenEpoch
 }
 
@@ -532,6 +534,134 @@ def:pub ExplorerOverlay(props: any) -> JsxElement {
     );
 }
 
+# ── Task list overlay ───────────────────────────────────────────────
+
+def task_status_icon(status: str) -> str {
+    if status == "completed" { return "✓"; }
+    if status == "in_progress" { return "◐"; }
+    return "○";
+}
+
+def task_status_color(status: str) -> str {
+    if status == "completed" { return "green"; }
+    if status == "in_progress" { return "yellow"; }
+    return "gray";
+}
+
+def format_task_row(task: any, index: int, selected: bool) -> str {
+    status: str = to_str(getattr(task, "status", "pending"));
+    title: str = to_str(getattr(task, "title", ""));
+    desc: str = to_str(getattr(task, "description", "")) if getattr(task, "description", None) else "";
+    extra: str = (" — " + desc) if desc else "";
+    icon: str = task_status_icon(status);
+    mark: str = "▸ " if selected else "  ";
+    return mark + icon + " " + str(index + 1) + ". " + title + extra;
+}
+
+def:pub TasksOverlay(props: any) -> JsxElement {
+    overlay: any = props.overlay;
+    if not overlay or not bool(getattr(overlay, "active", False)) {
+        return <Text></Text>;
+    }
+    loading: bool = bool(getattr(overlay, "loading", False));
+    err: str = to_str(getattr(overlay, "error", ""));
+    tasks: list = list(getattr(overlay, "tasks", [])) if getattr(overlay, "tasks", None) else [];
+    idx: int = int(getattr(overlay, "index", 0));
+    visible: int = 12;
+    start: int = max(0, min(idx - visible // 2, max(0, len(tasks) - visible)));
+    shown: list = tasks[start:start + visible];
+    rows: list = [];
+    for i in range(len(shown)) {
+        real_i: int = start + i;
+        is_cur: bool = real_i == idx;
+        t: any = shown[i];
+        st: str = to_str(getattr(t, "status", "pending"));
+        rows.append(
+            <Text bold={is_cur} color={task_status_color(st) if is_cur else "white"}>
+                {format_task_row(t, real_i, is_cur)}
+            </Text>
+        );
+    }
+    header: str = str(len(tasks)) + " task(s)";
+    if len(tasks) == 0 { header = "No tasks"; }
+    return (
+        <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={2} paddingY={1} marginTop={1}>
+            <Text bold color="magenta">{"/tasks — " + header}</Text>
+            {loading and <Text dimColor>{"Loading..."}</Text>}
+            {err and <Text color="red">{err}</Text>}
+            {(not loading) and (len(tasks) == 0) and (
+                <Text dimColor>{"Use /tasks add <title> or create_task tool."}</Text>
+            )}
+            {rows}
+            <Text dimColor>{"↑↓ navigate   Esc close   /tasks add|remove|clear"}</Text>
+        </Box>
+    );
+}
+
+# ── Checkpoint selector overlay ─────────────────────────────────────
+
+def format_checkpoint_row(item: any, selected: bool) -> str {
+    meta: any = getattr(item, "metadata", item);
+    name: str = to_str(getattr(meta, "name", getattr(item, "name", "")));
+    msgs: int = int(getattr(meta, "messageCount", 0));
+    files: int = len(list(getattr(meta, "filesChanged", []))) if getattr(meta, "filesChanged", None) else 0;
+    ts: str = to_str(getattr(meta, "timestamp", ""));
+    when: str = ts[:16].replace("T", " ") if ts else "";
+    mark: str = "▸ " if selected else "  ";
+    return mark + name + " — " + str(msgs) + " msgs, " + str(files) + " files — " + when;
+}
+
+def:pub CheckpointOverlay(props: any) -> JsxElement {
+    overlay: any = props.overlay;
+    if not overlay or not bool(getattr(overlay, "active", False)) {
+        return <Text></Text>;
+    }
+    mode: str = to_str(getattr(overlay, "mode", "list"));
+    phase: str = to_str(getattr(overlay, "phase", "select"));
+    loading: bool = bool(getattr(overlay, "loading", False));
+    err: str = to_str(getattr(overlay, "error", ""));
+    items: list = list(getattr(overlay, "items", [])) if getattr(overlay, "items", None) else [];
+    idx: int = int(getattr(overlay, "index", 0));
+    sel_name: str = to_str(getattr(overlay, "selectedName", "")) if getattr(overlay, "selectedName", None) else "";
+    if phase == "backup" and sel_name {
+        return (
+            <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={2} paddingY={1} marginTop={1}>
+                <Text bold color="yellow">{"Load checkpoint — backup?"}</Text>
+                <Text>{"Checkpoint: " + sel_name}</Text>
+                <Text marginTop={1}>{"Create a backup of the current session before loading?"}</Text>
+                <Text dimColor marginTop={1}>{"Y/Enter = yes, backup first   N = skip backup   Esc = cancel"}</Text>
+            </Box>
+        );
+    }
+    visible: int = 10;
+    start: int = max(0, min(idx - visible // 2, max(0, len(items) - visible)));
+    shown: list = items[start:start + visible];
+    rows: list = [];
+    for i in range(len(shown)) {
+        real_i: int = start + i;
+        is_cur: bool = real_i == idx;
+        rows.append(
+            <Text bold={is_cur} color={"cyan" if is_cur else "white"}>
+                {format_checkpoint_row(shown[i], is_cur)}
+            </Text>
+        );
+    }
+    title: str = "Select checkpoint to load" if mode == "load" else "Checkpoints";
+    hint: str = "↑↓ navigate   Enter load   Esc cancel" if mode == "load" else "↑↓ navigate   Esc close";
+    return (
+        <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={2} paddingY={1} marginTop={1}>
+            <Text bold color="green">{title}</Text>
+            {loading and <Text dimColor>{"Loading..."}</Text>}
+            {err and <Text color="red">{err}</Text>}
+            {(not loading) and (len(items) == 0) and (
+                <Text dimColor>{"No checkpoints. Use /checkpoint create [name]."}</Text>
+            )}
+            {rows}
+            <Text dimColor>{hint}</Text>
+        </Box>
+    );
+}
+
 # ── Completions ─────────────────────────────────────────────────────
 
 def:pub CompletionsList(props: any) -> JsxElement {
@@ -746,6 +876,8 @@ def:pub app() -> JsxElement {
     streaming: any = useAgentStream();
     session: any = useJackalSession();
     explorer: any = useExplorerState();
+    tasks_overlay: any = useTasksOverlayState();
+    checkpoint_overlay: any = useCheckpointOverlayState();
     screen_epoch: int = int(useScreenEpoch());
 
     has input_text: str = "";
@@ -964,15 +1096,19 @@ def:pub app() -> JsxElement {
             if not session { return; }
             cp_parts: list = cmd.split(" ");
             if len(cp_parts) == 1 or (len(cp_parts) > 1 and cp_parts[1] == "list") {
-                if hasattr(session, "showCheckpoints") { session.showCheckpoints(); }
+                if hasattr(session, "openCheckpointOverlay") { session.openCheckpointOverlay("list"); }
                 return;
             }
             sub: str = cp_parts[1] if len(cp_parts) > 1 else "";
             if sub == "create" {
                 cname: str = " ".join(cp_parts[2:]) if len(cp_parts) > 2 else "";
                 if hasattr(session, "checkpointCreate") { session.checkpointCreate(cname if cname else None); }
-            } elif sub == "load" and len(cp_parts) > 2 and hasattr(session, "checkpointLoad") {
-                session.checkpointLoad(cp_parts[2]);
+            } elif sub == "load" {
+                if len(cp_parts) > 2 and hasattr(session, "checkpointLoad") {
+                    session.checkpointLoad(cp_parts[2]);
+                } elif hasattr(session, "openCheckpointOverlay") {
+                    session.openCheckpointOverlay("load");
+                }
             } elif sub == "delete" and len(cp_parts) > 2 and hasattr(session, "checkpointDelete") {
                 session.checkpointDelete(cp_parts[2]);
             }
@@ -982,7 +1118,7 @@ def:pub app() -> JsxElement {
             if not session { return; }
             tp: list = cmd.split(" ", 2);
             if len(tp) == 1 or tp[1] == "list" {
-                if hasattr(session, "showTasks") { session.showTasks(); }
+                if hasattr(session, "openTasksOverlay") { session.openTasksOverlay(); }
                 return;
             }
             if tp[1] == "add" and len(tp) > 2 and hasattr(session, "tasksAdd") {
@@ -1242,6 +1378,74 @@ def:pub app() -> JsxElement {
                 return;
             }
 
+            cp_active: bool = checkpoint_overlay and bool(getattr(checkpoint_overlay, "active", False));
+            if cp_active and session {
+                cp_phase: str = to_str(getattr(checkpoint_overlay, "phase", "select"));
+                if cp_phase == "backup" {
+                    if key.escape {
+                        if hasattr(session, "closeCheckpointOverlay") { session.closeCheckpointOverlay(); }
+                        return;
+                    }
+                    ch_low: str = ch.lower() if ch else "";
+                    if ch_low == "y" or key.return {
+                        if hasattr(session, "checkpointOverlayConfirmLoad") {
+                            session.checkpointOverlayConfirmLoad(True);
+                        }
+                        return;
+                    }
+                    if ch_low == "n" {
+                        if hasattr(session, "checkpointOverlayConfirmLoad") {
+                            session.checkpointOverlayConfirmLoad(False);
+                        }
+                        return;
+                    }
+                    return;
+                }
+                if key.escape {
+                    if hasattr(session, "closeCheckpointOverlay") { session.closeCheckpointOverlay(); }
+                    return;
+                }
+                cp_items: list = list(getattr(checkpoint_overlay, "items", [])) if getattr(checkpoint_overlay, "items", None) else [];
+                if key.upArrow and len(cp_items) > 0 {
+                    if hasattr(session, "checkpointOverlayMove") { session.checkpointOverlayMove(-1); }
+                    return;
+                }
+                if key.downArrow and len(cp_items) > 0 {
+                    if hasattr(session, "checkpointOverlayMove") { session.checkpointOverlayMove(1); }
+                    return;
+                }
+                cp_mode: str = to_str(getattr(checkpoint_overlay, "mode", "list"));
+                if key.return and cp_mode == "load" and len(cp_items) > 0 {
+                    needs_backup: bool = False;
+                    if hasattr(session, "checkpointOverlaySelect") {
+                        needs_backup = bool(session.checkpointOverlaySelect());
+                    }
+                    if not needs_backup and hasattr(session, "checkpointOverlayConfirmLoad") {
+                        session.checkpointOverlayConfirmLoad(True);
+                    }
+                    return;
+                }
+                return;
+            }
+
+            tasks_active: bool = tasks_overlay and bool(getattr(tasks_overlay, "active", False));
+            if tasks_active and session {
+                if key.escape {
+                    if hasattr(session, "closeTasksOverlay") { session.closeTasksOverlay(); }
+                    return;
+                }
+                task_items: list = list(getattr(tasks_overlay, "tasks", [])) if getattr(tasks_overlay, "tasks", None) else [];
+                if key.upArrow and len(task_items) > 0 {
+                    if hasattr(session, "tasksOverlayMove") { session.tasksOverlayMove(-1); }
+                    return;
+                }
+                if key.downArrow and len(task_items) > 0 {
+                    if hasattr(session, "tasksOverlayMove") { session.tasksOverlayMove(1); }
+                    return;
+                }
+                return;
+            }
+
             if resume_picker_active {
                 if key.escape {
                     close_resume_picker();
@@ -1381,6 +1585,12 @@ def:pub app() -> JsxElement {
             esc_armed = False;
             if key.shift and key.tab {
                 if session and hasattr(session, "cycleMode") { session.cycleMode(); }
+                return;
+            }
+            if key.ctrl and ch == "l" {
+                if session and hasattr(session, "clearScreen") {
+                    session.clearScreen();
+                }
                 return;
             }
             if key.ctrl and ch == "o" {
@@ -1614,6 +1824,8 @@ def:pub app() -> JsxElement {
             )}
             {show_help and <HelpPanel/>}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
+            {tasks_overlay and <TasksOverlay overlay={tasks_overlay}/>}
+            {checkpoint_overlay and <CheckpointOverlay overlay={checkpoint_overlay}/>}
             {resume_picker_active and (
                 <ResumePickerOverlay
                     active={resume_picker_active}

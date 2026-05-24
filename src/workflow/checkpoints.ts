@@ -330,6 +330,29 @@ export async function restoreCheckpointFiles(
   }
 }
 
+/** Human-readable relative time for checkpoint overlay rows. */
+export function formatRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const t = new Date(timestamp).getTime();
+  const diffMs = now - t;
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes} min${diffMinutes === 1 ? "" : "s"} ago`;
+  if (diffHours < 24) return `${diffHours} hr${diffHours === 1 ? "" : "s"} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+export function formatCheckpointOverlayRow(item: CheckpointListItem): string {
+  const m = item.metadata;
+  const when = formatRelativeTime(m.timestamp);
+  const sizeKb = item.sizeBytes ? `${Math.round(item.sizeBytes / 1024)}KB` : "?";
+  return `${m.name} — ${m.messageCount} msgs, ${m.filesChanged.length} files — ${when} (${sizeKb})`;
+}
+
 export function formatCheckpointList(items: CheckpointListItem[]): string {
   if (items.length === 0) {
     return "No checkpoints. Use /checkpoint create [name].";
