@@ -208,6 +208,25 @@ function parseMarkdownCore(text, themeColors, width) {
 }
 
 // ---------------------------------------------------------------------------
+// Jac dict compatibility — compiled .cl.jac code calls `.get()` on dicts
+// ---------------------------------------------------------------------------
+
+function asJacDict(record) {
+  return {
+    get(key, defaultValue = undefined) {
+      if (Object.prototype.hasOwnProperty.call(record, key)) {
+        return record[key];
+      }
+      return defaultValue;
+    },
+  };
+}
+
+function asJacDictParts(parts) {
+  return parts.map(asJacDict);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -221,7 +240,7 @@ function parseMarkdownCore(text, themeColors, width) {
  * @returns {Array<{type: 'text'|'code', content: string}>}
  */
 export function parseMarkdownParts(text, themeColors, width) {
-  if (!text || !text.trim()) return [{ type: "text", content: "" }];
+  if (!text || !text.trim()) return asJacDictParts([{ type: "text", content: "" }]);
 
   try {
     const { text: processed, codeBlocks, inlineCodes } = parseMarkdownCore(
@@ -253,9 +272,9 @@ export function parseMarkdownParts(text, themeColors, width) {
       }
     }
 
-    return parts;
+    return asJacDictParts(parts);
   } catch {
-    return [{ type: "text", content: text }];
+    return asJacDictParts([{ type: "text", content: text }]);
   }
 }
 
