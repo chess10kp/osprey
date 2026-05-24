@@ -101,6 +101,18 @@ jackal/
 ├── ROADMAP.md
 ├── jackal.sh                    # launcher script
 ├── src/                         # headless agent runtime (canonical)
+│   ├── core/                    # adapter, store, bridge, ui-context
+│   ├── auth/                    # credentials + login flow
+│   ├── session/                 # session manager + agent loop
+│   ├── agent/                   # tools, MCP, dev-mode, approval
+│   ├── config/                  # .jackal project config
+│   ├── jac/                     # jac CLI, doctor, workflows, LSP
+│   ├── workflow/                # tasks, checkpoints, context
+│   ├── orchestration/           # subagents, chains
+│   ├── project/                 # init, explorer, skills
+│   ├── ui/                      # completions
+│   ├── render/                  # mermaid renderer
+│   └── cli/                     # headless run CLI
 ├── templates/                   # Ink shell (shell.cl.jac + facade)
 ├── pi/                          # package data (not a Pi extension runtime)
 │   ├── SYSTEM.md                # Jackal system prompt

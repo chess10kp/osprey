@@ -46,7 +46,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Auth overlays | Provider picker, browser OAuth, API key, model picker | Done |
 | Auth error display | Inline errors with retry path | Done |
 | Dialog overlays | Select / confirm / input from extension UI context | Done |
-| Tool timeline UI | Running/done tool rows in transcript | Done (UI only; no tools fire yet) |
+| Tool timeline UI | Running/done tool rows inline in chat transcript | Done |
 | Tool detail in UI | Name, status, truncated input/result, duration | Done |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |

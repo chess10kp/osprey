@@ -48,9 +48,22 @@ Last updated: 2026-05-23
 | `/jac explain`, diagram-to-model | done |
 | Multimodal image ingest | deferred (P9+) |
 
-## Runtime modules (`src/runtime/`)
+## Source modules (`src/`)
 
-`agent-session`, `auth`, `auto-compact`, `chains`, `checkpoints`, `context-input`, `context-usage`, `custom-commands`, `dev-mode`, `file-explorer`, `frontmatter`, `jac-cli`, `jac-doctor`, `jac-types`, `jac-workflows`, `lsp-tools`, `mcp-client`, `mermaid-render`, `project-config`, `project-init`, `session`, `session-index`, `skill-index`, `subagent-runner`, `subagents`, `system-prompt`, `task-tools`, `tasks`, `tool-approval`, `tools`, `agent-tool`
+| Directory | Responsibility |
+|-----------|----------------|
+| `core/` | Adapter, immutable store, event bridge, headless UI context |
+| `auth/` | Provider credentials, login state machine, auth actions |
+| `session/` | Session persistence, agent session loop, auto-compact |
+| `agent/` | Tool registry, MCP client, dev/plan mode, approval queue |
+| `config/` | `.jackal` project config loader |
+| `jac/` | Jac CLI helpers, doctor, workflows, LSP tools |
+| `workflow/` | Tasks, checkpoints, context input expansion, custom commands |
+| `orchestration/` | Subagents, chains, frontmatter parsing |
+| `project/` | Project init, file explorer, skill index |
+| `ui/` | Slash-command autocomplete |
+| `render/` | Mermaid ASCII renderer |
+| `cli/` | Headless `jackal run` entry |
 
 ## Session log
 

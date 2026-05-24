@@ -79,8 +79,21 @@ npm run build:agent
 
 ```
 jackal/
-├── dist/                  # compiled adapter
-├── src/                   # headless adapter
+├── dist/                  # compiled adapter (public API: dist/index.js)
+├── src/                   # headless adapter — organized by domain
+│   ├── index.ts           # public exports + CLI entry
+│   ├── core/              # adapter, store, bridge, ui-context
+│   ├── auth/              # credentials, login flow, auth actions
+│   ├── session/           # session manager, agent session, auto-compact
+│   ├── agent/             # tools, MCP, dev-mode, tool approval
+│   ├── config/            # .jackal project config loader
+│   ├── jac/               # jac CLI, doctor, workflows, LSP
+│   ├── workflow/          # tasks, checkpoints, context input/usage
+│   ├── orchestration/     # subagents, chains, frontmatter
+│   ├── project/           # project init, file explorer, skills
+│   ├── ui/                # slash-command completions
+│   ├── render/            # mermaid ASCII renderer
+│   └── cli/               # headless `jackal run` CLI
 ├── templates/
 │   └── shell.cl.jac       # Ink shell UI
 └── bin/
