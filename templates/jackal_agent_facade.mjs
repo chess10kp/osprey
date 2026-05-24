@@ -7,15 +7,38 @@
 
 import { useEffect, useState, useRef } from "react";
 
-// ── SIGINT guard ─────────────────────────────────────────────────────────────
-// Ink handles the first Ctrl+C via exitOnCtrlC, but a second press during
-// teardown can throw. This guard ensures repeated Ctrl+C always exits cleanly.
+// ── SIGINT graceful shutdown ─────────────────────────────────────────────────
+// Jackal owns Ctrl+C handling (exitOnCtrlC is disabled in runner). On first
+// SIGINT: dispose adapter, unmount Ink, then exit(0).
+// On second SIGINT: force immediate exit(0) (teardown taking too long).
 let __sigintReceived = false;
+let __shuttingDown = false;
+
+async function gracefulShutdown() {
+  if (__shuttingDown) return;
+  __shuttingDown = true;
+  try {
+    // Dispose the adapter (session, MCP, timers, etc.)
+    if (state.adapter?.actions?.dispose) {
+      try { state.adapter.actions.dispose(); } catch { /* swallow */ }
+    }
+  } finally {
+    // Unmount Ink cleanly (restores terminal state)
+    const ink = globalThis.__JACKAL_INK;
+    if (ink && typeof ink.unmount === "function") {
+      try { ink.unmount(); } catch { /* swallow */ }
+    }
+    process.exit(0);
+  }
+}
+
 process.on("SIGINT", () => {
   if (__sigintReceived) {
+    // Second Ctrl+C during teardown — force exit immediately
     process.exit(0);
   }
   __sigintReceived = true;
+  gracefulShutdown();
 });
 
 const ADAPTER_PATH =

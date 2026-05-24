@@ -1,8 +1,8 @@
-export { AgentStore } from "./store.js";
-export type { AgentSnapshot, AgentPhase, ToolExecution, TranscriptEntry, ToolTranscriptEntry } from "./store.js";
-export { bridgeEvents } from "./bridge.js";
-export { runNextAgentSmoke, createNextAgent, runJacCheck, runJacDoctor, runJacFormat, runJacTest, runJacRun } from "./adapter.js";
-export type { NextAgentResult, CreateNextAgentOptions, JacDiagnostic, JacDoctorReport, CheckpointMetadata, CheckpointListItem, LoadCheckpointOptions, Task } from "./adapter.js";
+export { AgentStore } from "./core/store.js";
+export type { AgentSnapshot, AgentPhase, ToolExecution, TranscriptEntry, ToolTranscriptEntry } from "./core/store.js";
+export { bridgeEvents } from "./core/bridge.js";
+export { runNextAgentSmoke, createNextAgent, runJacCheck, runJacDoctor, runJacFormat, runJacTest, runJacRun } from "./core/adapter.js";
+export type { NextAgentResult, CreateNextAgentOptions, JacDiagnostic, JacDoctorReport, CheckpointMetadata, CheckpointListItem, LoadCheckpointOptions, Task } from "./core/adapter.js";
 export {
   createCheckpoint,
   deleteCheckpoint,
@@ -13,8 +13,8 @@ export {
   formatCheckpointList,
   validateCheckpointName,
   checkpointsDir,
-} from "./runtime/checkpoints.js";
-export type { CheckpointData } from "./runtime/checkpoints.js";
+} from "./workflow/checkpoints.js";
+export type { CheckpointData } from "./workflow/checkpoints.js";
 export {
   loadTasks,
   saveTasks,
@@ -28,30 +28,30 @@ export {
   taskCounts,
   tasksPath,
   generateTaskId,
-} from "./runtime/tasks.js";
-export type { TaskStatus, TaskUpdate } from "./runtime/tasks.js";
+} from "./workflow/tasks.js";
+export type { TaskStatus, TaskUpdate } from "./workflow/tasks.js";
 export {
   listSessions,
   loadSessionById,
   resolveSessionTarget,
   getLastSession,
-} from "./runtime/session-index.js";
-export type { SessionIndexEntry, SessionRecord } from "./runtime/session-index.js";
+} from "./session/session-index.js";
+export type { SessionIndexEntry, SessionRecord } from "./session/session-index.js";
 export {
   computeContextUsage,
   estimateMessagesTokens,
   formatUsageLine,
   getContextMax,
-} from "./runtime/context-usage.js";
-export type { ContextUsage } from "./runtime/context-usage.js";
-export { JackalUIContext } from "./ui-context.js";
-export type { DialogRequest, Notification, JackalUIState } from "./ui-context.js";
-export { AuthFlowStore } from "./auth-flow.js";
-export type { AuthFlowStep, ProviderEntry, ModelEntry, SelectOption, PromiseResolvers, AuthFlowState } from "./auth-flow.js";
-export { AuthActions } from "./auth-actions.js";
-export { getSuggestions } from "./completions.js";
-export type { CompletionContext, Suggestion } from "./completions.js";
-export type { DevMode } from "./runtime/dev-mode.js";
+} from "./workflow/context-usage.js";
+export type { ContextUsage } from "./workflow/context-usage.js";
+export { JackalUIContext } from "./core/ui-context.js";
+export type { DialogRequest, Notification, JackalUIState } from "./core/ui-context.js";
+export { AuthFlowStore } from "./auth/auth-flow.js";
+export type { AuthFlowStep, ProviderEntry, ModelEntry, SelectOption, PromiseResolvers, AuthFlowState } from "./auth/auth-flow.js";
+export { AuthActions } from "./auth/auth-actions.js";
+export { getSuggestions } from "./ui/completions.js";
+export type { CompletionContext, Suggestion } from "./ui/completions.js";
+export type { DevMode } from "./agent/dev-mode.js";
 export {
   DEV_MODES,
   PLAN_MODE_TOOLS,
@@ -61,12 +61,12 @@ export {
   shouldAutoApprove,
   isToolAllowedInPlanMode,
   resolveBootMode,
-} from "./runtime/dev-mode.js";
-export type { PendingApproval } from "./runtime/tool-approval.js";
-export { ToolApprovalQueue } from "./runtime/tool-approval.js";
-export { resolveDefaultMode } from "./runtime/project-config.js";
-export { runCli, parseRunArgs, resolveRunMode, printRunUsage } from "./cli-run.js";
-export type { RunCliOptions, RunCliResult } from "./cli-run.js";
+} from "./agent/dev-mode.js";
+export type { PendingApproval } from "./agent/tool-approval.js";
+export { ToolApprovalQueue } from "./agent/tool-approval.js";
+export { resolveDefaultMode } from "./config/project-config.js";
+export { runCli, parseRunArgs, resolveRunMode, printRunUsage } from "./cli/run.js";
+export type { RunCliOptions, RunCliResult } from "./cli/run.js";
 
 // Auto-compact
 export {
@@ -74,11 +74,11 @@ export {
   buildMechanicalSummary,
   buildLlmSummaryPrompt,
   resolveAutoCompactConfig,
-} from "./runtime/auto-compact.js";
-export type { AutoCompactConfig, AutoCompactResult } from "./runtime/auto-compact.js";
+} from "./session/auto-compact.js";
+export type { AutoCompactConfig, AutoCompactResult } from "./session/auto-compact.js";
 
 // Session retention
-export { pruneSessions } from "./runtime/session-index.js";
+export { pruneSessions } from "./session/session-index.js";
 
 // Skill index
 export {
@@ -87,16 +87,16 @@ export {
   searchSkills,
   loadSkillBody,
   appendSkillCatalogToPrompt,
-} from "./runtime/skill-index.js";
-export type { SkillEntry } from "./runtime/skill-index.js";
+} from "./project/skill-index.js";
+export type { SkillEntry } from "./project/skill-index.js";
 
 // Project init
 export {
   analyzeProject,
   generateAgentsMd,
   runProjectInit,
-} from "./runtime/project-init.js";
-export type { ProjectInfo, ProjectType } from "./runtime/project-init.js";
+} from "./project/project-init.js";
+export type { ProjectInfo, ProjectType } from "./project/project-init.js";
 
 // Jac explain workflows
 export {
@@ -105,14 +105,14 @@ export {
   runInit as runJacInit,
   runDiagramToModel,
   type ExplainMode,
-} from "./runtime/jac-workflows.js";
+} from "./jac/jac-workflows.js";
 
 export {
   listProjectFiles,
   estimateTokensFromChars,
   formatTokenEstimate,
   estimateSelectionChars,
-} from "./runtime/file-explorer.js";
+} from "./project/file-explorer.js";
 
 // Mermaid ASCII renderer
 export {
@@ -120,8 +120,8 @@ export {
   detectDiagramType,
   parseFlowchart,
   renderFlowchartAscii,
-} from "./runtime/mermaid-render.js";
-export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./runtime/mermaid-render.js";
+} from "./render/mermaid-render.js";
+export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./render/mermaid-render.js";
 
 // LSP tools
 export {
@@ -133,12 +133,30 @@ export {
   formatLspDiagnostics,
   formatHoverInfo,
   formatLocations,
-} from "./runtime/lsp-tools.js";
-export type { LspDiagnostic, LspHoverInfo, LspLocation } from "./runtime/lsp-tools.js";
+} from "./jac/lsp-tools.js";
+export type { LspDiagnostic, LspHoverInfo, LspLocation } from "./jac/lsp-tools.js";
 
 import { pathToFileURL } from "node:url";
-import { runNextAgentSmoke } from "./adapter.js";
-import { parseRunArgs, printRunUsage, runCli } from "./cli-run.js";
+import { runNextAgentSmoke } from "./core/adapter.js";
+import { parseRunArgs, printRunUsage, runCli } from "./cli/run.js";
+
+// ── Graceful SIGINT handling ──────────────────────────────────────────────────
+// Prevents uncaught KeyboardInterrupt from bubbling up. First SIGINT starts
+// teardown; second forces immediate exit.
+let __sigintCount = 0;
+process.on("SIGINT", () => {
+  __sigintCount++;
+  if (__sigintCount >= 2) {
+    process.exit(130); // 128 + SIGINT(2)
+  }
+  // First SIGINT: let the current async operation finish or the user
+  // can press again to force quit. The Ink shell's Ctrl+C handler and
+  // the facade's gracefulShutdown handle the interactive case.
+  // For headless, we just exit cleanly here.
+  if (!process.stdout.isTTY) {
+    process.exit(130);
+  }
+});
 
 async function runSmokeCli(): Promise<number> {
   const cwd = process.env.JACKAL_AGENT_CWD || process.cwd();
