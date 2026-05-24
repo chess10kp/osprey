@@ -20,7 +20,7 @@ These must work before anything else is useful.
 | Immutable agent store | Single source of truth for Ink via `AgentStore` + `bridgeEvents` | Done |
 | pi-agent-core loop | `JackalAgentSession` runs prompt/stream/abort via `Agent` | Done (chat-only) |
 | pi-ai auth + models | OAuth, API keys, model picker; shared `jackal/auth.json` | Done |
-| Session persistence | Disk-backed `.jackal/sessions/latest.json` | Partial |
+| Session persistence | Disk-backed sessions + index; 30s auto-save | Done |
 | Session restore (messages) | Reload transcript on startup | Done |
 | Session restore (model) | Apply persisted provider/model on boot | Done |
 | `/clear` / `/new` | Reset store, session file, **and** agent message memory | Done |
@@ -50,7 +50,9 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Tool detail in UI | Name, status, truncated input/result, duration | Done |
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
-| `/compact` | Context compaction command with auto-compact at threshold | Done (mechanical summary + auto-compact + preview/restore) |
+| `/compact` | Context compaction with LLM summary (default) + mechanical fallback | Done |
+| `/usage` | Context utilization panel + status bar progress | Done |
+| `/resume` | Session picker, `/resume last`, retention pruning | Done |
 | SIGINT / shutdown UX | Clear messaging on abort vs exit | Done |
 
 ---
@@ -116,8 +118,9 @@ Any tools exposed by `jac mcp` are auto-discovered and available (validate_jac, 
 | Tool approval queue | Done |
 | @file mentions + line ranges | Done |
 | !command inline execution | Done |
-| Auto-compact at threshold | Done |
-| Session retention pruning | Done |
+| Auto-compact at threshold | Done (LLM default, mechanical fallback, configurable strategy) |
+| Session retention pruning | Done (`maxCount`, `retentionDays`) |
+| Markdown rendering | Done (headings, code highlight, tables; text wrapping pending) |
 | Checkpointing | Done |
 | Subagents + chains | Done |
 | Custom commands | Done |
@@ -155,12 +158,20 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | Task management | Agent tools + slash commands |
 | Custom commands | `.jackal/commands/*.md` with template expansion |
 | Non-interactive `jackal run` | --mode, --plain flags |
-| Auto-compact | Threshold-based, mechanical summary |
+| Auto-compact | Threshold-based; LLM summary default, mechanical fallback |
 | Session retention | Configurable maxCount + retentionDays |
+| LLM compaction | `src/session/llm-compact.ts` via pi-agent-core `generateSummary` |
 
-**Still to implement (shell/TUI wiring):**
+**Nanocoder gaps (polish & optional — see [NANOCODER-PARITY.md](./NANOCODER-PARITY.md)):**
 
-*(No remaining features — all runtime capabilities are implemented. Shell/TUI wiring is the remaining work.)*
+| Gap | Priority |
+|-----|----------|
+| Markdown text wrapping (`wrap-ansi`) | P2-polish |
+| Rich tool approval dialog (expandable args/result) | P2-polish |
+| `.gitignore`-aware file search | P2-polish |
+| Task/checkpoint Ink overlays | P4-polish |
+| Custom tools (`.jackal/tools/*.md`) | Optional |
+| Scheduler, `/tune`, VS Code bridge | Deferred |
 
 ---
 
@@ -231,6 +242,7 @@ Jackal v1 is **done** when `./jackal.sh`:
 
 ## Related docs
 
+- [NANOCODER-PARITY.md](./NANOCODER-PARITY.md) — full nanocoder vs Jackal feature matrix
 - [PLAN.md](./PLAN.md) — phase breakdown (build pipeline, shell, integration)
 - [REMAINING_TUI_PLAN.md](./REMAINING_TUI_PLAN.md) — Ink milestone checklist (M1–M6)
 - [JAC-TUI.md](./JAC-TUI.md) — jac-ink / jac-tui handoff checklist

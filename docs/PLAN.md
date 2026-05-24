@@ -11,7 +11,7 @@ See also:
 
 **Not in this repo (human maintains):** `~/repos/jac-tui/jac-ink`, jaclang/jac_client site-packages, any `jac_pi_runtime_shim.mjs` or similar shim scripts. When compilation or `@jac/pi` wiring breaks, document the symptom and recommended fix for the human — do not patch the plugin yourself.
 
-## Current State (2026-05-22)
+## Current State (2026-05-24)
 
 What works (verified, runs):
 - `src/adapter.ts` — `createNextAgent()` boots a Jackal session (`pi-agent-core`) with auth, store, bridge
@@ -53,19 +53,16 @@ Store, bridge, auth, ExtensionUIContext — no rendering layer
 ### Phase C: jac-ink compilation pipeline ✅
 `./jackal.sh` compiles via jac-ink and runs (adapter wiring via jac-ink shim — human-owned)
 
-### Phase D: Interactive shell (current)
-**Goal:** Full interactive prompt/response through the Ink shell
-
-Remaining:
-1. Test with real Pi credentials (auth flow)
-2. Verify streaming text renders correctly
-3. Verify tool execution timeline
-4. Test /login, /model, /abort commands
-5. Test multiline input
+### Phase D: Interactive shell ✅
+**Goal:** Full interactive prompt/response through the Ink shell — complete (P0–P8).
 
 ### Phase E: Integration
 1. `jackal.sh` / `jackal_shell.jac` launch `jac tui` (jackal repo)
 2. Request from human: formal adapter injection in jac-ink (drop any shim copy workarounds)
+
+### Remaining polish (nanocoder gaps)
+
+See [NANOCODER-PARITY.md](./NANOCODER-PARITY.md): markdown text wrapping, rich tool approval dialog, `.gitignore`-aware file search, task/checkpoint Ink overlays.
 
 ## How to run
 
