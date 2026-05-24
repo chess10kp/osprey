@@ -113,4 +113,21 @@ describe.skipIf(!canRunTui)("AssistantMessage (nanocoder parity)", () => {
     expect(out).toMatch(/Line 3/);
     unmount();
   });
+
+  it("renders markdown tables with border characters", async () => {
+    const AssistantMessage = await loadAssistantMessage();
+    const { frame, unmount } = renderInk(AssistantMessage, {
+      message: `| Name | Value |
+|------|-------|
+| foo  | bar   |`,
+      model: "test-model",
+    });
+    const out = frame();
+    expect(out).toMatch(/Name/);
+    expect(out).toMatch(/Value/);
+    expect(out).toMatch(/foo/);
+    expect(out).toMatch(/bar/);
+    expect(out).toMatch(/[─│]/);
+    unmount();
+  });
 });

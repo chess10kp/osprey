@@ -16,6 +16,7 @@
 process.env.FORCE_COLOR = "1";
 
 import chalk from "chalk";
+import Table from "cli-table3";
 
 // Ensure chalk level is forced (belt + suspenders)
 if (chalk.level === 0) {
@@ -24,6 +25,9 @@ if (chalk.level === 0) {
 
 // Dynamic import for cli-highlight so FORCE_COLOR is set first.
 const { highlight } = await import("cli-highlight");
+
+const DEFAULT_TERMINAL_WIDTH = 120;
+const TABLE_COLUMN_MIN_WIDTH = 10;
 
 // ---------------------------------------------------------------------------
 // HTML entity decoding (subset from nanocoder)
@@ -97,6 +101,118 @@ function colorToHex(name) {
   return map[name] || "#ffffff";
 }
 
+function stripMarkdown(text) {
+  let result = text;
+  result = result.replace(/`([^`]+)`/g, "$1");
+  result = result.replace(/\*\*([^*]+)\*\*/g, "$1");
+  result = result.replace(/\*([^*]+)\*/g, "$1");
+  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  return result;
+}
+
+/**
+ * Parse a markdown table block into an ASCII table via cli-table3.
+ *
+ * @param {string} tableText - Raw markdown table (header + separator + rows)
+ * @param {object} themeColors - Color tokens matching theme.cl.jac
+ * @param {number} [width] - Terminal width for column sizing
+ * @returns {string}
+ */
+export function parseMarkdownTable(tableText, themeColors, width) {
+  const colors = resolveColors(themeColors);
+  const lines = tableText.trim().split("\n");
+  if (lines.length < 2) return tableText;
+
+  const rows = lines.map((line) =>
+    line
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter((cell) => cell.length > 0),
+  );
+
+  const separatorRow = rows[1];
+  const isSeparator = separatorRow?.every((cell) => /^:?-+:?$/.test(cell));
+  if (!isSeparator || rows.length < 3) return tableText;
+
+  const cleanCell = (text) => {
+    let result = text;
+    result = result.replace(/`([^`]+)`/g, "$1");
+    result = result.replace(/<[^>]+>/g, "");
+    result = stripMarkdown(result);
+    return result.trim();
+  };
+
+  const header = rows[0].map(cleanCell);
+  const dataRows = rows.slice(2).map((row) => row.map(cleanCell));
+
+  const headerWidths = header.map((cell) => cell.length);
+  const dataWidths = dataRows.map((row) => row.map((cell) => cell.length));
+
+  const terminalWidth =
+    width || process.stdout.columns || DEFAULT_TERMINAL_WIDTH;
+  const numCols = header.length;
+
+  const contentWidths = headerWidths.map((headerWidth, colIdx) => {
+    let maxWidth = headerWidth;
+    for (const rowWidths of dataWidths) {
+      if (rowWidths[colIdx]) {
+        maxWidth = Math.max(maxWidth, rowWidths[colIdx]);
+      }
+    }
+    return maxWidth;
+  });
+
+  const borderWidth = numCols + 1;
+  const paddingWidth = numCols * 2;
+  const availableWidth = terminalWidth - borderWidth - paddingWidth;
+
+  const totalContentWidth = contentWidths.reduce((a, b) => a + b, 0);
+  const colWidths = contentWidths.map((colWidth) =>
+    Math.max(
+      TABLE_COLUMN_MIN_WIDTH,
+      Math.floor((colWidth / totalContentWidth) * availableWidth),
+    ),
+  );
+
+  const table = new Table({
+    head: header.map((cell) =>
+      chalk.hex(colorToHex(colors.primary)).bold(cell),
+    ),
+    colWidths,
+    style: {
+      head: [],
+      border: ["gray"],
+      "padding-left": 1,
+      "padding-right": 1,
+    },
+    chars: {
+      top: "─",
+      "top-mid": "┬",
+      "top-left": "┌",
+      "top-right": "┐",
+      bottom: "─",
+      "bottom-mid": "┴",
+      "bottom-left": "└",
+      "bottom-right": "┘",
+      left: "│",
+      "left-mid": "├",
+      mid: "─",
+      "mid-mid": "┼",
+      right: "│",
+      "right-mid": "┤",
+      middle: "│",
+    },
+    wordWrap: true,
+    wrapOnWordBoundary: true,
+  });
+
+  for (const row of dataRows) {
+    table.push(row);
+  }
+
+  return table.toString();
+}
+
 // ---------------------------------------------------------------------------
 // Core parser (returns placeholder markers for code blocks)
 // ---------------------------------------------------------------------------
@@ -107,10 +223,16 @@ function parseMarkdownCore(text, themeColors, width) {
   // Step 0: Decode HTML entities
   let result = decodeHtmlEntities(text);
 
-  // Step 1: Convert <br> tags
+  // Step 1: Parse tables before <br> conversion and code extraction
+  result = result.replace(
+    /(?:^|\n)((?:\|.+\|(?:\n|$))+)/gm,
+    (_match, tableBlock) => `\n${parseMarkdownTable(tableBlock, colors, width)}\n`,
+  );
+
+  // Step 2: Convert <br> tags
   result = result.replace(/<br\s*\/?>/gi, "\n");
 
-  // Step 2: Extract fenced code blocks with placeholders
+  // Step 3: Extract fenced code blocks with placeholders
   const codeBlocks = [];
   result = result.replace(
     /^([ \t]*)```([a-zA-Z0-9\-+#]*)\n([\s\S]*?)^\1```/gm,
@@ -143,7 +265,7 @@ function parseMarkdownCore(text, themeColors, width) {
     },
   );
 
-  // Step 3: Extract inline code with placeholders
+  // Step 4: Extract inline code with placeholders
   const inlineCodes = [];
   result = result.replace(/`([^`\n]+)`/g, (_match, code) => {
     const formatted = chalk.hex(colorToHex(colors.tool))(String(code).trim());
@@ -152,7 +274,7 @@ function parseMarkdownCore(text, themeColors, width) {
     return placeholder;
   });
 
-  // Step 4: Process markdown formatting (code is now protected)
+  // Step 5: Process markdown formatting (code is now protected)
 
   // Lists FIRST (before italic, since * at start of line is a list marker)
   result = result.replace(

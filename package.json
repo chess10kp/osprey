@@ -36,6 +36,7 @@
     "@earendil-works/pi-agent-core": "^0.75.4",
     "@earendil-works/pi-ai": "^0.75.4",
     "@inkjs/ui": "^2.0.0",
+    "cli-table3": "^0.6.5",
     "ink": "^7.0.3",
     "ink-testing-library": "^4.0.0",
     "patch-package": "^8.0.1",

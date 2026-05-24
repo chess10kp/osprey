@@ -371,7 +371,7 @@ def:pub CompletionsList(props: any) -> JsxElement {
     for i in range(len(shown)) {
         f = shown[i];
         is_sel: bool = i == sel_idx;
-        icon: str = "\u25b8 " if is_sel else "  ";
+        icon: str = "▸ " if is_sel else "  ";
         raw_label: str = str(getattr(f, "label", str(f)));
         cmd_part: str = raw_label;
         desc_part: str = "";
