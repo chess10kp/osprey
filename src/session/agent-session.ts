@@ -43,6 +43,7 @@ import {
 } from "../workflow/custom-commands.js";
 import { listSubagents } from "../orchestration/subagents.js";
 import { listChains } from "../orchestration/chains.js";
+import { JacLspService, setActiveLspService } from "../jac/lsp-service.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
 
@@ -87,6 +88,9 @@ export class JackalAgentSession {
   private _mcp: JackalMcpClient | null = null;
   private _mcpLazyTimer: ReturnType<typeof setTimeout> | null = null;
   private _mcpConnecting = false;
+  private _lspService: JacLspService | null = null;
+  private _lspLazyTimer: ReturnType<typeof setTimeout> | null = null;
+  private _lspConnecting = false;
   private _mode: DevMode;
   private _approvalQueue: ToolApprovalQueue;
   private _subagentApprovalQueue: SubagentApprovalQueue;
@@ -113,6 +117,9 @@ export class JackalAgentSession {
         ? options.contextMaxOverride
         : null;
     this._autoCompactConfig = resolveAutoCompactConfig(projectConfig);
+
+    this._lspService = new JacLspService(options.cwd, projectConfig);
+    setActiveLspService(this._lspService);
 
     const saved = options.sessionManager.model;
     const savedRef = options.sessionManager.savedModelRef;
@@ -371,6 +378,42 @@ export class JackalAgentSession {
       this._mcpLazyTimer = null;
       void this.connectMcpLazy();
     }, delayMs);
+  }
+
+  /** Defer Jac LSP spawn until after first frame (default 100ms). */
+  scheduleLspConnect(delayMs = 100): void {
+    if (this._disposed || this._lspConnecting || !this._lspService?.isEnabled()) return;
+    if (this._lspLazyTimer) return;
+
+    this._lspLazyTimer = setTimeout(() => {
+      this._lspLazyTimer = null;
+      void this.connectLspLazy();
+    }, delayMs);
+  }
+
+  /** Start Jac LSP in the background; emits lsp_connecting → lsp_ready. */
+  async connectLspLazy(): Promise<void> {
+    if (this._disposed || this._lspConnecting || !this._lspService?.isEnabled()) return;
+    this._lspConnecting = true;
+    this._emit({ type: "lsp_connecting", language: "jac" });
+
+    try {
+      await this._lspService!.start();
+      this._emit({
+        type: "lsp_ready",
+        language: "jac",
+        ready: this._lspService!.isReady(),
+      });
+    } catch (error) {
+      this._emit({
+        type: "lsp_status",
+        connected: false,
+        language: "jac",
+        error: String(error),
+      });
+    } finally {
+      this._lspConnecting = false;
+    }
   }
 
   /** Connect to Jac MCP in the background; emits mcp_connecting → mcp_ready. */
@@ -753,6 +796,29 @@ export class JackalAgentSession {
     });
   }
 
+  /** Stop background MCP/LSP connections started after boot. */
+  async shutdownBackground(): Promise<void> {
+    if (this._mcpLazyTimer) {
+      clearTimeout(this._mcpLazyTimer);
+      this._mcpLazyTimer = null;
+    }
+    if (this._lspLazyTimer) {
+      clearTimeout(this._lspLazyTimer);
+      this._lspLazyTimer = null;
+    }
+
+    if (this._mcp) {
+      await this._mcp.disconnect().catch(() => undefined);
+      this._mcp = null;
+    }
+
+    if (this._lspService) {
+      await this._lspService.shutdown().catch(() => undefined);
+      this._lspService = null;
+      setActiveLspService(null);
+    }
+  }
+
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;
@@ -762,12 +828,21 @@ export class JackalAgentSession {
       clearTimeout(this._mcpLazyTimer);
       this._mcpLazyTimer = null;
     }
+    if (this._lspLazyTimer) {
+      clearTimeout(this._lspLazyTimer);
+      this._lspLazyTimer = null;
+    }
     this._sessionManager.dispose();
     this._agent.abort();
     this._unsubAgent();
     if (this._mcp) {
       this._mcp.disconnect().catch(() => undefined);
       this._mcp = null;
+    }
+    if (this._lspService) {
+      void this._lspService.shutdown();
+      this._lspService = null;
+      setActiveLspService(null);
     }
     this._emit({ type: "session_shutdown" });
     this._listeners.clear();

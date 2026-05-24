@@ -94,7 +94,6 @@ def:pub StatusBar(props: any) -> JsxElement {
     mode: str = to_str(props.mode) if props.mode else "normal";
     model: str = to_str(props.model) if props.model else "";
     provider: str = to_str(props.provider) if props.provider else "";
-    session_name: str = to_str(props.session_name) if props.session_name else "";
     msg_count: int = int(props.msg_count) if props.msg_count is not None else 0;
     tools_running: int = int(props.tools_running) if props.tools_running is not None else 0;
     mcp_connected: bool = bool(props.mcp_connected) if props.mcp_connected is not None else False;
@@ -105,7 +104,6 @@ def:pub StatusBar(props: any) -> JsxElement {
     mc: str = mode_color(mode);
     model_display: str = model if model else "(no model)";
     provider_display: str = provider if provider else "";
-    session_display: str = session_name if session_name else "new session";
     mcp_label: str = "on:" + str(mcp_tools);
     if mcp_connecting { mcp_label = "connecting"; }
     elif not mcp_connected { mcp_label = "off"; }
@@ -125,8 +123,7 @@ def:pub StatusBar(props: any) -> JsxElement {
                 {provider_display and <Text color="gray">{"/"}</Text>}
                 <Text color="green">{model_display}</Text>
             </Box>
-            <Text color="gray">{session_display}</Text>
-            {usage_line and <Text color="gray">{"  " + usage_line}</Text>}
+            {usage_line and <Text color="gray">{usage_line}</Text>}
         </Box>
     );
 }
@@ -482,19 +479,14 @@ def:pub PromptBar(props: any) -> JsxElement {
     after: str = input_text[cur + 1:] if cur < len(input_text) else "";
 
     return (
-        <Box flexDirection="column" marginTop={1}>
-            <Box
-                flexDirection="row"
-                backgroundColor="#1a1a2e"
-                paddingX={1}
-                paddingY={0}
-                borderStyle="bold"
-                borderTop={true}
-                borderBottom={false}
-                borderLeft={false}
-                borderRight={false}
-                borderTopColor="gray"
-            >
+        <Box
+            flexDirection="column"
+            marginTop={1}
+            backgroundColor="#1a1a2e"
+            paddingX={1}
+            paddingY={1}
+        >
+            <Box flexDirection="row">
                 {prompt_marker and <Text color="green" bold>{prompt_marker}</Text>}
                 {prompt_marker and <Text>{" "}</Text>}
                 <Box>
@@ -543,8 +535,6 @@ def:pub app() -> JsxElement {
     if snap and snap.model { model_id = to_str(snap.model); }
     provider_id: any = "";
     if snap and snap.provider { provider_id = to_str(snap.provider); }
-    session_name: any = "new session";
-    if snap and snap.sessionName { session_name = to_str(snap.sessionName); }
     dev_mode: any = "normal";
     if snap and snap.mode { dev_mode = to_str(snap.mode); }
     pending_approval: any = None;
@@ -1316,7 +1306,6 @@ def:pub app() -> JsxElement {
                 mode={dev_mode}
                 model={model_id}
                 provider={provider_id}
-                session_name={session_name}
                 msg_count={total}
                 tools_running={len(running_tools)}
                 mcp_connected={bool(getattr(snap, "mcpConnected", False))}

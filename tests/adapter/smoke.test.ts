@@ -22,6 +22,10 @@ const mockSession = vi.hoisted(() => {
 
     scheduleMcpConnect() {}
 
+    scheduleLspConnect() {}
+
+    async shutdownBackground() {}
+
     async sendUserMessage(_text: string) {
       this.emit({ type: "agent_start" });
       this.emit({ type: "message_start", message: { role: "assistant" } });

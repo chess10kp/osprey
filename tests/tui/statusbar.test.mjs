@@ -10,7 +10,6 @@ const defaultProps = {
   phase: "ready",
   model: "anthropic/claude-3-opus",
   provider: "openrouter",
-  session_name: "test-session",
   context_percent: 25,
   mcp_connected: 0,
   mcp_total: 0,
@@ -25,7 +24,6 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       "phase",
       "model",
       "provider",
-      "session_name",
       "context_percent",
       "mcp_connected",
       "mcp_total",
@@ -33,7 +31,6 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       phase: "ready",
       model: "",
       provider: "",
-      session_name: "",
       context_percent: 0,
       mcp_connected: 0,
       mcp_total: 0,
@@ -64,16 +61,6 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       provider: "test-provider",
     });
     expect(frame()).toMatch(/test-provider/);
-    unmount();
-  });
-
-  it("shows session name", async () => {
-    const StatusBarInk = await loadStatusBar();
-    const { frame, unmount } = renderInk(StatusBarInk, {
-      ...defaultProps,
-      session_name: "demo-session",
-    });
-    expect(frame()).toMatch(/demo-session/);
     unmount();
   });
 

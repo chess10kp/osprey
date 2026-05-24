@@ -41,13 +41,11 @@ def:pub StatusBar(
     phase: str,
     model: str,
     provider: str,
-    session_name: str,
     context_percent: float,
     mcp_connected: int,
     mcp_total: int,
 ) -> JsxElement {
     model_display: str = model if model else "(no model)";
-    session_display: str = session_name if session_name else "new session";
     pc: str = phase_color(phase);
     pl: str = phase_label(phase);
     ctx_color: str = context_color(context_percent);
@@ -72,7 +70,6 @@ def:pub StatusBar(
                     <Text color="gray">{"/"}</Text>
                     <Text color="green">{model_display}</Text>
                 </Box>
-                <Text color="gray">{session_display}</Text>
             </Box>
             <Box flexDirection="row">
                 <Text color={ctx_color}>{ctx_text}</Text>
