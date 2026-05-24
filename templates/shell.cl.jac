@@ -310,6 +310,88 @@ def:pub DialogOverlay(props: any) -> JsxElement {
     );
 }
 
+# ── Session resume picker ───────────────────────────────────────────
+
+def session_entry_id(entry: any) -> str {
+    if hasattr(entry, "id") { return to_str(entry.id); }
+    if hasattr(entry, "get") { return to_str(entry.get("id", "")); }
+    return "";
+}
+
+def session_entry_name(entry: any) -> str {
+    if hasattr(entry, "name") { return to_str(entry.name); }
+    if hasattr(entry, "get") { return to_str(entry.get("name", "(unnamed)")); }
+    return "(unnamed)";
+}
+
+def session_entry_count(entry: any) -> int {
+    if hasattr(entry, "messageCount") { return int(entry.messageCount); }
+    if hasattr(entry, "get") { return int(entry.get("messageCount", 0)); }
+    return 0;
+}
+
+def session_entry_updated(entry: any) -> str {
+    raw: str = "";
+    if hasattr(entry, "updatedAt") { raw = to_str(entry.updatedAt); }
+    elif hasattr(entry, "get") { raw = to_str(entry.get("updatedAt", "")); }
+    if len(raw) >= 10 { return raw[:10]; }
+    return raw;
+
+def session_entry_cwd(entry: any) -> str {
+    if hasattr(entry, "cwd") { return to_str(entry.cwd); }
+    if hasattr(entry, "get") { return to_str(entry.get("cwd", "")); }
+    return "";
+
+def format_resume_row(entry: any, index: int, selected: bool) -> str {
+    sid: str = session_entry_id(entry);
+    short_id: str = sid[:8] + "…" if len(sid) > 8 else sid;
+    name: str = session_entry_name(entry);
+    count: int = session_entry_count(entry);
+    when: str = session_entry_updated(entry);
+    icon: str = "▸ " if selected else "  ";
+    return icon + "[" + str(index + 1) + "] " + name + " (" + str(count) + " msgs, " + when + ", " + short_id + ")";
+
+def:pub ResumePickerOverlay(props: any) -> JsxElement {
+    active: bool = bool(props.active);
+    if not active { return <Text></Text>; }
+    items: list = list(props.items) if props.items else [];
+    idx: int = int(props.index) if props.index is not None else 0;
+    show_all: bool = bool(props.show_all);
+    visible: int = 10;
+    start: int = max(0, min(idx - visible // 2, max(0, len(items) - visible)));
+    shown: list = items[start:start + visible];
+    rows: list = [];
+    for i, entry in enumerate(shown) {
+        real_i: int = start + i;
+        is_cur: bool = real_i == idx;
+        rows.append(
+            <Text bold={is_cur} color={"cyan" if is_cur else "white"}>
+                {format_resume_row(entry, real_i, is_cur)}
+            </Text>
+        );
+    }
+    scope_hint: str = "all projects" if show_all else "this project";
+    empty_hint: str = "No saved sessions.";
+    if (not show_all) and len(items) == 0 {
+        empty_hint = "No sessions for this project. Try /resume --all.";
+    }
+    return (
+        <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="green"
+            paddingX={2}
+            paddingY={1}
+            marginTop={1}
+        >
+            <Text bold color="green">{"Resume session (" + scope_hint + ")"}</Text>
+            {len(items) == 0 and <Text dimColor>{empty_hint}</Text>}
+            {rows}
+            <Text dimColor>{"↑↓ navigate   Enter resume   Esc cancel"}</Text>
+        </Box>
+    );
+}
+
 # ── File explorer overlay ───────────────────────────────────────────
 
 def:pub ExplorerOverlay(props: any) -> JsxElement {
@@ -441,7 +523,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/compact       compact context (--preview, --restore)"}</Text>
                 <Text color="white">{"/usage         context utilization"}</Text>
                 <Text color="white">{"/context-max   set/show max context tokens"}</Text>
-                <Text color="white">{"/resume [id]   load prior session (picker if bare)"}</Text>
+                <Text color="white">{"/resume [--all]  pick prior session (Enter to load)"}</Text>
                 <Text color="white">{"/rename <name> rename current session"}</Text>
                 <Text color="white">{"/export        export session to .jackal/exports/"}</Text>
                 <Text color="white">{"/explorer      multi-select @file context"}</Text>
@@ -525,6 +607,10 @@ def:pub app() -> JsxElement {
     has compact_tools: bool = False;
     has ctrl_j_pending: bool = False;
     has esc_armed: bool = False;
+    has resume_picker_active: bool = False;
+    has resume_picker_items: list = [];
+    has resume_picker_index: int = 0;
+    has resume_picker_show_all: bool = False;
 
     completions: any = useCompletions(input_text);
 
@@ -545,6 +631,45 @@ def:pub app() -> JsxElement {
         usage_line = to_str(session.getUsageLine());
     }
 
+    def close_resume_picker() -> None {
+        resume_picker_active = False;
+        resume_picker_items = [];
+        resume_picker_index = 0;
+
+    def open_resume_picker(show_all: bool) -> None {
+        if not session or not hasattr(session, "listSessions") {
+            return;
+        }
+        items: list = list(session.listSessions(show_all));
+        resume_picker_show_all = show_all;
+        resume_picker_items = items;
+        resume_picker_index = 0;
+        resume_picker_active = True;
+        if len(items) == 0 and hasattr(session, "notify") {
+            if not show_all {
+                all_items: list = list(session.listSessions(True));
+                if len(all_items) > 0 {
+                    session.notify("No sessions for this project. Try /resume --all.", "info");
+                } else {
+                    session.notify("No prior sessions found.", "info");
+                }
+            } else {
+                session.notify("No prior sessions found.", "info");
+            }
+        }
+
+    def confirm_resume_picker() -> None {
+        if not resume_picker_active or len(resume_picker_items) == 0 {
+            close_resume_picker();
+            return;
+        }
+        pick: int = max(0, min(resume_picker_index, len(resume_picker_items) - 1));
+        entry: any = resume_picker_items[pick];
+        sid: str = session_entry_id(entry);
+        close_resume_picker();
+        if session and sid and hasattr(session, "resumeSession") {
+            session.resumeSession(sid);
+        }
 
     def submit_main(text: str) -> None {
         cmd: str = text.strip();
@@ -604,16 +729,16 @@ def:pub app() -> JsxElement {
             }
             return;
         }
-        if cmd == "/resume" {
-            if session and hasattr(session, "pickResumeSession") {
-                session.pickResumeSession();
-            } elif session and hasattr(session, "showSessions") {
-                session.showSessions();
-            }
+        if cmd == "/resume" or cmd == "/resume --all" {
+            open_resume_picker(cmd.endswith("--all"));
             return;
         }
         if cmd.startswith("/resume ") {
             target: str = cmd[8:].strip();
+            if target == "--all" {
+                open_resume_picker(True);
+                return;
+            }
             if session and hasattr(session, "resumeSession") { session.resumeSession(target); }
             return;
         }
@@ -913,6 +1038,26 @@ def:pub app() -> JsxElement {
 
     useInput(
         lambda (ch: str, key: any) -> None {
+            if resume_picker_active {
+                if key.escape {
+                    close_resume_picker();
+                    return;
+                }
+                if key.upArrow and len(resume_picker_items) > 0 {
+                    resume_picker_index = (resume_picker_index - 1 + len(resume_picker_items)) % len(resume_picker_items);
+                    return;
+                }
+                if key.downArrow and len(resume_picker_items) > 0 {
+                    resume_picker_index = (resume_picker_index + 1) % len(resume_picker_items);
+                    return;
+                }
+                if key.return and len(resume_picker_items) > 0 {
+                    confirm_resume_picker();
+                    return;
+                }
+                return;
+            }
+
             explorer_active: bool = explorer and bool(getattr(explorer, "active", False));
             if explorer_active and session {
                 if key.escape {
@@ -983,6 +1128,10 @@ def:pub app() -> JsxElement {
             }
 
             if key.escape {
+                if resume_picker_active {
+                    close_resume_picker();
+                    return;
+                }
                 if pending_approval and session {
                     session.rejectTool();
                     return;
@@ -1269,6 +1418,14 @@ def:pub app() -> JsxElement {
             {pending_approval and <ApprovalBanner pending={pending_approval}/>}
             {show_help and <HelpPanel/>}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
+            {resume_picker_active and (
+                <ResumePickerOverlay
+                    active={resume_picker_active}
+                    items={resume_picker_items}
+                    index={resume_picker_index}
+                    show_all={resume_picker_show_all}
+                />
+            )}
             {(not compact_layout) and (
                 <Box key={"chat-" + str(transcript_epoch)}>
                     <ChatHistory
