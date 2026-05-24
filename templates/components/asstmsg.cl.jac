@@ -9,11 +9,7 @@ import from .theme { SECONDARY, INFO, TEXT, PRIMARY, TOOL }
 import from "../markdown.mjs" { parseMarkdownParts }
 
 
-def:pub AssistantMessage(props: any) -> JsxElement {
-    message: str = str(props.message) if props.message else "";
-    model: str = str(props.model) if props.model else "";
-    display: str = message.strip() if message else "";
-
+def render_content_blocks(display: str) -> list {
     colors: dict = {
         "primary": PRIMARY,
         "secondary": SECONDARY,
@@ -23,35 +19,28 @@ def:pub AssistantMessage(props: any) -> JsxElement {
     };
     parts: list = parseMarkdownParts(display, colors, 80);
 
-    # Fallback: if parsing returned nothing useful, render plain text
     has_parts: bool = len(parts) > 0;
     single_empty: bool = len(parts) == 1 and not str(parts[0]["content"]).strip();
 
     if not has_parts or single_empty {
-        return (
-            <Box flexDirection="column">
-                <Box marginBottom={1} marginTop={1}>
-                    <Text color={INFO} bold>{(model if model else "Assistant") + ":"}</Text>
-                </Box>
-                <Box
-                    flexDirection="column"
-                    marginBottom={1}
-                    backgroundColor="#1a1a2e"
-                    padding={1}
-                    borderStyle="bold"
-                    borderLeft={true}
-                    borderRight={false}
-                    borderTop={false}
-                    borderBottom={false}
-                    borderLeftColor={SECONDARY}
-                >
-                    <Text>{display}</Text>
-                </Box>
+        return [
+            <Box
+                flexDirection="column"
+                marginBottom={1}
+                backgroundColor="#1a1a2e"
+                padding={1}
+                borderStyle="bold"
+                borderLeft={true}
+                borderRight={false}
+                borderTop={false}
+                borderBottom={false}
+                borderLeftColor={SECONDARY}
+            >
+                <Text>{display}</Text>
             </Box>
-        );
+        ];
     }
 
-    # range loop — jac2ink breaks enumerate when bracket keys like "type" appear in body
     rendered_parts: list = [];
     for i in range(len(parts)) {
         part: any = parts[i];
@@ -60,14 +49,12 @@ def:pub AssistantMessage(props: any) -> JsxElement {
         if not pcontent.strip() { continue; }
 
         if ptype == "code" {
-            # Code blocks: no border, clean copy/paste
             rendered_parts.append(
                 <Box key={i} flexDirection="column" marginBottom={1}>
                     <Text>{pcontent}</Text>
                 </Box>
             );
         } else {
-            # Text parts: bordered box
             rendered_parts.append(
                 <Box
                     key={i}
@@ -87,6 +74,15 @@ def:pub AssistantMessage(props: any) -> JsxElement {
             );
         }
     }
+    return rendered_parts;
+}
+
+
+def:pub AssistantMessage(props: any) -> JsxElement {
+    message: str = str(props.message) if props.message else "";
+    model: str = str(props.model) if props.model else "";
+    display: str = message.strip() if message else "";
+    rendered_parts: list = render_content_blocks(display);
 
     return (
         <Box flexDirection="column">

@@ -53,11 +53,11 @@ def:pub UserInput(
                 backgroundColor="#1a1a2e"
                 padding={1}
                 borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
+                borderTop={true}
                 borderBottom={false}
-                borderLeftColor={ "blue" if is_bash else "magenta" }
+                borderLeft={false}
+                borderRight={false}
+                borderTopColor={ "blue" if is_bash else "magenta" }
             >
                 <Box>
                     {len(input_text) == 0 and <Text color="gray">{"> "}</Text>}

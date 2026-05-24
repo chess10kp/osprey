@@ -26,9 +26,14 @@ import {
   type DevMode,
   cycleMode,
   isToolAllowedInPlanMode,
-  shouldAutoApprove,
 } from "../agent/dev-mode.js";
 import { ToolApprovalQueue } from "../agent/tool-approval.js";
+import { SubagentApprovalQueue } from "../agent/subagent-approval.js";
+import {
+  loadAlwaysAllowTools,
+  needsToolApproval,
+  SessionPermissions,
+} from "../agent/session-permissions.js";
 import { createAgentTool } from "../agent/agent-tool.js";
 import {
   customCommandSlashNames,
@@ -50,6 +55,9 @@ export interface JackalAgentSessionOptions {
   initialMode?: DevMode;
   contextMaxOverride?: number | null;
   onPendingApprovalChange?: (pending: import("../agent/tool-approval.js").PendingApproval | null) => void;
+  onPendingSubagentApprovalChange?: (
+    pending: import("../agent/subagent-approval.js").PendingSubagentApproval | null,
+  ) => void;
 }
 
 export interface CompactContextOptions {
@@ -81,6 +89,9 @@ export class JackalAgentSession {
   private _mcpConnecting = false;
   private _mode: DevMode;
   private _approvalQueue: ToolApprovalQueue;
+  private _subagentApprovalQueue: SubagentApprovalQueue;
+  private _sessionPermissions: SessionPermissions;
+  private _alwaysAllow: Set<string>;
   private _systemPrompt: string;
   private _contextMaxOverride: number | null;
   private _autoCompactConfig: AutoCompactConfig;
@@ -92,12 +103,16 @@ export class JackalAgentSession {
     this._sessionManager = options.sessionManager;
     this._mode = options.initialMode ?? "normal";
     this._approvalQueue = new ToolApprovalQueue(options.onPendingApprovalChange);
+    this._subagentApprovalQueue = new SubagentApprovalQueue(options.onPendingSubagentApprovalChange);
+    this._sessionPermissions = new SessionPermissions();
+    const projectConfig = loadProjectConfig(options.cwd);
+    this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
     this._systemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
     this._contextMaxOverride =
       typeof options.contextMaxOverride === "number" && options.contextMaxOverride > 0
         ? options.contextMaxOverride
         : null;
-    this._autoCompactConfig = resolveAutoCompactConfig(loadProjectConfig(options.cwd));
+    this._autoCompactConfig = resolveAutoCompactConfig(projectConfig);
 
     const saved = options.sessionManager.model;
     const savedRef = options.sessionManager.savedModelRef;
@@ -122,6 +137,10 @@ export class JackalAgentSession {
       getParentModel: () => this._agent?.state.model ?? initialModel,
       getParentTools: () => this._agent?.state.tools ?? coreTools,
       getMode: () => this._mode,
+      sessionPermissions: this._sessionPermissions,
+      alwaysAllow: this._alwaysAllow,
+      requestSubagentApproval: (toolCallId, toolName, params, subagentName) =>
+        this._subagentApprovalQueue.requestApproval(toolCallId, toolName, params, subagentName),
     });
 
     this._agent = new Agent({
@@ -146,7 +165,17 @@ export class JackalAgentSession {
           };
         }
 
-        if (shouldAutoApprove(this._mode, toolName, params)) {
+        // Subagent internal tools enforce their own approval gates.
+        if (toolName === "agent") {
+          return undefined;
+        }
+
+        if (
+          !needsToolApproval(this._mode, toolName, params, {
+            sessionPermissions: this._sessionPermissions,
+            alwaysAllow: this._alwaysAllow,
+          })
+        ) {
           return undefined;
         }
 
@@ -236,10 +265,27 @@ export class JackalAgentSession {
   }
 
   approveTool(): boolean {
-    return this._approvalQueue.approve();
+    const subPending = this._subagentApprovalQueue.pending;
+    if (subPending) {
+      const approved = this._subagentApprovalQueue.approve();
+      if (approved) {
+        this._sessionPermissions.grant(subPending.toolName);
+      }
+      return approved;
+    }
+
+    const pending = this._approvalQueue.pending;
+    const approved = this._approvalQueue.approve();
+    if (approved && pending) {
+      this._sessionPermissions.grant(pending.toolName);
+    }
+    return approved;
   }
 
   rejectTool(): boolean {
+    if (this._subagentApprovalQueue.pending) {
+      return this._subagentApprovalQueue.reject();
+    }
     return this._approvalQueue.reject();
   }
 
@@ -407,6 +453,7 @@ export class JackalAgentSession {
 
   async abort(): Promise<void> {
     this._approvalQueue.cancel();
+    this._subagentApprovalQueue.cancel();
     this._agent.abort();
   }
 
@@ -591,6 +638,7 @@ export class JackalAgentSession {
   }
 
   resumeFromRecord(record: SessionRecord): void {
+    this._sessionPermissions.clear();
     this._sessionManager.applyRecord(record);
 
     const savedRef = record.model;
@@ -694,6 +742,7 @@ export class JackalAgentSession {
 
   /** Start a fresh session: clear agent context and persist an empty transcript. */
   resetForNewSession(): void {
+    this._sessionPermissions.clear();
     this._sessionManager.newSession();
     this._agent.state.messages = [];
     this._emit({
@@ -708,6 +757,7 @@ export class JackalAgentSession {
     if (this._disposed) return;
     this._disposed = true;
     this._approvalQueue.cancel();
+    this._subagentApprovalQueue.cancel();
     if (this._mcpLazyTimer) {
       clearTimeout(this._mcpLazyTimer);
       this._mcpLazyTimer = null;

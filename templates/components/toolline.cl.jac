@@ -1,7 +1,8 @@
 """Tool UI — transcript rows and timeline. Ported from nanocoder's tool display."""
 
 import from "ink" { Box, Text }
-import from .theme { TOOL, SECONDARY, SUCCESS, WARNING, ERROR }
+import from .theme { PRIMARY, INFO, TEXT, SECONDARY, TOOL }
+import from "../markdown.mjs" { parseMarkdownParts }
 
 
 def tool_format_input(input_obj: any) -> str {
@@ -21,6 +22,75 @@ def tool_format_result(result: str, compact: bool) -> str {
 }
 
 
+def tool_render_content_blocks(display: str) -> list {
+    colors: dict = {
+        "primary": PRIMARY,
+        "secondary": SECONDARY,
+        "info": INFO,
+        "text": TEXT,
+        "tool": TOOL,
+    };
+    parts: list = parseMarkdownParts(display, colors, 80);
+
+    has_parts: bool = len(parts) > 0;
+    single_empty: bool = len(parts) == 1 and not str(parts[0]["content"]).strip();
+
+    if not has_parts or single_empty {
+        return [
+            <Box
+                flexDirection="column"
+                marginBottom={1}
+                backgroundColor="#1a1a2e"
+                padding={1}
+                borderStyle="bold"
+                borderLeft={true}
+                borderRight={false}
+                borderTop={false}
+                borderBottom={false}
+                borderLeftColor={SECONDARY}
+            >
+                <Text>{display}</Text>
+            </Box>
+        ];
+    }
+
+    rendered_parts: list = [];
+    for i in range(len(parts)) {
+        part: any = parts[i];
+        ptype: str = str(part["type"]) if "type" in part else "text";
+        pcontent: str = str(part["content"]) if "content" in part else "";
+        if not pcontent.strip() { continue; }
+
+        if ptype == "code" {
+            rendered_parts.append(
+                <Box key={i} flexDirection="column" marginBottom={1}>
+                    <Text>{pcontent}</Text>
+                </Box>
+            );
+        } else {
+            rendered_parts.append(
+                <Box
+                    key={i}
+                    flexDirection="column"
+                    marginBottom={1}
+                    backgroundColor="#1a1a2e"
+                    padding={1}
+                    borderStyle="bold"
+                    borderLeft={true}
+                    borderRight={false}
+                    borderTop={false}
+                    borderBottom={false}
+                    borderLeftColor={SECONDARY}
+                >
+                    <Text>{pcontent}</Text>
+                </Box>
+            );
+        }
+    }
+    return rendered_parts;
+}
+
+
 def:pub ToolMessage(props: any) -> JsxElement {
     tool_name: str = str(props.tool_name) if props.tool_name else "unknown";
     status: str = str(props.status) if props.status else "done";
@@ -37,16 +107,32 @@ def:pub ToolMessage(props: any) -> JsxElement {
     input_preview: str = tool_format_input(props.input);
     result_raw: str = str(props.result) if props.result else "";
     result_text: str = tool_format_result(result_raw, compact);
+    result_blocks: list = tool_render_content_blocks(result_text) if result_text else [];
 
     return (
-        <Box flexDirection="column" paddingX={1} marginBottom={1}>
-            <Box>
+        <Box flexDirection="column">
+            <Box marginBottom={1} marginTop={1}>
                 <Text color={color}>{icon + " "}</Text>
-                <Text bold color={TOOL}>{tool_name}</Text>
+                <Text color={INFO} bold>{tool_name + ":"}</Text>
                 {duration_label and <Text dimColor>{duration_label}</Text>}
             </Box>
-            {input_preview and <Text dimColor>{"  args: " + input_preview}</Text>}
-            {result_text and <Text dimColor>{"  " + result_text}</Text>}
+            {input_preview and (
+                <Box
+                    flexDirection="column"
+                    marginBottom={1}
+                    backgroundColor="#1a1a2e"
+                    padding={1}
+                    borderStyle="bold"
+                    borderLeft={true}
+                    borderRight={false}
+                    borderTop={false}
+                    borderBottom={false}
+                    borderLeftColor={PRIMARY}
+                >
+                    <Text>{input_preview}</Text>
+                </Box>
+            )}
+            {result_blocks}
         </Box>
     );
 }

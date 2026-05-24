@@ -3,6 +3,8 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import type { JackalAuth, JackalModels } from "../auth/auth.js";
 import type { DevMode } from "../agent/dev-mode.js";
 import { isToolAllowedInPlanMode } from "../agent/dev-mode.js";
+import { needsToolApproval } from "../agent/session-permissions.js";
+import type { SessionPermissions } from "../agent/session-permissions.js";
 import { getChain, listChains, type ChainDefinition, type ChainStep } from "./chains.js";
 import {
   filterToolsForSubagent,
@@ -30,6 +32,14 @@ export interface SubagentRunnerDeps {
   parentModel: Model<Api>;
   parentTools: AgentTool[];
   mode: DevMode;
+  sessionPermissions: SessionPermissions;
+  alwaysAllow: ReadonlySet<string>;
+  requestApproval: (
+    toolCallId: string,
+    toolName: string,
+    params: Record<string, unknown>,
+    subagentName: string,
+  ) => Promise<boolean>;
   getApiKey: (provider: string) => Promise<string | undefined>;
 }
 
@@ -190,14 +200,43 @@ export class SubagentRunner {
           messages: [],
         },
         getApiKey: this._deps.getApiKey,
-        beforeToolCall: async ({ toolCall }) => {
+        beforeToolCall: async ({ toolCall, args }) => {
           const toolName = toolCall.name;
+          const params =
+            args && typeof args === "object" && !Array.isArray(args)
+              ? (args as Record<string, unknown>)
+              : {};
+
           if (mode === "plan" && !isToolAllowedInPlanMode(toolName)) {
             return {
               block: true,
               reason: `Tool "${toolName}" is blocked in plan mode for subagent "${agent.name}".`,
             };
           }
+
+          if (
+            !needsToolApproval(mode, toolName, params, {
+              sessionPermissions: this._deps.sessionPermissions,
+              alwaysAllow: this._deps.alwaysAllow,
+            })
+          ) {
+            return undefined;
+          }
+
+          const approved = await this._deps.requestApproval(
+            toolCall.id,
+            toolName,
+            params,
+            agent.name,
+          );
+
+          if (!approved) {
+            return {
+              block: true,
+              reason: `Tool "${toolName}" was rejected for subagent "${agent.name}".`,
+            };
+          }
+
           return undefined;
         },
       });
