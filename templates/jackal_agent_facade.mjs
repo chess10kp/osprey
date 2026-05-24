@@ -7,38 +7,101 @@
 
 import { useEffect, useState, useRef } from "react";
 
-// ── SIGINT graceful shutdown ─────────────────────────────────────────────────
-// Jackal owns Ctrl+C handling (exitOnCtrlC is disabled in runner). On first
-// SIGINT: dispose adapter, unmount Ink, then exit(0).
-// On second SIGINT: force immediate exit(0) (teardown taking too long).
-let __sigintReceived = false;
+// ── SIGINT: abort vs quit (exitOnCtrlC disabled in runner) ───────────────────
+// • Busy (streaming/tools/auth): Ctrl+C cancels work, stay in Jackal.
+// • Idle: first Ctrl+C warns; second quits. Third during teardown forces exit.
+let __exitArmed = false;
 let __shuttingDown = false;
+let __forceExit = false;
+
+function getAgentSnapshot() {
+  return state.adapter?.store?.getSnapshot?.() ?? null;
+}
+
+function isAgentBusy(snap) {
+  if (!snap) return false;
+  const phase = snap.phase;
+  if (phase === "streaming" || phase === "compacting" || phase === "retrying") {
+    return true;
+  }
+  if (snap.liveToolCallId) return true;
+  const tools = snap.toolExecutions;
+  if (!tools || typeof tools !== "object") return false;
+  return Object.values(tools).some((t) => t?.status === "running");
+}
+
+function isAuthActive() {
+  const kind = state.adapter?.authFlow?.state?.step?.kind;
+  return Boolean(kind && kind !== "idle");
+}
+
+function jackalNotify(message, type = "info") {
+  try {
+    state.adapter?.uiContext?.notify(message, type);
+  } catch {
+    /* swallow */
+  }
+}
+
+function disarmExit() {
+  __exitArmed = false;
+}
+
+function cancelActiveWork() {
+  if (!state.adapter) return false;
+  if (isAuthActive()) {
+    state.adapter.authActions.cancelLogin();
+    jackalNotify("Login cancelled.", "info");
+    disarmExit();
+    return true;
+  }
+  const snap = getAgentSnapshot();
+  if (isAgentBusy(snap)) {
+    void state.adapter.actions.abort().catch(() => undefined);
+    jackalNotify("Run cancelled. Press Ctrl+C again to quit.", "info");
+    disarmExit();
+    return true;
+  }
+  return false;
+}
 
 async function gracefulShutdown() {
   if (__shuttingDown) return;
   __shuttingDown = true;
   try {
-    // Dispose the adapter (session, MCP, timers, etc.)
     if (state.adapter?.actions?.dispose) {
-      try { state.adapter.actions.dispose(); } catch { /* swallow */ }
+      try {
+        state.adapter.actions.dispose();
+      } catch {
+        /* swallow */
+      }
     }
   } finally {
-    // Unmount Ink cleanly (restores terminal state)
     const ink = globalThis.__JACKAL_INK;
     if (ink && typeof ink.unmount === "function") {
-      try { ink.unmount(); } catch { /* swallow */ }
+      try {
+        ink.unmount();
+      } catch {
+        /* swallow */
+      }
     }
     process.exit(0);
   }
 }
 
 process.on("SIGINT", () => {
-  if (__sigintReceived) {
-    // Second Ctrl+C during teardown — force exit immediately
+  if (__shuttingDown || __forceExit) {
     process.exit(0);
+    return;
   }
-  __sigintReceived = true;
-  gracefulShutdown();
+  if (cancelActiveWork()) return;
+  if (!__exitArmed) {
+    __exitArmed = true;
+    jackalNotify("Press Ctrl+C again to quit.", "info");
+    return;
+  }
+  __forceExit = true;
+  void gracefulShutdown();
 });
 
 const ADAPTER_PATH =
@@ -293,8 +356,12 @@ function useJackalSession() {
   if (!actionsRef.current && state.adapter) {
     const a = state.adapter;
     actionsRef.current = {
-      send: (text) => a.actions.send(text),
+      send: (text) => {
+        disarmExit();
+        return a.actions.send(text);
+      },
       abort: () => a.actions.abort(),
+      notify: (message, type) => jackalNotify(message, type),
       resolveDialog: (id, value) => a.actions.resolveDialog(id, value),
       setModel: (provider, modelId) => a.actions.setModel(provider, modelId),
       clearSession: async () => {

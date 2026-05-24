@@ -148,23 +148,15 @@ import { pathToFileURL } from "node:url";
 import { runNextAgentSmoke } from "./core/adapter.js";
 import { parseRunArgs, printRunUsage, runCli } from "./cli/run.js";
 
-// ── Graceful SIGINT handling ──────────────────────────────────────────────────
-// Prevents uncaught KeyboardInterrupt from bubbling up. First SIGINT starts
-// teardown; second forces immediate exit.
-let __sigintCount = 0;
-process.on("SIGINT", () => {
-  __sigintCount++;
-  if (__sigintCount >= 2) {
-    process.exit(130); // 128 + SIGINT(2)
-  }
-  // First SIGINT: let the current async operation finish or the user
-  // can press again to force quit. The Ink shell's Ctrl+C handler and
-  // the facade's gracefulShutdown handle the interactive case.
-  // For headless, we just exit cleanly here.
-  if (!process.stdout.isTTY) {
-    process.exit(130);
-  }
-});
+// Non-TTY headless: exit on SIGINT. Interactive TUI (facade) and `jackal run`
+// in a terminal install their own handlers — do not register here when imported.
+const __isMainModule =
+  typeof process.argv[1] === "string" &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (__isMainModule && !process.stdout.isTTY) {
+  process.on("SIGINT", () => process.exit(130));
+}
 
 async function runSmokeCli(): Promise<number> {
   const cwd = process.env.JACKAL_AGENT_CWD || process.cwd();
@@ -184,9 +176,7 @@ async function runSmokeCli(): Promise<number> {
   return 1;
 }
 
-const isMain =
-  typeof process.argv[1] === "string" &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+const isMain = __isMainModule;
 
 const wantsSmoke =
   process.argv.includes("--check") || process.env.JACKAL_SMOKE === "1";

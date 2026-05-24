@@ -26,7 +26,7 @@
     "build:agent": "tsc -p tsconfig.json",
     "check": "npm run build:agent && node dist/index.js --check",
     "run:agent": "node dist/index.js run",
-    "start:agent-shell": "npm run build:agent && jac tui templates/shell.cl.jac --install --run",
+    "start:agent-shell": "./jackal.sh",
     "test": "vitest run",
     "test:tui": "vitest run tests/tui",
     "test:adapter": "vitest run tests/adapter",

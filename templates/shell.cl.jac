@@ -64,7 +64,7 @@ def:pub WelcomeMessage(props: any) -> JsxElement {
                     <Text color="gray">{"  1. Use natural language to describe your task."}</Text>
                     <Text color="gray">{"  2. Ask for file analysis, editing, bash commands and more."}</Text>
                     <Text color="gray">{"  3. Be specific for best results."}</Text>
-                    <Text color="gray">{"  4. Type /help for commands, /exit or Ctrl+C to quit."}</Text>
+                    <Text color="gray">{"  4. Type /help for commands. Esc cancels a run; Ctrl+C twice to quit."}</Text>
                 </Box>
             </Box>
         </Box>
@@ -460,7 +460,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"Keys: Shift+Tab mode  Esc×2 clear  Ctrl+O compact tools  Ctrl+J newline  Ctrl+J c/j/f/t Jac shortcuts  @file  !cmd"}
+                {"Keys: Esc cancel run  Esc×2 clear input  Ctrl+C×2 quit  Shift+Tab mode  Ctrl+O compact  @file  !cmd"}
             </Text>
         </Box>
     );
@@ -566,7 +566,12 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/abort" {
-            if session { session.abort(); }
+            if session {
+                session.abort();
+                if hasattr(session, "notify") {
+                    session.notify("Run cancelled.", "info");
+                }
+            }
             return;
         }
 
@@ -998,7 +1003,12 @@ def:pub app() -> JsxElement {
                     return;
                 }
                 if streaming or (snap and to_str(snap.phase) == "streaming") {
-                    if session { session.abort(); }
+                    if session {
+                        session.abort();
+                        if hasattr(session, "notify") {
+                            session.notify("Run cancelled.", "info");
+                        }
+                    }
                     return;
                 }
                 if len(input_text) > 0 {
@@ -1030,8 +1040,8 @@ def:pub app() -> JsxElement {
                     return;
                 }
             }
+            # Ctrl+C is handled by the runtime SIGINT handler (abort vs two-step quit).
             if key.ctrl and ch == "c" {
-                submit_main("/exit");
                 return;
             }
             if key.pageUp or key.pageDown {

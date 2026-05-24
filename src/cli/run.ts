@@ -1,6 +1,7 @@
 // Headless `jackal run "prompt"` — non-interactive single-shot agent execution.
 
 import { createNextAgent } from "../core/adapter.js";
+import { isAgentBusy } from "../core/agent-busy.js";
 import { type DevMode, DEV_MODES, parseModeFlag } from "../agent/dev-mode.js";
 
 export interface RunCliOptions {
@@ -137,6 +138,37 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
   let streamedLen = 0;
   const printedTools = new Set<string>();
   let lastPhase = store.getSnapshot().phase;
+  let exitArmed = false;
+  let shuttingDown = false;
+
+  const onSigint = (): void => {
+    if (shuttingDown) {
+      process.exit(130);
+    }
+    const snap = store.getSnapshot();
+    if (isAgentBusy(snap)) {
+      void actions.abort();
+      if (!plain) {
+        process.stderr.write("\nRun cancelled. Press Ctrl+C again to exit.\n");
+      }
+      exitArmed = false;
+      return;
+    }
+    if (!exitArmed) {
+      exitArmed = true;
+      if (!plain) {
+        process.stderr.write("\nPress Ctrl+C again to exit.\n");
+      }
+      return;
+    }
+    shuttingDown = true;
+    actions.dispose();
+    process.exit(130);
+  };
+
+  if (process.stdout.isTTY) {
+    process.on("SIGINT", onSigint);
+  }
 
   const writeStatus = (phase: string): void => {
     if (plain) return;
@@ -203,6 +235,10 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
     actions.dispose();
     const message = err instanceof Error ? err.message : String(err);
     return { exitCode: 1, output: "", error: message };
+  } finally {
+    if (process.stdout.isTTY) {
+      process.off("SIGINT", onSigint);
+    }
   }
 
   unsub();

@@ -51,7 +51,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Notifications | Extension `notify()` surfaced in shell | Done |
 | Help panel | `/help` command reference | Done |
 | `/compact` | Context compaction command with auto-compact at threshold | Done (mechanical summary + auto-compact + preview/restore) |
-| SIGINT / shutdown UX | Clear messaging on abort vs exit | Partial |
+| SIGINT / shutdown UX | Clear messaging on abort vs exit | Done |
 
 ---
 
@@ -173,7 +173,7 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | Adapter wiring | `@jac/pi` → headless adapter (`JACKAL_AGENT_DIST`); owned by **jac-ink** | Partial — human maintains plugin |
 | `./jackal.sh` launch | Build + compile + run Ink shell | Done |
 | Fast TUI boot | Lazy MCP after first frame (`scheduleMcpConnect`) | Done |
-| Unified launch entrypoints | `bin/jackal_shell.jac` / `npm run start:agent-shell` same as `jackal.sh` | Missing |
+| Unified launch entrypoints | `bin/jackal_shell.jac` / `npm run start:agent-shell` same as `jackal.sh` | Done |
 | Auth symlink | `pi/auth.json` → `~/.pi/agent/auth.json` (provider credentials) | Done |
 
 ---
