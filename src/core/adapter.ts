@@ -3,19 +3,19 @@
 import { AgentStore } from "./store.js";
 import { bridgeEvents, seedStoreFromSession } from "./bridge.js";
 import { JackalUIContext } from "./ui-context.js";
-import { AuthFlowStore } from "./auth-flow.js";
-import { AuthActions } from "./auth-actions.js";
-import { JackalAuth, JackalModels } from "./runtime/auth.js";
-import { JackalSessionManager } from "./runtime/session.js";
-import { JackalAgentSession, type CompactContextOptions, type CompactContextResult } from "./runtime/agent-session.js";
-import type { DevMode } from "./runtime/dev-mode.js";
-import { resolveBootMode } from "./runtime/dev-mode.js";
-import { loadProjectConfig } from "./runtime/project-config.js";
+import { AuthFlowStore } from "../auth/auth-flow.js";
+import { AuthActions } from "../auth/auth-actions.js";
+import { JackalAuth, JackalModels } from "../auth/auth.js";
+import { JackalSessionManager } from "../session/session.js";
+import { JackalAgentSession, type CompactContextOptions, type CompactContextResult } from "../session/agent-session.js";
+import type { DevMode } from "../agent/dev-mode.js";
+import { resolveBootMode } from "../agent/dev-mode.js";
+import { loadProjectConfig } from "../config/project-config.js";
 import {
   listSessions as listSessionIndex,
   resolveSessionTarget,
   type SessionIndexEntry,
-} from "./runtime/session-index.js";
+} from "../session/session-index.js";
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import {
@@ -23,8 +23,8 @@ import {
   runJacFormat as runJacFormatCli,
   runJacTest as runJacTestCli,
   runJacRun as runJacRunCli,
-} from "./runtime/jac-cli.js";
-import { runJacDoctor as runJacDoctorCli } from "./runtime/jac-doctor.js";
+} from "../jac/jac-cli.js";
+import { runJacDoctor as runJacDoctorCli } from "../jac/jac-doctor.js";
 import {
   runOspWorkflow,
   runConvertPython,
@@ -33,13 +33,13 @@ import {
   runInit,
   runDiagramToModel,
   type ExplainMode,
-} from "./runtime/jac-workflows.js";
-import { listProjectFiles, estimateSelectionChars } from "./runtime/file-explorer.js";
-import { formatSubagentCatalog } from "./runtime/subagents.js";
-import { formatChainCatalog } from "./runtime/chains.js";
-import { formatCustomCommandCatalog } from "./runtime/custom-commands.js";
-import type { JacDiagnostic } from "./runtime/jac-types.js";
-import type { JacDoctorReport } from "./runtime/jac-doctor.js";
+} from "../jac/jac-workflows.js";
+import { listProjectFiles, estimateSelectionChars } from "../project/file-explorer.js";
+import { formatSubagentCatalog } from "../orchestration/subagents.js";
+import { formatChainCatalog } from "../orchestration/chains.js";
+import { formatCustomCommandCatalog } from "../workflow/custom-commands.js";
+import type { JacDiagnostic } from "../jac/jac-types.js";
+import type { JacDoctorReport } from "../jac/jac-doctor.js";
 import {
   createCheckpoint,
   deleteCheckpoint,
@@ -50,17 +50,17 @@ import {
   type CheckpointListItem,
   type CheckpointMetadata,
   type LoadCheckpointOptions,
-} from "./runtime/checkpoints.js";
+} from "../workflow/checkpoints.js";
 import {
   addTask,
   clearTasks,
   loadTasks,
   removeTaskByIndex,
   type Task,
-} from "./runtime/tasks.js";
-import { expandContextInput } from "./runtime/context-input.js";
-import { formatCheckpointList } from "./runtime/checkpoints.js";
-import { formatTasksList } from "./runtime/tasks.js";
+} from "../workflow/tasks.js";
+import { expandContextInput } from "../workflow/context-input.js";
+import { formatCheckpointList } from "../workflow/checkpoints.js";
+import { formatTasksList } from "../workflow/tasks.js";
 
 export interface CreateNextAgentOptions {
   authPath?: string;

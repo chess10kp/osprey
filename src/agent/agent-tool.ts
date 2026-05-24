@@ -1,9 +1,9 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
-import type { JackalAuth, JackalModels } from "./auth.js";
+import type { JackalAuth, JackalModels } from "../auth/auth.js";
 import type { DevMode } from "./dev-mode.js";
-import { SubagentRunner, buildSubagentToolDescription } from "./subagent-runner.js";
+import { SubagentRunner, buildSubagentToolDescription } from "../orchestration/subagent-runner.js";
 import { wrapToolOutputLimit } from "./tool-output-limit.js";
 
 export interface AgentToolContext {

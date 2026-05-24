@@ -4,7 +4,7 @@ import { dirname, isAbsolute, normalize, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { loadProjectConfig } from "./project-config.js";
+import { loadProjectConfig } from "../config/project-config.js";
 import {
   formatDiagnostics,
   runJacCheck,
@@ -12,11 +12,11 @@ import {
   runJacTest,
   runJacRun,
   runJacCommand,
-} from "./jac-cli.js";
-import { runJacDoctor } from "./jac-doctor.js";
-import type { JacDiagnostic } from "./jac-types.js";
+} from "../jac/jac-cli.js";
+import { runJacDoctor } from "../jac/jac-doctor.js";
+import type { JacDiagnostic } from "../jac/jac-types.js";
 import { createTaskTools } from "./task-tools.js";
-import { renderMermaidAscii } from "./mermaid-render.js";
+import { renderMermaidAscii } from "../render/mermaid-render.js";
 import {
   getFileDiagnostics,
   getMultiFileDiagnostics,
@@ -26,7 +26,7 @@ import {
   formatLspDiagnostics,
   formatHoverInfo,
   formatLocations,
-} from "./lsp-tools.js";
+} from "../jac/lsp-tools.js";
 import { truncateToolOutput, wrapToolsOutputLimit } from "./tool-output-limit.js";
 
 function safeResolve(cwd: string, inputPath: string): string {

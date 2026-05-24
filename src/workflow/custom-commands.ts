@@ -4,7 +4,7 @@ import {
   frontmatterString,
   frontmatterStringList,
   parseFrontmatter,
-} from "./frontmatter.js";
+} from "../orchestration/frontmatter.js";
 
 export interface CustomCommand {
   /** Slash name, e.g. review or refactor:dry */

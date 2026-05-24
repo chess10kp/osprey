@@ -1,7 +1,7 @@
 // Headless `jackal run "prompt"` — non-interactive single-shot agent execution.
 
-import { createNextAgent } from "./adapter.js";
-import { type DevMode, DEV_MODES, parseModeFlag } from "./runtime/dev-mode.js";
+import { createNextAgent } from "../core/adapter.js";
+import { type DevMode, DEV_MODES, parseModeFlag } from "../agent/dev-mode.js";
 
 export interface RunCliOptions {
   prompt: string;

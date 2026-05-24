@@ -2,12 +2,12 @@
 
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
-import { JackalAuth, JackalModels } from "./auth.js";
+import { JackalAuth, JackalModels } from "../auth/auth.js";
 import { JackalSessionManager } from "./session.js";
-import { createCoreTools } from "./tools.js";
-import { loadJackalSystemPrompt } from "./system-prompt.js";
-import { JackalMcpClient } from "./mcp-client.js";
-import { computeContextUsage, type ContextUsage } from "./context-usage.js";
+import { createCoreTools } from "../agent/tools.js";
+import { loadJackalSystemPrompt } from "../agent/system-prompt.js";
+import { JackalMcpClient } from "../agent/mcp-client.js";
+import { computeContextUsage, type ContextUsage } from "../workflow/context-usage.js";
 import {
   shouldAutoCompact,
   buildMechanicalSummary,
@@ -20,24 +20,24 @@ import {
   fingerprintErrors,
   runJacCheck,
   runJacFormat,
-} from "./jac-cli.js";
-import { loadProjectConfig } from "./project-config.js";
+} from "../jac/jac-cli.js";
+import { loadProjectConfig } from "../config/project-config.js";
 import {
   type DevMode,
   cycleMode,
   isToolAllowedInPlanMode,
   shouldAutoApprove,
-} from "./dev-mode.js";
-import { ToolApprovalQueue } from "./tool-approval.js";
-import { createAgentTool } from "./agent-tool.js";
+} from "../agent/dev-mode.js";
+import { ToolApprovalQueue } from "../agent/tool-approval.js";
+import { createAgentTool } from "../agent/agent-tool.js";
 import {
   customCommandSlashNames,
   loadCustomCommands,
   tryExpandSlashCommand,
   type CustomCommand,
-} from "./custom-commands.js";
-import { listSubagents } from "./subagents.js";
-import { listChains } from "./chains.js";
+} from "../workflow/custom-commands.js";
+import { listSubagents } from "../orchestration/subagents.js";
+import { listChains } from "../orchestration/chains.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
 
@@ -49,7 +49,7 @@ export interface JackalAgentSessionOptions {
   systemPrompt?: string;
   initialMode?: DevMode;
   contextMaxOverride?: number | null;
-  onPendingApprovalChange?: (pending: import("./tool-approval.js").PendingApproval | null) => void;
+  onPendingApprovalChange?: (pending: import("../agent/tool-approval.js").PendingApproval | null) => void;
 }
 
 export interface CompactContextOptions {

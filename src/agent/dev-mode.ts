@@ -1,6 +1,6 @@
 // Development modes — tool approval policy and plan-mode tool filtering.
 
-import { loadProjectConfig, resolveDefaultMode } from "./project-config.js";
+import { loadProjectConfig, resolveDefaultMode } from "../config/project-config.js";
 
 export type DevMode = "normal" | "auto-accept" | "yolo" | "plan";
 

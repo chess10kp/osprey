@@ -12,7 +12,7 @@ import {
   saveSessionRecord,
   type SessionRecord,
 } from "./session-index.js";
-import { loadProjectConfig } from "./project-config.js";
+import { loadProjectConfig } from "../config/project-config.js";
 
 export interface SessionSnapshot {
   sessionId: string;

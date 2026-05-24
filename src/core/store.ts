@@ -6,9 +6,9 @@
 // Consumers (Ink components, runtime hooks) subscribe and get immutable snapshots.
 // ────────────────────────────────────────────────────────────────────────────
 
-import type { DevMode } from "./runtime/dev-mode.js";
-import type { PendingApproval } from "./runtime/tool-approval.js";
-import { truncateToolOutput } from "./runtime/tool-output-limit.js";
+import type { DevMode } from "../agent/dev-mode.js";
+import type { PendingApproval } from "../agent/tool-approval.js";
+import { truncateToolOutput } from "../agent/tool-output-limit.js";
 
 export type AgentPhase =
   | "booting"

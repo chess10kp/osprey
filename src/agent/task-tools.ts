@@ -14,7 +14,7 @@ import {
   updateTasks,
   type Task,
   type TaskStatus,
-} from "./tasks.js";
+} from "../workflow/tasks.js";
 
 function formatAllTasksText(tasks: Task[], prefix: string): string {
   const counts = taskCounts(tasks);

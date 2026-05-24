@@ -6,8 +6,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentStore, AgentMessage as StoreMessage } from "./store.js";
-import type { DevMode } from "./runtime/dev-mode.js";
-import { truncateToolPayload } from "./runtime/tool-output-limit.js";
+import type { DevMode } from "../agent/dev-mode.js";
+import { truncateToolPayload } from "../agent/tool-output-limit.js";
 
 function formatToolPayload(value: unknown): string | undefined {
   return truncateToolPayload(value);

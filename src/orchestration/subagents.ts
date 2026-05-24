@@ -3,8 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { frontmatterString, frontmatterStringList, parseFrontmatter } from "./frontmatter.js";
-import { loadProjectConfig } from "./project-config.js";
-import type { JackalModels } from "./auth.js";
+import { loadProjectConfig } from "../config/project-config.js";
+import type { JackalModels } from "../auth/auth.js";
 
 export type SubagentSource = "package" | "project";
 

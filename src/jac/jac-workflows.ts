@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { JackalAgentSession } from "./agent-session.js";
+import type { JackalAgentSession } from "../session/agent-session.js";
 
 function resolvePackageRoot(): string {
   const fromModule = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -160,7 +160,7 @@ export async function runInit(
   cwd: string,
   options?: { force?: boolean; lean?: boolean },
 ): Promise<string> {
-  const { runProjectInit } = await import("./project-init.js");
+  const { runProjectInit } = await import("../project/project-init.js");
   const result = await runProjectInit(cwd, options);
   if (result.written) {
     return `Generated ${result.path}`;

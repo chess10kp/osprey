@@ -1,6 +1,6 @@
 // Auth actions — drives JackalAuth through the AuthFlowStore state machine.
 
-import type { JackalAuth, JackalModels } from "./runtime/auth.js";
+import type { JackalAuth, JackalModels } from "./auth.js";
 import { AuthFlowStore, type ProviderEntry, type ModelEntry } from "./auth-flow.js";
 
 export class AuthActions {

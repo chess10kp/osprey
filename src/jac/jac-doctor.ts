@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { findJacBinary } from "./jac-cli.js";
-import { loadProjectConfig } from "./project-config.js";
+import { loadProjectConfig } from "../config/project-config.js";
 
 const execFileAsync = promisify(execFile);
 

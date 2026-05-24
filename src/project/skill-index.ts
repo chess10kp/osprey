@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { frontmatterString, parseFrontmatter } from "./frontmatter.js";
+import { frontmatterString, parseFrontmatter } from "../orchestration/frontmatter.js";
 
 export interface SkillEntry {
   name: string;

@@ -1,8 +1,8 @@
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
-import type { JackalAuth, JackalModels } from "./auth.js";
-import type { DevMode } from "./dev-mode.js";
-import { isToolAllowedInPlanMode } from "./dev-mode.js";
+import type { JackalAuth, JackalModels } from "../auth/auth.js";
+import type { DevMode } from "../agent/dev-mode.js";
+import { isToolAllowedInPlanMode } from "../agent/dev-mode.js";
 import { getChain, listChains, type ChainDefinition, type ChainStep } from "./chains.js";
 import {
   filterToolsForSubagent,

@@ -1,7 +1,7 @@
 // Auto-compact — automatic context compaction triggered at context % threshold.
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ContextUsage } from "./context-usage.js";
+import type { ContextUsage } from "../workflow/context-usage.js";
 
 export interface AutoCompactConfig {
   enabled: boolean;

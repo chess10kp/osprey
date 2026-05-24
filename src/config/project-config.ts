@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { DevMode } from "./dev-mode.js";
+import type { DevMode } from "../agent/dev-mode.js";
 
 export interface JackalSubagentsConfig {
   model?: string;
