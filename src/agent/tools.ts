@@ -28,6 +28,7 @@ import {
   formatLocations,
 } from "../jac/lsp-tools.js";
 import { truncateToolOutput, wrapToolsOutputLimit } from "./tool-output-limit.js";
+import { skillReadAllowlist, type Skill } from "../project/skills.js";
 
 function safeResolve(cwd: string, inputPath: string): string {
   const abs = isAbsolute(inputPath) ? normalize(inputPath) : resolve(cwd, inputPath);
@@ -36,6 +37,22 @@ function safeResolve(cwd: string, inputPath: string): string {
     throw new Error(`Path escapes cwd: ${inputPath}`);
   }
   return abs;
+}
+
+function resolveReadPath(cwd: string, inputPath: string, skills: Skill[]): string {
+  const abs = isAbsolute(inputPath) ? normalize(inputPath) : resolve(cwd, inputPath);
+  const root = normalize(cwd + "/");
+  if ((abs + "/").startsWith(root) || abs === normalize(cwd)) {
+    return abs;
+  }
+
+  const allow = skillReadAllowlist(skills);
+  if (allow.files.has(abs)) return abs;
+  for (const skillRoot of allow.roots) {
+    if ((abs + "/").startsWith(skillRoot)) return abs;
+  }
+
+  throw new Error(`Path escapes cwd: ${inputPath}`);
 }
 
 async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promise<{ stdout: string; stderr: string; code: number | null; durationMs: number }> {
@@ -89,17 +106,17 @@ async function maybeAutoCheck(cwd: string, path: string): Promise<string | null>
   }
 }
 
-export function createCoreTools(cwd: string): AgentTool[] {
+export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] {
   const readTool: AgentTool = {
     name: "read",
     label: "Read File",
-    description: "Read a text file from the project.",
+    description: "Read a text file from the project or from a skill location listed in the system prompt.",
     parameters: Type.Object({
-      path: Type.String({ description: "Path relative to cwd" }),
+      path: Type.String({ description: "Path relative to cwd or absolute skill path from catalog" }),
     }),
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as { path: string };
-      const abs = safeResolve(cwd, params.path);
+      const abs = resolveReadPath(cwd, params.path, skills);
       const content = await readFile(abs, "utf-8");
       return {
         content: [{ type: "text", text: truncateToolOutput(content) }],

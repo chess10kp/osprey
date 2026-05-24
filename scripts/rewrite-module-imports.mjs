@@ -50,7 +50,7 @@ const MODULES = {
   frontmatter: "orchestration/frontmatter",
   "project-init": "project/project-init",
   "file-explorer": "project/file-explorer",
-  "skill-index": "project/skill-index",
+  "skill-index": "project/skills",
   "mermaid-render": "render/mermaid-render",
   index: "index",
 };

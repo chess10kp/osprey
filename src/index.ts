@@ -102,13 +102,16 @@ export { pruneSessions } from "./session/session-index.js";
 
 // Skill index
 export {
-  buildSkillIndex,
-  formatSkillCatalog,
-  searchSkills,
-  loadSkillBody,
-  appendSkillCatalogToPrompt,
-} from "./project/skill-index.js";
-export type { SkillEntry } from "./project/skill-index.js";
+  loadJackalSkills,
+  loadSkillsFromDir,
+  formatSkillsForPrompt,
+  expandSkillCommand,
+  appendSkillsToPrompt,
+  loadSkillByDir,
+  skillReadAllowlist,
+} from "./project/skills.js";
+export type { Skill, SkillSource, SkillDiagnostic, LoadSkillsResult } from "./project/skills.js";
+export { formatSkillCommandCatalog } from "./workflow/skill-commands.js";
 
 // Project init
 export {

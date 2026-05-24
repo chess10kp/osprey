@@ -690,6 +690,7 @@ function useJackalSession() {
       getCustomCommandSlashNames: () => a.actions.getCustomCommandSlashNames(),
       showAgents: () => a.actions.showAgents(),
       showCommands: () => a.actions.showCommands(),
+      showSkills: () => a.actions.showSkills(),
       showCheckpoints: () => a.actions.showCheckpoints(),
       showTasks: () => a.actions.showTasks(),
       showSessions: () => a.actions.showSessions(),

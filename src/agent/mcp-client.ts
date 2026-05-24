@@ -3,77 +3,15 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { truncateToolPayload, wrapToolsOutputLimit } from "./tool-output-limit.js";
+import { mcpInputSchemaToParameters, validateAndCoerceArgs } from "./mcp-schema.js";
+import { wrapToolsOutputLimit } from "./tool-output-limit.js";
 
 interface McpConfig {
   mcpServers?: Record<string, { command?: string; args?: string[] }>;
 }
 
 type ToolDef = { name: string; description?: string; inputSchema?: Record<string, unknown> };
-
-function coerceBySchema(value: unknown, schema: Record<string, unknown>): unknown {
-  const t = schema.type;
-  if (t === "string") return typeof value === "string" ? value : JSON.stringify(value);
-  if (t === "number") {
-    if (typeof value === "number") return value;
-    const n = Number(value);
-    if (!Number.isNaN(n)) return n;
-    throw new Error(`Expected number, got ${String(value)}`);
-  }
-  if (t === "integer") {
-    if (typeof value === "number" && Number.isInteger(value)) return value;
-    const n = Number(value);
-    if (Number.isInteger(n)) return n;
-    throw new Error(`Expected integer, got ${String(value)}`);
-  }
-  if (t === "boolean") {
-    if (typeof value === "boolean") return value;
-    if (value === "true") return true;
-    if (value === "false") return false;
-    throw new Error(`Expected boolean, got ${String(value)}`);
-  }
-  if (t === "array") {
-    if (Array.isArray(value)) return value;
-    if (typeof value === "string") {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed;
-    }
-    throw new Error(`Expected array, got ${String(value)}`);
-  }
-  if (t === "object") {
-    if (typeof value === "object" && value !== null) return value;
-    if (typeof value === "string") {
-      const parsed = JSON.parse(value);
-      if (typeof parsed === "object" && parsed !== null) return parsed;
-    }
-    throw new Error(`Expected object, got ${String(value)}`);
-  }
-  return value;
-}
-
-function validateAndCoerceArgs(
-  schema: Record<string, unknown> | undefined,
-  raw: Record<string, unknown>,
-): Record<string, unknown> {
-  if (!schema || schema.type !== "object") return raw;
-  const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
-  const required = Array.isArray(schema.required) ? schema.required.map(String) : [];
-  const out: Record<string, unknown> = { ...raw };
-
-  for (const key of required) {
-    if (!(key in out)) throw new Error(`Missing required argument: ${key}`);
-  }
-
-  for (const [key, val] of Object.entries(out)) {
-    const ps = props[key];
-    if (!ps) continue;
-    out[key] = coerceBySchema(val, ps);
-  }
-
-  return out;
-}
 
 export class JackalMcpClient {
   private _client: Client | null = null;
@@ -146,7 +84,7 @@ export class JackalMcpClient {
       name: d.name,
       label: `${this._serverName}:${d.name}`,
       description: d.description ?? `MCP tool ${d.name}`,
-      parameters: Type.Object({}, { additionalProperties: true }),
+      parameters: mcpInputSchemaToParameters(d.inputSchema),
       execute: async (_toolCallId, rawParams) => {
         if (!this._client) throw new Error("MCP client not connected");
         const args = validateAndCoerceArgs(d.inputSchema, (rawParams ?? {}) as Record<string, unknown>);

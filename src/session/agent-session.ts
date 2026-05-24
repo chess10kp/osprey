@@ -43,6 +43,7 @@ import {
   tryExpandSlashCommand,
   type CustomCommand,
 } from "../workflow/custom-commands.js";
+import { expandSkillCommand, loadJackalSkills, type Skill } from "../project/skills.js";
 import { listSubagents } from "../orchestration/subagents.js";
 import { listChains } from "../orchestration/chains.js";
 import { JacLspService, setActiveLspService } from "../jac/lsp-service.js";
@@ -107,6 +108,7 @@ export class JackalAgentSession {
   private _contextMaxOverride: number | null;
   private _autoCompactConfig: AutoCompactConfig;
   private _customCommands: CustomCommand[] = [];
+  private _skills: Skill[] = [];
 
   constructor(options: JackalAgentSessionOptions) {
     this._auth = options.auth;
@@ -118,6 +120,8 @@ export class JackalAgentSession {
     this._sessionPermissions = new SessionPermissions();
     const projectConfig = loadProjectConfig(options.cwd);
     this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
+    const { skills } = loadJackalSkills({ cwd: options.cwd });
+    this._skills = skills;
     this._systemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
     this._contextMaxOverride =
       typeof options.contextMaxOverride === "number" && options.contextMaxOverride > 0
@@ -143,7 +147,7 @@ export class JackalAgentSession {
       throw new Error("No models available. Configure auth with /login or env API keys.");
     }
 
-    const coreTools = createCoreTools(options.cwd);
+    const coreTools = createCoreTools(options.cwd, skills);
     const agentTool = createAgentTool({
       cwd: options.cwd,
       auth: this._auth,
@@ -485,8 +489,9 @@ export class JackalAgentSession {
     text: string,
     _opts?: { deliverAs?: string },
   ): Promise<"sent" | "queued"> {
-    const expanded = tryExpandSlashCommand(text, this._sessionManager.cwd);
-    const outgoing = expanded ?? text;
+    const cwd = this._sessionManager.cwd;
+    let outgoing = tryExpandSlashCommand(text, cwd) ?? text;
+    outgoing = expandSkillCommand(outgoing, this._skills);
 
     if (this.isProcessing()) {
       this._agent.followUp({

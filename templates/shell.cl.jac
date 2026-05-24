@@ -1259,6 +1259,10 @@ def:pub app() -> JsxElement {
             if session and hasattr(session, "showCommands") { session.showCommands(); }
             return;
         }
+        if cmd == "/skills" {
+            if session and hasattr(session, "showSkills") { session.showSkills(); }
+            return;
+        }
         if session { session.send(cmd); }
     }
 

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JackalAgentSession } from "../session/agent-session.js";
+import { loadSkillByDir } from "../project/skills.js";
 
 function resolvePackageRoot(): string {
   const fromModule = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -15,17 +16,7 @@ function resolvePackageRoot(): string {
 
 /** Read a skill's SKILL.md body (YAML frontmatter stripped). */
 export function loadSkillContent(skillDirName: string, packageRoot = resolvePackageRoot()): string {
-  const path = join(packageRoot, "pi", "skills", skillDirName, "SKILL.md");
-  if (!existsSync(path)) {
-    return "";
-  }
-  try {
-    const raw = readFileSync(path, "utf-8");
-    const stripped = raw.replace(/^---[\s\S]*?---\s*/m, "").trim();
-    return stripped;
-  } catch {
-    return "";
-  }
+  return loadSkillByDir(skillDirName, packageRoot);
 }
 
 /** Load a prompt template from pi/prompts/ and substitute `{{key}}` placeholders. */

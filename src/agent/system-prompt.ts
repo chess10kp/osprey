@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendSkillCatalogToPrompt } from "../project/skill-index.js";
+import { appendSkillsToPrompt, loadJackalSkills } from "../project/skills.js";
 
 const FALLBACK_SYSTEM = `You are Jackal, a Jac/Jaseci coding assistant.
 Be concise, evidence-based, and correct. When unsure about Jac syntax, say so.`;
@@ -17,11 +17,15 @@ export function loadJackalSystemPrompt(cwd: string, explicit?: string): string {
     if (!existsSync(path)) continue;
     try {
       const txt = readFileSync(path, "utf-8").trim();
-      if (txt) return appendSkillCatalogToPrompt(txt);
+      if (txt) {
+        const { skills } = loadJackalSkills({ cwd });
+        return appendSkillsToPrompt(txt, skills);
+      }
     } catch {
       // ignore and continue
     }
   }
 
-  return FALLBACK_SYSTEM;
+  const { skills } = loadJackalSkills({ cwd });
+  return appendSkillsToPrompt(FALLBACK_SYSTEM, skills);
 }

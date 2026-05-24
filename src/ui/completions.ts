@@ -38,6 +38,7 @@ const COMMANDS: CommandEntry[] = [
   { slash: "/osp", description: "OSP graph design" },
   { slash: "/agents", description: "list subagents" },
   { slash: "/commands", description: "list custom commands" },
+  { slash: "/skills", description: "list agent skills" },
   { slash: "/init", description: "generate AGENTS.md" },
   { slash: "/jac-check", description: "run jac check" },
   { slash: "/jac-doctor", description: "environment diagnostics" },

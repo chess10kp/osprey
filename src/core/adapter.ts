@@ -38,6 +38,7 @@ import { listProjectFiles, estimateSelectionChars } from "../project/file-explor
 import { formatSubagentCatalog } from "../orchestration/subagents.js";
 import { formatChainCatalog } from "../orchestration/chains.js";
 import { formatCustomCommandCatalog } from "../workflow/custom-commands.js";
+import { formatSkillCommandCatalog } from "../workflow/skill-commands.js";
 import type { JacDiagnostic } from "../jac/jac-types.js";
 import type { JacDoctorReport } from "../jac/jac-doctor.js";
 import {
@@ -285,6 +286,7 @@ export async function createNextAgent(
     getCustomCommandSlashNames: () => string[];
     showAgents: () => Promise<void>;
     showCommands: () => Promise<void>;
+    showSkills: () => Promise<void>;
     showCheckpoints: () => Promise<void>;
     showTasks: () => Promise<void>;
     showSessions: () => Promise<void>;
@@ -522,6 +524,11 @@ export async function createNextAgent(
       showCommands: async () => {
         const text = formatCustomCommandCatalog(cwd);
         store.pushUserMessage("/commands");
+        session.appendAssistantNotice(text);
+      },
+      showSkills: async () => {
+        const text = formatSkillCommandCatalog(cwd);
+        store.pushUserMessage("/skills");
         session.appendAssistantNotice(text);
       },
       showCheckpoints: async () => {
