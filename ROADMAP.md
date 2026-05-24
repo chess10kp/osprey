@@ -6,8 +6,12 @@
 
 **Live status:** P0–P8 are **implemented** in `src/` + `templates/shell.cl.jac` (see [`docs/FEATURES.md`](docs/FEATURES.md)). P9 (LSP depth, RAG, migration agent) remains deferred research.
 
+**Nanocoder parity:** Track A foundation is complete. Remaining gaps (text wrapping, rich approval UI, custom tools, scheduler, `/tune`) are documented in [`docs/NANOCODER-PARITY.md`](docs/NANOCODER-PARITY.md).
+
+> **Note:** Detailed Track A sections below (A1–A13) retain historical step lists. For current gap analysis, prefer **NANOCODER-PARITY.md** over stale "Missing" cells in those tables.
+
 ---
-## Current snapshot (2026-05-23)
+## Current snapshot (2026-05-24)
 
 | Area | Status | Notes |
 |------|--------|-------|
@@ -19,6 +23,7 @@
 | Terminal agent foundation | Done | Modes, `@file`/`!cmd`, checkpointing, `/resume`, `jackal run`, explorer |
 | Jac differentiators | Done | OSP, Python→Jac, idiom review, explain, diagram-to-model (text) |
 | Advanced (P9) | Deferred | Deep LSP port, RAG, graph trace visualizer, migration agent |
+| Nanocoder gaps | Documented | See `docs/NANOCODER-PARITY.md` — polish + optional features |
 
 ---
 
@@ -50,7 +55,7 @@ Everything in this section is table-stakes for a daily-usable terminal coding ag
 | Project CWD | Respect `JACKAL_AGENT_CWD` for tools and sessions | Document + enforce in all tool paths | Done |
 | System prompt | Load `jackal/SYSTEM.md` at session boot | Hook in `src/runtime/system-prompt.ts` | Done |
 | Graceful dispose | `/exit`, Ctrl+C without corrupting session | SIGINT messaging polish | Partial |
-| Smoke / CI path | Non-interactive boot verification | `jackal run --check` or adapter smoke test | Missing |
+| Smoke / CI path | Non-interactive boot verification | `npm run check`, `jackal run --check` | Done |
 | Fast TUI boot | Render shell before MCP/subsystems finish | Lazy MCP spawn after first frame | Missing |
 
 **Exit criteria:** `./jackal.sh` boots, authenticates, runs 3+ prompt cycles, disposes cleanly.
@@ -112,11 +117,11 @@ Nanocoder special input (see `reference/nanocoder/docs/features/commands.md`).
 
 | Feature | Description | Steps | Status |
 |---------|-------------|-------|--------|
-| `@file` mentions | Fuzzy file autocomplete; Tab to accept | Port `file-mention-handler`, `file-autocomplete` patterns | Partial |
-| `@file:10-20` | Line-range inclusion | Parse range suffix in mention handler | Missing |
-| `!command` | Inline bash; output becomes context | Prefix handler before prompt submit | Missing |
-| `/explorer` | Interactive file tree for multi-select context | Port nanocoder file explorer UX | Missing |
-| Token estimation | Warn on large `@` selections (10k+ tokens) | Token calculator on selection | Missing |
+| `@file` mentions | Fuzzy file autocomplete; Tab to accept | `completions.ts` + cursor-aware mention | Done |
+| `@file:10-20` | Line-range inclusion | `file-mention-parser.ts` + `context-input.ts` | Done |
+| `!command` | Inline bash; output becomes context | `context-input.ts` | Done |
+| `/explorer` | Interactive file tree for multi-select context | Shell overlay + `file-explorer.ts` | Done |
+| Token estimation | Warn on large `@` selections (10k+ tokens) | Explorer hint + expand warning | Done |
 
 **Steps:**
 
@@ -693,6 +698,7 @@ Everything else compounds from there.
 
 | Doc | Purpose |
 |-----|---------|
+| [`docs/NANOCODER-PARITY.md`](docs/NANOCODER-PARITY.md) | Full nanocoder vs Jackal feature matrix |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | Live status checklist |
 | [`docs/PLAN.md`](docs/PLAN.md) | TUI build phases |
 | [`docs/REMAINING_TUI_PLAN.md`](docs/REMAINING_TUI_PLAN.md) | Ink milestones M1–M6 |

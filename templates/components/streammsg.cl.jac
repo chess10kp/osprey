@@ -5,6 +5,7 @@ Full markdown rendering happens in AssistantMessage when the turn completes."""
 import from "ink" { Box, Text }
 import from "@inkjs/ui" { Spinner }
 import from .theme { SECONDARY, INFO, TEXT, ACCENT }
+import from "../text-wrapping.mjs" { wrapPlainText, getTerminalWidth }
 
 
 def stream_truncate(text: str, max_lines: int) -> str {
@@ -19,7 +20,7 @@ def stream_truncate(text: str, max_lines: int) -> str {
 def:pub StreamingMessage(props: any) -> JsxElement {
     streaming_text: str = str(props.streaming_text) if props.streaming_text else "";
     model: str = str(props.model) if props.model else "";
-    display: str = stream_truncate(streaming_text, 15);
+    display: str = wrapPlainText(stream_truncate(streaming_text, 15), getTerminalWidth());
 
     return (
         <Box flexDirection="column">
@@ -27,18 +28,7 @@ def:pub StreamingMessage(props: any) -> JsxElement {
                 <Spinner type="dots" />
                 <Text color={INFO} bold>{" " + (model if model else "Thinking")}</Text>
             </Box>
-            <Box
-                flexDirection="column"
-                marginBottom={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor={SECONDARY}
-            >
+            <Box flexDirection="column" marginBottom={1} paddingX={1}>
                 <Text>{display}</Text>
             </Box>
         </Box>

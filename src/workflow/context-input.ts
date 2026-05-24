@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, normalize, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { parseFileMentions, parseMentionToken } from "./file-mention-parser.js";
 
 const MAX_FILE_CHARS = 80_000;
 const TOKEN_WARN_CHARS = 40_000; // ~10k tokens heuristic
@@ -16,23 +17,15 @@ function safeResolve(cwd: string, inputPath: string): string {
   return abs;
 }
 
-function parseFileMention(raw: string): { path: string; startLine?: number; endLine?: number } {
-  const rangeMatch = raw.match(/^(.+?):(\d+)(?:-(\d+))?$/);
-  if (rangeMatch) {
-    return {
-      path: rangeMatch[1]!,
-      startLine: Number.parseInt(rangeMatch[2]!, 10),
-      endLine: rangeMatch[3] ? Number.parseInt(rangeMatch[3], 10) : Number.parseInt(rangeMatch[2]!, 10),
-    };
-  }
-  return { path: raw };
-}
-
 async function loadFileSlice(
   cwd: string,
   mention: string,
+  lineRange?: { start: number; end?: number },
 ): Promise<{ block: string; chars: number }> {
-  const { path, startLine, endLine } = parseFileMention(mention);
+  const parsed = lineRange
+    ? { path: mention, startLine: lineRange.start, endLine: lineRange.end ?? lineRange.start }
+    : parseMentionToken(mention);
+  const { path, startLine, endLine } = parsed;
   const abs = safeResolve(cwd, path);
   const content = await readFile(abs, "utf-8");
   let text = content;
@@ -94,7 +87,6 @@ export async function expandContextInput(cwd: string, text: string): Promise<str
   const trimmed = text.trim();
   if (!trimmed) return text;
 
-  // !command — entire line is bash, output becomes context
   if (trimmed.startsWith("!")) {
     const command = trimmed.slice(1).trim();
     if (!command) return text;
@@ -108,8 +100,7 @@ export async function expandContextInput(cwd: string, text: string): Promise<str
     ].join("\n");
   }
 
-  const mentionPattern = /@([^\s@]+)/g;
-  const mentions = [...trimmed.matchAll(mentionPattern)].map((m) => m[1]!);
+  const mentions = parseFileMentions(trimmed);
   if (mentions.length === 0) return text;
 
   const blocks: string[] = [];
@@ -117,14 +108,15 @@ export async function expandContextInput(cwd: string, text: string): Promise<str
   const seen = new Set<string>();
 
   for (const mention of mentions) {
-    if (seen.has(mention)) continue;
-    seen.add(mention);
+    const key = mention.rawText;
+    if (seen.has(key)) continue;
+    seen.add(key);
     try {
-      const { block, chars } = await loadFileSlice(cwd, mention);
+      const { block, chars } = await loadFileSlice(cwd, mention.filePath, mention.lineRange);
       blocks.push(block);
       totalChars += chars;
     } catch (err) {
-      blocks.push(`<file path="${mention}" error="${String(err)}" />`);
+      blocks.push(`<file path="${mention.filePath}" error="${String(err)}" />`);
     }
   }
 

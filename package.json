@@ -16,10 +16,12 @@
     "@juicesharp/rpiv-ask-user-question": "^1.5.0",
     "@juicesharp/rpiv-btw": "^1.5.0",
     "@pi-unipi/notify": "^2.0.1",
+    "ignore": "^7.0.5",
     "pi-lsp-extension": "^1.2.1",
     "pi-mcp-adapter": "^2.6.0",
     "pi-mermaid": "^0.3.0",
-    "pi-subagents": "^0.24.2"
+    "pi-subagents": "^0.24.2",
+    "wrap-ansi": "^10.0.0"
   },
   "scripts": {
     "postinstall": "patch-package",

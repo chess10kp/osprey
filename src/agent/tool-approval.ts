@@ -1,9 +1,19 @@
 // Tool approval queue — blocks agent tool execution until user approves or rejects.
 
+import { formatApprovalDisplay } from "../ui/approval-display.js";
+
 export interface PendingApproval {
   toolCallId: string;
   toolName: string;
   params: Record<string, unknown>;
+  /** Short label for the approval overlay */
+  headline?: string;
+  /** Prompt above the Yes/No selector */
+  question?: string;
+  /** Multi-line argument preview (legacy / plain) */
+  detailLines?: string[];
+  /** Rich preview lines with tone hints for Ink */
+  previewLines?: import("../ui/approval-display.js").ApprovalPreviewLine[];
 }
 
 export type PendingApprovalListener = (pending: PendingApproval | null) => void;
@@ -29,7 +39,16 @@ export class ToolApprovalQueue {
     }
 
     return new Promise((resolve) => {
-      this._pending = { toolCallId, toolName, params };
+      const display = formatApprovalDisplay(toolName, params);
+      this._pending = {
+        toolCallId,
+        toolName,
+        params,
+        headline: display.headline,
+        question: display.question,
+        detailLines: display.detailLines,
+        previewLines: display.previewLines,
+      };
       this._resolve = resolve;
       this._onChange?.(this._pending);
     });

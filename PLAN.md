@@ -82,13 +82,13 @@ Nanocoder has a dedicated `markdown-parser/` module (~350 lines total) that conv
 
 ### Priority 1 — Should complete
 
-- [ ] **Add `cli-table3` dependency** — Install `cli-table3` and wire it for markdown table rendering in the parser module
+- [x] **Add `cli-table3` dependency** — Used in `templates/markdown.mjs`
 
-- [ ] **Table rendering** — Port nanocoder's `table-parser.ts` logic: detect `| header | --- |` patterns, render via `cli-table3` with theme colors and terminal-width column sizing
+- [x] **Table rendering** — `parseMarkdownTable()` detects `| header | --- |` patterns and renders via cli-table3
 
-- [ ] **Streaming text wrapping** — In `StreamingMessage`, use `wrap-ansi` for the tail-truncated preview text (no full markdown parsing, just proper width handling)
+- [x] **Streaming text wrapping** — `StreamingMessage` uses `wrapPlainText()` from `templates/text-wrapping.mjs`
 
-- [ ] **Text wrapping utility** — Port nanocoder's `wrapWithTrimmedContinuations()` to handle the ANSI-safe continuation-line trim fix
+- [x] **Text wrapping utility** — `wrapWithTrimmedContinuations()` in `templates/text-wrapping.mjs`; applied in `parseMarkdownParts`
 
 ### Priority 2 — Nice to have
 

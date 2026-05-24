@@ -1,3 +1,5 @@
+import { getCurrentFileMention } from "../workflow/file-mention-parser.js";
+
 export interface CompletionContext {
   authStepKind: string;
   providers: string[];
@@ -83,30 +85,6 @@ function sortAndMapCommands(input: string, commands: CommandEntry[]): Suggestion
     .map((x) => ({ label: `${x.c.slash}  ${x.c.description}`, value: x.c.slash }));
 }
 
-function getCurrentFileMention(input: string): { mention: string; start: number; end: number } | null {
-  const pos = input.length;
-  let start = -1;
-  for (let i = pos - 1; i >= 0; i--) {
-    const ch = input[i];
-    if (ch === "@") {
-      start = i;
-      break;
-    }
-    if (ch === " " || ch === "\t" || ch === "\n") break;
-  }
-  if (start < 0) return null;
-
-  let end = pos;
-  for (let i = pos; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === " " || ch === "\t" || ch === "\n" || ch === "@") break;
-    end = i + 1;
-  }
-
-  const mention = input.slice(start + 1, end).replace(/:\d+(-\d+)?$/, "");
-  return { mention, start, end };
-}
-
 function rankFile(query: string, filePath: string): number {
   const q = query.toLowerCase();
   const p = filePath.toLowerCase();
@@ -131,8 +109,12 @@ function rankFile(query: string, filePath: string): number {
   return qi === q.length ? 500 : -1;
 }
 
-function getFileSuggestions(input: string, filePaths: string[]): Suggestion[] {
-  const mention = getCurrentFileMention(input);
+function getFileSuggestions(
+  input: string,
+  filePaths: string[],
+  cursorPosition?: number,
+): Suggestion[] {
+  const mention = getCurrentFileMention(input, cursorPosition);
   if (!mention) return [];
 
   const scored = [...new Set(filePaths)]
@@ -143,12 +125,16 @@ function getFileSuggestions(input: string, filePaths: string[]): Suggestion[] {
 
   return scored.map(({ path }) => ({
     label: path,
-    value: `${input.slice(0, mention.start)}@${path}${input.slice(mention.end)}`,
+    value: `${input.slice(0, mention.start)}@${path}${mention.rangeSuffix}${input.slice(mention.end)}`,
   }));
 }
 
-export function getSuggestions(input: string, ctx: CompletionContext): Suggestion[] {
-  const fileSuggestions = getFileSuggestions(input, ctx.filePaths ?? []);
+export function getSuggestions(
+  input: string,
+  ctx: CompletionContext,
+  cursorPosition?: number,
+): Suggestion[] {
+  const fileSuggestions = getFileSuggestions(input, ctx.filePaths ?? [], cursorPosition);
   if (fileSuggestions.length > 0) {
     return fileSuggestions;
   }

@@ -524,7 +524,7 @@ function useScreenEpoch() {
   return state.screenEpoch;
 }
 
-function useCompletions(input) {
+function useCompletions(input, cursorPosition) {
   useTick();
   const [list, setList] = useState([]);
   useEffect(() => {
@@ -551,7 +551,11 @@ function useCompletions(input) {
           filePaths,
           customCommands,
         };
-        const sugg = mod.getSuggestions(input ?? "", ctx);
+        const cursor =
+          typeof cursorPosition === "number" && cursorPosition >= 0
+            ? cursorPosition
+            : (input ?? "").length;
+        const sugg = mod.getSuggestions(input ?? "", ctx, cursor);
         setList(sugg);
       } catch {
         setList([]);
@@ -560,7 +564,7 @@ function useCompletions(input) {
     return () => {
       cancelled = true;
     };
-  }, [input]);
+  }, [input, cursorPosition]);
   return list;
 }
 

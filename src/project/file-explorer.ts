@@ -2,15 +2,15 @@
 
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { loadGitignore } from "./gitignore.js";
 
-const DEFAULT_SKIP = new Set([".git", "node_modules", ".jac", "dist", "build", ".venv", "venv"]);
 const CHARS_PER_TOKEN = 4;
 const TOKEN_WARN_THRESHOLD = 10_000;
 
 export interface ListProjectFilesOptions {
   maxDepth?: number;
   maxFiles?: number;
-  skipDirs?: Set<string>;
+  respectGitignore?: boolean;
 }
 
 /** Walk project tree and return paths relative to cwd (posix slashes). */
@@ -20,10 +20,11 @@ export async function listProjectFiles(
 ): Promise<string[]> {
   const maxDepth = options?.maxDepth ?? 6;
   const maxFiles = options?.maxFiles ?? 3000;
-  const skip = options?.skipDirs ?? DEFAULT_SKIP;
+  const respectGitignore = options?.respectGitignore ?? true;
+  const ig = respectGitignore ? loadGitignore(cwd) : null;
   const out: string[] = [];
 
-  async function walk(dir: string, depth: number): Promise<void> {
+  async function walk(dir: string, depth: number, relPrefix: string): Promise<void> {
     if (depth > maxDepth || out.length >= maxFiles) return;
 
     let entries;
@@ -36,18 +37,24 @@ export async function listProjectFiles(
     entries.sort((a, b) => a.name.localeCompare(b.name));
 
     for (const entry of entries) {
-      if (skip.has(entry.name)) continue;
+      if (entry.name.startsWith(".") && entry.name !== ".env.example") continue;
+
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+      if (ig?.ignores(rel) || (entry.isDirectory() && ig?.ignores(`${rel}/`))) {
+        continue;
+      }
+
       const abs = join(dir, entry.name);
       if (entry.isDirectory()) {
-        await walk(abs, depth + 1);
+        await walk(abs, depth + 1, rel);
       } else if (entry.isFile()) {
-        out.push(relative(cwd, abs).split("\\").join("/"));
+        out.push(rel.split("\\").join("/"));
       }
       if (out.length >= maxFiles) break;
     }
   }
 
-  await walk(cwd, 0);
+  await walk(cwd, 0, "");
   return out;
 }
 

@@ -166,8 +166,8 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 
 | Gap | Priority |
 |-----|----------|
-| Markdown text wrapping (`wrap-ansi`) | P2-polish |
-| Rich tool approval dialog (expandable args/result) | P2-polish |
+| Markdown text wrapping (`wrap-ansi`) | Done |
+| Rich tool approval dialog (select UI + formatter previews) | Done (`ToolConfirmationOverlay`) |
 | `.gitignore`-aware file search | P2-polish |
 | Task/checkpoint Ink overlays | P4-polish |
 | Custom tools (`.jackal/tools/*.md`) | Optional |

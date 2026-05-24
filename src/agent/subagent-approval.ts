@@ -1,10 +1,16 @@
 // Subagent tool approval queue — parallel to main agent approval (nanocoder pattern).
 
+import { formatApprovalDisplay } from "../ui/approval-display.js";
+
 export interface PendingSubagentApproval {
   toolCallId: string;
   toolName: string;
   params: Record<string, unknown>;
   subagentName: string;
+  headline?: string;
+  question?: string;
+  detailLines?: string[];
+  previewLines?: import("../ui/approval-display.js").ApprovalPreviewLine[];
 }
 
 export type PendingSubagentApprovalListener = (pending: PendingSubagentApproval | null) => void;
@@ -30,7 +36,17 @@ export class SubagentApprovalQueue {
     }
 
     return new Promise((resolve) => {
-      this._pending = { toolCallId, toolName, params, subagentName };
+      const display = formatApprovalDisplay(toolName, params, { subagentName });
+      this._pending = {
+        toolCallId,
+        toolName,
+        params,
+        subagentName,
+        headline: display.headline,
+        question: display.question,
+        detailLines: display.detailLines,
+        previewLines: display.previewLines,
+      };
       this._resolve = resolve;
       this._onChange?.(this._pending);
     });

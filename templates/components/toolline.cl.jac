@@ -13,11 +13,33 @@ def tool_format_input(input_obj: any) -> str {
 }
 
 
+def tool_compact_description(tool_name: str) -> str {
+    if tool_name == "read" { return "Read 1 file"; }
+    if tool_name == "write" { return "Wrote 1 file"; }
+    if tool_name == "edit" { return "Made 1 edit"; }
+    if tool_name == "bash" { return "Ran 1 command"; }
+    if tool_name == "glob" { return "Ran 1 file search"; }
+    if tool_name == "agent" { return "Delegated 1 task to subagent"; }
+    if tool_name == "mermaid" { return "Rendered 1 diagram"; }
+    if tool_name == "jac_check" or tool_name == "jac_check_syntax" { return "Ran jac check"; }
+    if tool_name == "jac_run" { return "Ran jac file"; }
+    if tool_name == "jac_format" { return "Formatted jac file(s)"; }
+    if tool_name == "jac_test" { return "Ran jac test"; }
+    if tool_name == "jac_fix" { return "Ran jac fix loop"; }
+    if tool_name == "jac_doctor" { return "Ran jac doctor"; }
+    if tool_name == "jac_create" { return "Ran jac create"; }
+    if tool_name == "jac_cli" { return "Ran jac CLI"; }
+    if tool_name == "diagnostics" { return "Got diagnostics"; }
+    if tool_name == "hover" { return "Looked up type info"; }
+    if tool_name == "definition" { return "Found definition"; }
+    if tool_name == "references" { return "Found references"; }
+    if tool_name.startswith("jac_") { return "Ran " + tool_name; }
+    return "Executed " + tool_name;
+}
+
+
 def tool_format_result(result: str, compact: bool) -> str {
-    if not result { return ""; }
-    if compact and len(result) > 80 { return result[:80] + "…"; }
-    if (not compact) and len(result) > 2000 { return result[:2000] + "\n...[truncated]"; }
-    if compact { return ""; }
+    if not result or compact { return ""; }
     return result;
 }
 
@@ -106,8 +128,20 @@ def:pub ToolMessage(props: any) -> JsxElement {
     }
     input_preview: str = tool_format_input(props.input);
     result_raw: str = str(props.result) if props.result else "";
-    result_text: str = tool_format_result(result_raw, compact);
+    show_compact: bool = compact and not is_error and not running;
+    result_text: str = tool_format_result(result_raw, show_compact);
     result_blocks: list = tool_render_content_blocks(result_text) if result_text else [];
+
+    if show_compact {
+        summary: str = tool_compact_description(tool_name);
+        return (
+            <Box marginBottom={1} marginTop={1}>
+                <Text color={color}>{icon + " "}</Text>
+                <Text color={TOOL}>{summary}</Text>
+                {duration_label and <Text dimColor>{duration_label}</Text>}
+            </Box>
+        );
+    }
 
     return (
         <Box flexDirection="column">

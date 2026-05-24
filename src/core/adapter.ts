@@ -205,8 +205,25 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
     session.scheduleLspConnect();
 
     try {
-      await session.sendUserMessage("Respond with exactly: headless-ok");
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise<void>((resolve, reject) => {
+        let unsubWait: (() => void) | undefined;
+        const timeout = setTimeout(() => {
+          unsubWait?.();
+          reject(new Error("smoke timeout waiting for agent_end"));
+        }, 12_000);
+        unsubWait = session.subscribe((event) => {
+          if (event?.type === "agent_end") {
+            clearTimeout(timeout);
+            unsubWait?.();
+            resolve();
+          }
+        });
+        void session.sendUserMessage("Respond with exactly: headless-ok").catch((err: unknown) => {
+          clearTimeout(timeout);
+          unsubWait?.();
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
+      });
     } finally {
       unsubEvents();
       unsubBridge();

@@ -24,18 +24,7 @@ def render_content_blocks(display: str) -> list {
 
     if not has_parts or single_empty {
         return [
-            <Box
-                flexDirection="column"
-                marginBottom={1}
-                backgroundColor="#1a1a2e"
-                padding={1}
-                borderStyle="bold"
-                borderLeft={true}
-                borderRight={false}
-                borderTop={false}
-                borderBottom={false}
-                borderLeftColor={SECONDARY}
-            >
+            <Box flexDirection="column" marginBottom={1} paddingX={1}>
                 <Text>{display}</Text>
             </Box>
         ];
@@ -50,25 +39,13 @@ def render_content_blocks(display: str) -> list {
 
         if ptype == "code" {
             rendered_parts.append(
-                <Box key={i} flexDirection="column" marginBottom={1}>
+                <Box key={i} flexDirection="column" marginBottom={1} paddingX={1}>
                     <Text>{pcontent}</Text>
                 </Box>
             );
         } else {
             rendered_parts.append(
-                <Box
-                    key={i}
-                    flexDirection="column"
-                    marginBottom={1}
-                    backgroundColor="#1a1a2e"
-                    padding={1}
-                    borderStyle="bold"
-                    borderLeft={true}
-                    borderRight={false}
-                    borderTop={false}
-                    borderBottom={false}
-                    borderLeftColor={SECONDARY}
-                >
+                <Box key={i} flexDirection="column" marginBottom={1} paddingX={1}>
                     <Text>{pcontent}</Text>
                 </Box>
             );
@@ -86,7 +63,7 @@ def:pub AssistantMessage(props: any) -> JsxElement {
 
     return (
         <Box flexDirection="column">
-            <Box marginBottom={1} marginTop={1}>
+            <Box marginBottom={1} marginTop={1} paddingX={1}>
                 <Text color={INFO} bold>{(model if model else "Assistant") + ":"}</Text>
             </Box>
             {rendered_parts}

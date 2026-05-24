@@ -574,29 +574,76 @@ def:pub CompletionsList(props: any) -> JsxElement {
     );
 }
 
-# ── Tool approval banner ────────────────────────────────────────────
+# ── Tool confirmation overlay (nanocoder ToolConfirmation parity) ───
 
-def:pub ApprovalBanner(props: any) -> JsxElement {
+def approval_preview_color(tone: str) -> str {
+    if tone == "added" { return "green"; }
+    if tone == "removed" { return "red"; }
+    if tone == "error" { return "red"; }
+    if tone == "accent" { return "cyan"; }
+    if tone == "muted" { return "gray"; }
+    return "white";
+}
+
+def:pub ToolConfirmationOverlay(props: any) -> JsxElement {
     pending: any = props.pending;
     if not pending { return <Text></Text>; }
+    menu_index: int = int(props.menu_index) if props.menu_index is not None else 0;
     tool_name: str = to_str(getattr(pending, "toolName", "tool"));
     headline: str = to_str(getattr(pending, "headline", "")) if getattr(pending, "headline", None) else tool_name;
+    question: str = to_str(getattr(pending, "question", "")) if getattr(pending, "question", None) else ("Allow tool \"" + tool_name + "\" to run?");
+    preview_lines: list = list(getattr(pending, "previewLines", [])) if getattr(pending, "previewLines", None) else [];
     detail_lines: list = list(getattr(pending, "detailLines", [])) if getattr(pending, "detailLines", None) else [];
+    subagent: str = to_str(getattr(pending, "subagentName", "")) if getattr(pending, "subagentName", None) else "";
+    options: list = [
+        "✓ Yes, allow for this session",
+        "✗ No, cancel execution",
+    ];
+    preview_rows: list = [];
+    if len(preview_lines) > 0 {
+        for i in range(len(preview_lines)) {
+            row: any = preview_lines[i];
+            line_text: str = to_str(getattr(row, "text", row)) if hasattr(row, "text") else to_str(row);
+            tone: str = to_str(getattr(row, "tone", "default")) if hasattr(row, "tone") else "default";
+            if line_text.strip() {
+                preview_rows.append(
+                    <Text key={"pv-" + str(i)} wrap="wrap" color={approval_preview_color(tone)}>{line_text}</Text>
+                );
+            }
+        }
+    } else {
+        for i in range(len(detail_lines)) {
+            line: str = to_str(detail_lines[i]);
+            if line.strip() {
+                preview_rows.append(<Text key={"dl-" + str(i)} wrap="wrap">{line}</Text>);
+            }
+        }
+    }
+    option_rows: list = [];
+    for i in range(len(options)) {
+        is_sel: bool = i == menu_index;
+        icon: str = "▸ " if is_sel else "  ";
+        option_rows.append(
+            <Text key={"opt-" + str(i)} bold={is_sel} color={"green" if is_sel and i == 0 else ("red" if is_sel and i == 1 else "white")}>
+                {icon + options[i]}
+            </Text>
+        );
+    }
+    title: str = "Subagent tool approval" if subagent else "Tool approval";
     return (
-        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} paddingY={1} marginTop={1}>
-            <Text bold color="yellow">{"Tool approval required"}</Text>
-            <Text bold color="white">{"  " + headline}</Text>
+        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={2} paddingY={1} marginTop={1}>
+            <Text bold color="yellow">{title}</Text>
+            <Text bold color="white">{"⚒ " + headline}</Text>
             <Box flexDirection="column" marginTop={1}>
-                {for i in range(len(detail_lines)) {
-                    line: str = to_str(detail_lines[i]);
-                    if line.strip() {
-                        <Text key={i} wrap="wrap">{line}</Text>
-                    }
-                }}
+                {preview_rows}
             </Box>
             <Box marginTop={1}>
-                <Text dimColor>{"Enter = allow for session   Esc = reject   Shift+Tab = change mode"}</Text>
+                <Text color="yellow">{question}</Text>
             </Box>
+            <Box flexDirection="column" marginTop={1}>
+                {option_rows}
+            </Box>
+            <Text dimColor marginTop={1}>{"↑↓ select   Enter confirm   Esc cancel   Shift+Tab mode"}</Text>
         </Box>
     );
 }
@@ -716,6 +763,8 @@ def:pub app() -> JsxElement {
     has resume_picker_index: int = 0;
     has resume_picker_show_all: bool = False;
     has show_usage_detail: bool = False;
+    has approval_menu_index: int = 0;
+    has last_approval_id: str = "";
 
     completions: any = useCompletions(input_text, input_cursor);
 
@@ -731,6 +780,16 @@ def:pub app() -> JsxElement {
     pending_approval: any = None;
     if snap and snap.pendingSubagentApproval { pending_approval = snap.pendingSubagentApproval; }
     elif snap and snap.pendingApproval { pending_approval = snap.pendingApproval; }
+    if pending_approval {
+        cur_approval_id: str = to_str(getattr(pending_approval, "toolCallId", ""));
+        if cur_approval_id and cur_approval_id != last_approval_id {
+            last_approval_id = cur_approval_id;
+            approval_menu_index = 0;
+        }
+    } elif last_approval_id {
+        last_approval_id = "";
+        approval_menu_index = 0;
+    }
     context_percent: float = 0.0;
     context_used: int = 0;
     context_max: int = 0;
@@ -1150,8 +1209,39 @@ def:pub app() -> JsxElement {
         submit_main(text);
     }
 
+    def confirm_tool_approval(allow: bool) -> None {
+        if not pending_approval or not session {
+            return;
+        }
+        if allow {
+            session.approveTool();
+        } else {
+            session.rejectTool();
+        }
+        approval_menu_index = 0;
+
     useInput(
         lambda (ch: str, key: any) -> None {
+            if pending_approval {
+                if key.escape {
+                    confirm_tool_approval(False);
+                    return;
+                }
+                if key.upArrow {
+                    approval_menu_index = (approval_menu_index - 1 + 2) % 2;
+                    return;
+                }
+                if key.downArrow {
+                    approval_menu_index = (approval_menu_index + 1) % 2;
+                    return;
+                }
+                if key.return {
+                    confirm_tool_approval(approval_menu_index == 0);
+                    return;
+                }
+                return;
+            }
+
             if resume_picker_active {
                 if key.escape {
                     close_resume_picker();
@@ -1250,10 +1340,6 @@ def:pub app() -> JsxElement {
                     close_resume_picker();
                     return;
                 }
-                if pending_approval and session {
-                    session.rejectTool();
-                    return;
-                }
                 if ui.dialogs and len(list(ui.dialogs)) > 0 {
                     dlg2: any = list(ui.dialogs)[0];
                     if session { session.resolveDialog(to_str(dlg2.id), None); }
@@ -1347,10 +1433,6 @@ def:pub app() -> JsxElement {
                 return;
             }
             if key.return {
-                if pending_approval and session {
-                    session.approveTool();
-                    return;
-                }
                 use_selected_completion: bool = False;
                 if completion_count > 0 {
                     if not input_text.strip() {
@@ -1527,7 +1609,9 @@ def:pub app() -> JsxElement {
 
     return (
         <Box key={"shell-" + str(screen_epoch)} flexDirection="column" padding={0}>
-            {pending_approval and <ApprovalBanner pending={pending_approval}/>}
+            {pending_approval and (
+                <ToolConfirmationOverlay pending={pending_approval} menu_index={approval_menu_index}/>
+            )}
             {show_help and <HelpPanel/>}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
             {resume_picker_active and (

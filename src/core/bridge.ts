@@ -9,11 +9,31 @@ import type { AgentStore, AgentMessage as StoreMessage } from "./store.js";
 import type { DevMode } from "../agent/dev-mode.js";
 import { truncateToolPayload } from "../agent/tool-output-limit.js";
 
+function toolResultDisplayText(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null) {
+    if ("error" in value) {
+      return String((value as { error?: unknown }).error ?? "Tool failed");
+    }
+    if ("content" in value && Array.isArray((value as { content?: unknown }).content)) {
+      const parts = (value as { content: Array<{ type?: string; text?: string }> }).content
+        .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+        .filter(Boolean);
+      if (parts.length > 0) return parts.join("\n");
+    }
+  }
+  return undefined;
+}
+
 function formatToolPayload(value: unknown): string | undefined {
+  const display = toolResultDisplayText(value);
+  if (display !== undefined) return truncateToolPayload(display);
   return truncateToolPayload(value);
 }
 
-function toolResultStatus(value: unknown): "done" | "error" {
+function toolResultStatus(value: unknown, isError?: unknown): "done" | "error" {
+  if (isError === true) return "error";
   if (value && typeof value === "object" && "error" in value) {
     return "error";
   }
@@ -171,7 +191,7 @@ export function bridgeEvents(
         store.upsertToolExecution({
           toolCallId,
           toolName: String(event.toolName ?? "unknown"),
-          status: toolResultStatus(event.result),
+          status: toolResultStatus(event.result, event.isError),
           input: event.input as Record<string, unknown> | undefined,
           result: formatToolPayload(event.result),
           durationMs,

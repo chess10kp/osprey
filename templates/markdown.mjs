@@ -17,6 +17,7 @@ process.env.FORCE_COLOR = "1";
 
 import chalk from "chalk";
 import Table from "cli-table3";
+import { wrapWithTrimmedContinuations } from "./text-wrapping.mjs";
 
 // Ensure chalk level is forced (belt + suspenders)
 if (chalk.level === 0) {
@@ -27,6 +28,13 @@ if (chalk.level === 0) {
 const { highlight } = await import("cli-highlight");
 
 const DEFAULT_TERMINAL_WIDTH = 120;
+
+function effectiveWidth(width) {
+  if (width && width > 20) return width;
+  const cols = process.stdout?.columns;
+  if (cols && cols > 20) return cols - 2;
+  return DEFAULT_TERMINAL_WIDTH;
+}
 const TABLE_COLUMN_MIN_WIDTH = 10;
 
 // ---------------------------------------------------------------------------
@@ -341,11 +349,13 @@ function parseMarkdownCore(text, themeColors, width) {
 export function parseMarkdownParts(text, themeColors, width) {
   if (!text || !text.trim()) return [{ type: "text", content: "" }];
 
+  const wrapWidth = effectiveWidth(width);
+
   try {
     const { text: processed, codeBlocks, inlineCodes } = parseMarkdownCore(
       text,
       themeColors,
-      width,
+      wrapWidth,
     );
 
     // Restore inline code inside text segments
@@ -363,7 +373,12 @@ export function parseMarkdownParts(text, themeColors, width) {
     for (let i = 0; i < segments.length; i++) {
       if (i % 2 === 0) {
         const content = segments[i];
-        if (content) parts.push({ type: "text", content });
+        if (content) {
+          parts.push({
+            type: "text",
+            content: wrapWithTrimmedContinuations(content, wrapWidth),
+          });
+        }
       } else {
         const idx = parseInt(segments[i] || "0", 10);
         const codeContent = codeBlocks[idx];
