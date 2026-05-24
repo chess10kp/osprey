@@ -24,6 +24,17 @@ const ADAPTER_PATH =
 
 let __fileListCache = { at: 0, cwd: "", files: [] };
 
+const explorerState = {
+  active: false,
+  files: [],
+  selected: new Set(),
+  index: 0,
+  filter: "",
+  tokenHint: "",
+  loading: false,
+  error: null,
+};
+
 async function listProjectFiles(cwd) {
   const now = Date.now();
   if (
@@ -32,6 +43,17 @@ async function listProjectFiles(cwd) {
     Array.isArray(__fileListCache.files)
   ) {
     return __fileListCache.files;
+  }
+
+  try {
+    const mod = await import(ADAPTER_PATH);
+    if (typeof mod.listProjectFiles === "function") {
+      const files = await mod.listProjectFiles(cwd);
+      __fileListCache = { at: now, cwd, files };
+      return files;
+    }
+  } catch {
+    /* fall through to local walk */
   }
 
   const fs = await import("node:fs/promises");
@@ -63,6 +85,38 @@ async function listProjectFiles(cwd) {
   await walk(cwd, 0);
   __fileListCache = { at: now, cwd, files: out };
   return out;
+}
+
+function filteredExplorerFiles() {
+  const q = explorerState.filter.trim().toLowerCase();
+  if (!q) return explorerState.files;
+  return explorerState.files.filter(
+    (f) => f.toLowerCase().includes(q) || f.split("/").pop()?.toLowerCase().includes(q),
+  );
+}
+
+async function refreshExplorerTokenHint() {
+  const paths = [...explorerState.selected];
+  if (paths.length === 0) {
+    explorerState.tokenHint = "";
+    emit();
+    return;
+  }
+  try {
+    const mod = await import(ADAPTER_PATH);
+    const a = state.adapter;
+    if (a?.actions?.estimateFileSelection) {
+      const est = await a.actions.estimateFileSelection(paths);
+      explorerState.tokenHint = est.warn
+        ? `~${est.tokens.toLocaleString()} tokens (large selection)`
+        : `~${est.tokens.toLocaleString()} tokens`;
+    } else {
+      explorerState.tokenHint = `${paths.length} file(s) selected`;
+    }
+  } catch {
+    explorerState.tokenHint = `${paths.length} file(s) selected`;
+  }
+  emit();
 }
 
 const state = {
@@ -243,10 +297,78 @@ function useJackalSession() {
       runOsp: (prompt) => a.actions.runOsp(prompt),
       runConvertPython: (path) => a.actions.runConvertPython(path),
       runIdiomReview: (paths) => a.actions.runIdiomReview(paths ?? []),
-      listSessions: (all) => a.actions.listSessions(all),
-      resumeSession: (target) => a.actions.resumeSession(target),
-      renameSession: (name) => a.actions.renameSession(name),
-      exportSessionMarkdown: () => a.actions.exportSessionMarkdown(),
+      runExplain: (mode, args) => a.actions.runExplain(mode, args),
+      runInit: (opts) => a.actions.runInit(opts),
+      runDiagramToModel: (source, content) => a.actions.runDiagramToModel(source, content ?? ""),
+      exportSessionToFile: (path) => a.actions.exportSessionToFile(path),
+      pickResumeSession: () => a.actions.pickResumeSession(),
+      loadProjectFiles: () => listProjectFiles(process.env.JACKAL_AGENT_CWD || process.cwd()),
+      enterExplorer: async () => {
+        explorerState.loading = true;
+        explorerState.error = null;
+        explorerState.active = true;
+        explorerState.selected = new Set();
+        explorerState.index = 0;
+        explorerState.filter = "";
+        explorerState.tokenHint = "";
+        emit();
+        try {
+          const cwd = process.env.JACKAL_AGENT_CWD || process.cwd();
+          explorerState.files = await listProjectFiles(cwd);
+          explorerState.loading = false;
+        } catch (err) {
+          explorerState.loading = false;
+          explorerState.error = err?.message || String(err);
+        }
+        emit();
+      },
+      exitExplorer: () => {
+        explorerState.active = false;
+        explorerState.files = [];
+        explorerState.selected = new Set();
+        explorerState.filter = "";
+        explorerState.tokenHint = "";
+        explorerState.error = null;
+        emit();
+      },
+      explorerMove: (delta) => {
+        const list = filteredExplorerFiles();
+        if (list.length === 0) return;
+        explorerState.index = (explorerState.index + delta + list.length) % list.length;
+        emit();
+      },
+      explorerToggle: () => {
+        const list = filteredExplorerFiles();
+        const file = list[explorerState.index];
+        if (!file) return;
+        if (explorerState.selected.has(file)) {
+          explorerState.selected.delete(file);
+        } else {
+          explorerState.selected.add(file);
+        }
+        void refreshExplorerTokenHint();
+      },
+      explorerSetFilter: (text) => {
+        explorerState.filter = text;
+        explorerState.index = 0;
+        emit();
+      },
+      explorerConfirm: () => {
+        const mentions = [...explorerState.selected].map((f) => `@${f}`).join(" ");
+        explorerState.active = false;
+        emit();
+        return mentions;
+      },
+      getExplorerState: () => ({
+        active: explorerState.active,
+        files: filteredExplorerFiles(),
+        index: explorerState.index,
+        selected: [...explorerState.selected],
+        filter: explorerState.filter,
+        tokenHint: explorerState.tokenHint,
+        loading: explorerState.loading,
+        error: explorerState.error,
+      }),
       checkpointCreate: (name) => a.actions.checkpointCreate(name),
       checkpointList: () => a.actions.checkpointList(),
       checkpointLoad: (name, opts) => a.actions.checkpointLoad(name, opts),
@@ -265,6 +387,20 @@ function useJackalSession() {
     };
   }
   return actionsRef.current;
+}
+
+function useExplorerState() {
+  useTick();
+  return {
+    active: explorerState.active,
+    files: filteredExplorerFiles(),
+    index: explorerState.index,
+    selected: [...explorerState.selected],
+    filter: explorerState.filter,
+    tokenHint: explorerState.tokenHint,
+    loading: explorerState.loading,
+    error: explorerState.error,
+  };
 }
 
 function useCompletions(input) {
@@ -317,4 +453,5 @@ export {
   useAuthFlow,
   useJackalUI,
   useCompletions,
+  useExplorerState,
 };

@@ -8,12 +8,9 @@ import from .theme { PRIMARY, SECONDARY, INFO, WARNING, ERROR, ACCENT, SUCCESS }
 def:pub ProviderPicker(providers: list) -> JsxElement {
     rows: list = [];
     for p in providers {
-        has marker: str = "○";
-        has color: str = "yellow";
-        if p.get("configured", False) {
-            marker = "●";
-            color = "green";
-        }
+        configured: bool = bool(p.get("configured", False));
+        marker: str = "●" if configured else "○";
+        color: str = "green" if configured else "yellow";
         name: str = str(p.get("id", ""));
         display: str = str(p.get("displayName", ""));
         auth_type: str = str(p.get("authType", ""));

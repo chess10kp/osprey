@@ -6,13 +6,16 @@ import from "@inkjs/ui" { TextInput }
 
 
 def:pub CompletionList(items: list, selected_index: int) -> JsxElement {
+    sel_idx: int = selected_index;
     shown: list = items[:8];
     rows: list = [];
-    for (i, s) in enumerate(shown) {
-        is_sel: bool = i == selected_index;
+    # range loop — jac2ink breaks enumerate when sel_idx is compared in the body
+    for i in range(len(shown)) {
+        f = shown[i];
+        is_sel: bool = i == sel_idx;
         icon: str = "▸ " if is_sel else "  ";
         rows.append(
-            <Text color="cyan" bold={is_sel}>{icon + str(s)}</Text>
+            <Text color="cyan" bold={is_sel}>{icon + str(f)}</Text>
         );
     }
     return (

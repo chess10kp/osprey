@@ -77,8 +77,8 @@ def:pub TranscriptRow(props: any) -> JsxElement {
 
 def build_transcript_rows(messages: list, model: str) -> list {
     rows: list = [];
-    for msg in messages {
-        rows.append(<TranscriptRow msg={msg} model={model}/>);
+    for (i, f) in enumerate(messages) {
+        rows.append(<TranscriptRow key={"row-" + str(i)} msg={f} model={model}/>);
     }
     return rows;
 }

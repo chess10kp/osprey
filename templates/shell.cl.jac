@@ -13,7 +13,8 @@ import from "./jac_pi_runtime_shim.mjs" {
     useToolTimeline,
     useAuthFlow,
     useJackalUI,
-    useCompletions
+    useCompletions,
+    useExplorerState
 }
 
 def to_str(value: any) -> str {
@@ -23,7 +24,7 @@ def to_str(value: any) -> str {
 }
 
 def exit_app(code: int) -> None {
-    a: int = code;
+    process.exit(code);
 }
 
 def list_len(value: any) -> int {
@@ -309,17 +310,66 @@ def:pub DialogOverlay(props: any) -> JsxElement {
     );
 }
 
+# ── File explorer overlay ───────────────────────────────────────────
+
+def:pub ExplorerOverlay(props: any) -> JsxElement {
+    explorer: any = props.explorer;
+    if not explorer or not bool(getattr(explorer, "active", False)) {
+        return <Text></Text>;
+    }
+    loading: bool = bool(getattr(explorer, "loading", False));
+    err: str = to_str(getattr(explorer, "error", ""));
+    files: list = list(getattr(explorer, "files", [])) if getattr(explorer, "files", None) else [];
+    idx: int = int(getattr(explorer, "index", 0));
+    selected: list = list(getattr(explorer, "selected", [])) if getattr(explorer, "selected", None) else [];
+    token_hint: str = to_str(getattr(explorer, "tokenHint", ""));
+    visible: int = 12;
+    start: int = max(0, min(idx - visible // 2, max(0, len(files) - visible)));
+    shown: list = files[start:start + visible];
+    rows: list = [];
+    for (i, f) in enumerate(shown) {
+        real_i: int = start + i;
+        is_cur: bool = real_i == idx;
+        is_sel: bool = str(f) in [str(s) for s in selected];
+        mark: str = "[x]" if is_sel else "[ ]";
+        icon: str = "▸ " if is_cur else "  ";
+        rows.append(
+            <Text bold={is_cur} color={"cyan" if is_cur else "white"}>{icon + mark + " " + str(f)}</Text>
+        );
+    }
+    return (
+        <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="blue"
+            paddingX={2}
+            paddingY={1}
+            marginTop={1}
+        >
+            <Text bold color="blue">{"/explorer — Space select  Enter inject  Esc close"}</Text>
+            {loading and <Text dimColor>{"Loading files..."}</Text>}
+            {err and <Text color="red">{err}</Text>}
+            {(not loading) and (len(files) == 0) and <Text dimColor>{"No files found."}</Text>}
+            {rows}
+            {token_hint and <Text color="yellow">{token_hint}</Text>}
+            <Text dimColor>{"Selected: " + str(len(selected)) + "   ↑↓ navigate   Space toggle"}</Text>
+        </Box>
+    );
+}
+
 # ── Completions ─────────────────────────────────────────────────────
 
 def:pub CompletionsList(props: any) -> JsxElement {
     items: list = list(props.items) if props.items else [];
-    selected_index: int = int(props.selected_index) if props.selected_index is not None else 0;
+    sel_idx: int = int(props.selected_index) if props.selected_index is not None else 0;
     rows: list = [];
     shown: list = items[:8];
-    for (i, c) in enumerate(shown) {
-        is_sel: bool = i == selected_index;
+    # range loop — jac2ink breaks enumerate when sel_idx is compared in the body
+    for i in range(len(shown)) {
+        f = shown[i];
+        is_sel: bool = i == sel_idx;
         icon: str = "▸ " if is_sel else "  ";
-        label: str = str(getattr(c, "label", str(c)));
+        label: str = str(getattr(f, "label", str(f)));
         rows.append(
             <Text color="cyan" bold={is_sel}>{icon + label}</Text>
         );
@@ -410,11 +460,18 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/abort         cancel active run"}</Text>
                 <Text color="white">{"/clear,/new    new session"}</Text>
                 <Text color="white">{"Ctrl+J / Shift+Enter  insert newline"}</Text>
-                <Text color="white">{"/compact       compact context"}</Text>
+                <Text color="white">{"/compact       compact context (--preview, --restore)"}</Text>
                 <Text color="white">{"/usage         context utilization"}</Text>
-                <Text color="white">{"/resume [id]   load prior session"}</Text>
+                <Text color="white">{"/context-max   set/show max context tokens"}</Text>
+                <Text color="white">{"/resume [id]   load prior session (picker if bare)"}</Text>
+                <Text color="white">{"/rename <name> rename current session"}</Text>
+                <Text color="white">{"/export        export session to .jackal/exports/"}</Text>
+                <Text color="white">{"/explorer      multi-select @file context"}</Text>
                 <Text color="white">{"/checkpoint    snapshot files + chat"}</Text>
                 <Text color="white">{"/tasks         task list"}</Text>
+                <Text color="white">{"/init          generate AGENTS.md"}</Text>
+                <Text color="white">{"/jac explain   explain file/walker/error/graph"}</Text>
+                <Text color="white">{"/jac diagram-to-model  diagram → OSP model"}</Text>
                 <Text color="white">{"/jac-check     run jac check"}</Text>
                 <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
                 <Text color="white">{"/jac <args>    run jac cli via tool"}</Text>
@@ -425,7 +482,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"Keys: Shift+Tab mode  Esc abort/clear  Ctrl+O compact tools  Ctrl+J newline  @file  !cmd"}
+                {"Keys: Shift+Tab mode  Esc×2 clear  Ctrl+O compact tools  Ctrl+J newline  Ctrl+J c/j/f/t Jac shortcuts  @file  !cmd"}
             </Text>
         </Box>
     );
@@ -474,6 +531,7 @@ def:pub app() -> JsxElement {
     tools: any = useToolTimeline();
     streaming: any = useAgentStream();
     session: any = useJackalSession();
+    explorer: any = useExplorerState();
 
     has input_text: str = "";
     has input_cursor: int = 0;
@@ -482,6 +540,8 @@ def:pub app() -> JsxElement {
     has show_help: bool = False;
     has selected_completion_index: int = 0;
     has compact_tools: bool = False;
+    has ctrl_j_pending: bool = False;
+    has esc_armed: bool = False;
 
     completions: any = useCompletions(input_text);
 
@@ -530,7 +590,10 @@ def:pub app() -> JsxElement {
 
         if cmd == "/compact" or cmd.startswith("/compact ") {
             if session and hasattr(session, "compactSession") {
-                session.compactSession();
+                opts: dict = {};
+                if "--preview" in cmd { opts["preview"] = True; }
+                if "--restore" in cmd { opts["restore"] = True; }
+                session.compactSession(opts);
             }
             return;
         }
@@ -540,8 +603,26 @@ def:pub app() -> JsxElement {
             }
             return;
         }
+        if cmd == "/context-max" {
+            if session and hasattr(session, "getContextUsage") {
+                u: any = session.getContextUsage();
+                session.send("[context-max] " + str(getattr(u, "max", u)));
+            }
+            return;
+        }
+        if cmd.startswith("/context-max ") {
+            raw_max: str = cmd[13:].strip();
+            if session and raw_max.isdigit() and hasattr(session, "setContextMax") {
+                session.setContextMax(int(raw_max));
+            }
+            return;
+        }
         if cmd == "/resume" {
-            if session and hasattr(session, "showSessions") { session.showSessions(); }
+            if session and hasattr(session, "pickResumeSession") {
+                session.pickResumeSession();
+            } elif session and hasattr(session, "showSessions") {
+                session.showSessions();
+            }
             return;
         }
         if cmd.startswith("/resume ") {
@@ -555,9 +636,42 @@ def:pub app() -> JsxElement {
             return;
         }
         if cmd == "/export" {
-            if session and hasattr(session, "exportSessionMarkdown") {
+            if session and hasattr(session, "exportSessionToFile") {
+                session.exportSessionToFile();
+            } elif session and hasattr(session, "exportSessionMarkdown") {
                 md: str = session.exportSessionMarkdown();
                 session.send("[export]\n" + md[:4000]);
+            }
+            return;
+        }
+        if cmd == "/explorer" {
+            if session and hasattr(session, "enterExplorer") { session.enterExplorer(); }
+            return;
+        }
+        if cmd == "/init" {
+            force_init: bool = "--force" in cmd;
+            lean_init: bool = "--lean" in cmd;
+            if session and hasattr(session, "runInit") {
+                session.runInit({"force": force_init, "lean": lean_init});
+            }
+            return;
+        }
+        if cmd.startswith("/jac explain ") {
+            rest_ex: str = cmd[13:].strip();
+            parts_ex: list = rest_ex.split(" ", 1);
+            mode_ex: str = parts_ex[0] if len(parts_ex) > 0 else "file";
+            args_ex: str = parts_ex[1] if len(parts_ex) > 1 else "";
+            if session and hasattr(session, "runExplain") {
+                session.runExplain(mode_ex, args_ex);
+            }
+            return;
+        }
+        if cmd.startswith("/jac diagram-to-model") {
+            rest_dm: str = cmd[21:].strip();
+            if session and rest_dm and hasattr(session, "runDiagramToModel") {
+                session.runDiagramToModel(rest_dm, "");
+            } elif session and not rest_dm {
+                session.send("Usage: /jac diagram-to-model <description or @file>");
             }
             return;
         }
@@ -621,6 +735,21 @@ def:pub app() -> JsxElement {
         if cmd == "/jac-check" {
             if session and hasattr(session, "runTool") { session.runTool("jac_check", {}); }
             elif session { session.send("Use jac_check tool and report diagnostics."); }
+            return;
+        }
+        if cmd == "/jac-test" {
+            if session and hasattr(session, "runTool") { session.runTool("jac_test", {}); }
+            elif session and hasattr(session, "runJacTest") { session.runJacTest(); }
+            return;
+        }
+        if cmd.startswith("/jac-format") {
+            rest_fmt: str = cmd[11:].strip();
+            files_fmt: list = rest_fmt.split(" ") if rest_fmt else [];
+            if session and hasattr(session, "runTool") and len(files_fmt) > 0 {
+                session.runTool("jac_format", {"files": files_fmt});
+            } elif session and hasattr(session, "runJacFormat") and len(files_fmt) > 0 {
+                session.runJacFormat(files_fmt);
+            }
             return;
         }
         if cmd == "/jac-doctor" {
@@ -797,6 +926,75 @@ def:pub app() -> JsxElement {
 
     useInput(
         lambda (ch: str, key: any) -> None {
+            explorer_active: bool = explorer and bool(getattr(explorer, "active", False));
+            if explorer_active and session {
+                if key.escape {
+                    if hasattr(session, "exitExplorer") { session.exitExplorer(); }
+                    return;
+                }
+                if key.upArrow {
+                    if hasattr(session, "explorerMove") { session.explorerMove(-1); }
+                    return;
+                }
+                if key.downArrow {
+                    if hasattr(session, "explorerMove") { session.explorerMove(1); }
+                    return;
+                }
+                if ch == " " {
+                    if hasattr(session, "explorerToggle") { session.explorerToggle(); }
+                    return;
+                }
+                if key.return {
+                    if hasattr(session, "explorerConfirm") {
+                        mentions: str = session.explorerConfirm();
+                        if mentions { input_text = mentions + " "; input_cursor = len(input_text); }
+                    }
+                    return;
+                }
+                if len(ch) > 0 and not key.ctrl and not key.meta {
+                    if hasattr(session, "explorerSetFilter") {
+                        session.explorerSetFilter(to_str(getattr(explorer, "filter", "")) + ch);
+                    }
+                    return;
+                }
+                if key.backspace {
+                    cur_filter: str = to_str(getattr(explorer, "filter", ""));
+                    if hasattr(session, "explorerSetFilter") and len(cur_filter) > 0 {
+                        session.explorerSetFilter(cur_filter[:-1]);
+                    }
+                    return;
+                }
+                return;
+            }
+
+            if ctrl_j_pending {
+                ctrl_j_pending = False;
+                if ch == "c" {
+                    submit_main("/jac-check");
+                    return;
+                }
+                if ch == "f" {
+                    submit_main("/fix");
+                    return;
+                }
+                if ch == "t" {
+                    if session and hasattr(session, "runTool") { session.runTool("jac_test", {}); }
+                    else { submit_main("/jac-test"); }
+                    return;
+                }
+                if ch == "e" {
+                    submit_main("/jac explain file ");
+                    return;
+                }
+                if key.ctrl and ch == "j" {
+                    show_help = not show_help;
+                    return;
+                }
+                input_text = input_text[:input_cursor] + "\n" + ch + input_text[input_cursor:];
+                input_cursor = input_cursor + 1 + len(ch);
+                return;
+            }
+
             if key.escape {
                 if pending_approval and session {
                     session.rejectTool();
@@ -822,13 +1020,20 @@ def:pub app() -> JsxElement {
                     return;
                 }
                 if len(input_text) > 0 {
-                    input_text = "";
-                    input_cursor = 0;
-                    input_reset_key = input_reset_key + 1;
+                    if esc_armed {
+                        input_text = "";
+                        input_cursor = 0;
+                        input_reset_key = input_reset_key + 1;
+                        esc_armed = False;
+                    } else {
+                        esc_armed = True;
+                    }
                     return;
                 }
+                esc_armed = False;
                 return;
             }
+            esc_armed = False;
             if key.shift and key.tab {
                 if session and hasattr(session, "cycleMode") { session.cycleMode(); }
                 return;
@@ -873,6 +1078,10 @@ def:pub app() -> JsxElement {
             # Insert newline: Ctrl+J, raw \n without key.return, or Shift+Enter
             # (Matches nanocoder's always-available multiline input behavior)
             if (key.ctrl and ch == "j") or (ch == "\n" and not key.return) or (key.return and key.shift) {
+                if key.ctrl and ch == "j" {
+                    ctrl_j_pending = True;
+                    return;
+                }
                 input_text = input_text[:input_cursor] + "\n" + input_text[input_cursor:];
                 input_cursor = input_cursor + 1;
                 return;
@@ -1047,23 +1256,10 @@ def:pub app() -> JsxElement {
 
     return (
         <Box flexDirection="column" padding={0}>
-            <StatusBar
-                phase={phase}
-                mode={dev_mode}
-                model={model_id}
-                provider={provider_id}
-                session_name={session_name}
-                msg_count={total}
-                tools_running={len(running_tools)}
-                mcp_connected={bool(getattr(snap, "mcpConnected", False))}
-                mcp_connecting={bool(getattr(snap, "mcpConnecting", False))}
-                mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
-                usage_line={usage_line}
-            />
             {pending_approval and <ApprovalBanner pending={pending_approval}/>}
             <Text color="gray">{divider}</Text>
             {show_help and <HelpPanel/>}
-            {compact_layout and <PromptBar {...prompt_props}/>}
+            {explorer and <ExplorerOverlay explorer={explorer}/>}
             {(not compact_layout) and (
                 <Box key={"chat-" + str(transcript_epoch)}>
                     <ChatHistory
@@ -1109,7 +1305,20 @@ def:pub app() -> JsxElement {
                     <Text color="cyan">{to_str(ui.workingMessage)}</Text>
                 </Box>
             )}
-            {(not compact_layout) and <PromptBar {...prompt_props}/>}
+            <PromptBar {...prompt_props}/>
+            <StatusBar
+                phase={phase}
+                mode={dev_mode}
+                model={model_id}
+                provider={provider_id}
+                session_name={session_name}
+                msg_count={total}
+                tools_running={len(running_tools)}
+                mcp_connected={bool(getattr(snap, "mcpConnected", False))}
+                mcp_connecting={bool(getattr(snap, "mcpConnecting", False))}
+                mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
+                usage_line={usage_line}
+            />
         </Box>
     );
 }

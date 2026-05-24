@@ -17,6 +17,7 @@ import {
   type SessionIndexEntry,
 } from "./runtime/session-index.js";
 import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import {
   runJacCheck as runJacCheckCli,
   runJacFormat as runJacFormatCli,
@@ -30,8 +31,10 @@ import {
   runIdiomReview,
   runExplain,
   runInit,
+  runDiagramToModel,
   type ExplainMode,
 } from "./runtime/jac-workflows.js";
+import { listProjectFiles, estimateSelectionChars } from "./runtime/file-explorer.js";
 import { formatSubagentCatalog } from "./runtime/subagents.js";
 import { formatChainCatalog } from "./runtime/chains.js";
 import { formatCustomCommandCatalog } from "./runtime/custom-commands.js";
@@ -258,6 +261,10 @@ export async function createNextAgent(
     resumeSession: (target: string) => Promise<void>;
     renameSession: (name: string) => void;
     exportSessionMarkdown: () => string;
+    exportSessionToFile: (path?: string) => Promise<string>;
+    pickResumeSession: () => Promise<void>;
+    listProjectFiles: () => Promise<string[]>;
+    estimateFileSelection: (paths: string[]) => Promise<{ chars: number; tokens: number; warn: boolean }>;
     getContextUsage: () => ReturnType<JackalAgentSession["getContextUsage"]>;
     setContextMax: (n: number | null) => void;
     getCustomCommandSlashNames: () => string[];
@@ -279,6 +286,7 @@ export async function createNextAgent(
     runIdiomReview: (paths?: string[]) => Promise<void>;
     runExplain: (mode: ExplainMode, args: string) => Promise<void>;
     runInit: (options?: { force?: boolean; lean?: boolean }) => Promise<void>;
+    runDiagramToModel: (source: string, content?: string) => Promise<void>;
     checkpointCreate: (name?: string) => Promise<CheckpointMetadata>;
     checkpointList: () => Promise<CheckpointListItem[]>;
     checkpointLoad: (
@@ -426,6 +434,44 @@ export async function createNextAgent(
         uiContext.notify(`Session renamed to "${name.trim()}".`, "success");
       },
       exportSessionMarkdown: () => session.exportSessionMarkdown(),
+      exportSessionToFile: async (outPath?: string) => {
+        const md = session.exportSessionMarkdown();
+        const exportDir = join(cwd, ".jackal", "exports");
+        await mkdir(exportDir, { recursive: true });
+        const file =
+          outPath?.trim() ||
+          join(exportDir, `session-${sessionManager.sessionId}-${Date.now()}.md`);
+        await writeFile(file, md, "utf-8");
+        uiContext.notify(`Exported session to ${file}`, "success");
+        return file;
+      },
+      pickResumeSession: async () => {
+        const items = listSessionIndex(storageDir, { cwd });
+        if (items.length === 0) {
+          uiContext.notify("No prior sessions for this project.", "info");
+          return;
+        }
+        const labels = items.map(
+          (s, i) => `${i + 1}. ${s.name} (${s.messageCount} msgs, ${s.updatedAt.slice(0, 10)})`,
+        );
+        const choice = await uiContext.select("Resume session", labels);
+        if (!choice) return;
+        const numMatch = choice.match(/^(\d+)\./);
+        const target = numMatch ? String(numMatch[1]) : choice;
+        await session.abort().catch(() => undefined);
+        const record = resolveSessionTarget(storageDir, target, { cwd });
+        if (!record) {
+          uiContext.notify(`Session not found: ${target}`, "error");
+          return;
+        }
+        session.resumeFromRecord(record);
+        uiContext.notify(
+          `Resumed "${record.sessionName}" (${record.messages.length} messages).`,
+          "success",
+        );
+      },
+      listProjectFiles: () => listProjectFiles(cwd),
+      estimateFileSelection: (paths: string[]) => estimateSelectionChars(cwd, paths),
       getContextUsage: () => session.getContextUsage(),
       setContextMax: (n: number | null) => {
         session.setContextMax(n);
@@ -515,6 +561,11 @@ export async function createNextAgent(
         store.pushUserMessage("/init");
         const result = await runInit(session, cwd, options);
         session.appendAssistantNotice(result);
+      },
+      runDiagramToModel: async (source: string, content = "") => {
+        const label = `/jac diagram-to-model ${source}`.trim();
+        store.pushUserMessage(label);
+        await runDiagramToModel(session, source, content);
       },
       checkpointCreate: async (name?: string) => {
         const model = session.currentModel;

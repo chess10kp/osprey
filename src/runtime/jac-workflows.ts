@@ -167,3 +167,20 @@ export async function runInit(
   }
   return result.content;
 }
+
+export function buildDiagramToModelPrompt(source: string, content: string): string {
+  return renderPromptTemplate("diagram-to-model", {
+    source: source.trim() || "user description",
+    content: content.trim() || "(no additional content — infer from source label)",
+  });
+}
+
+/** Run /jac diagram-to-model — multimodal/text diagram → OSP Jac model. */
+export async function runDiagramToModel(
+  session: JackalAgentSession,
+  source: string,
+  content = "",
+): Promise<void> {
+  const prompt = buildDiagramToModelPrompt(source, content);
+  await session.sendUserMessage(prompt);
+}

@@ -4,21 +4,21 @@
 
 **Reference baseline:** [`reference/nanocoder/`](reference/nanocoder/) is the primary reference for what a complete terminal coding agent looks like (Ink TUI, tool approval modes, session lifecycle, context compression, subagents, MCP, non-interactive `run` mode, etc.). Jackal must reach nanocoder parity on agent *foundation* first, then layer Jac differentiation on top.
 
-**Live status:** See [`docs/FEATURES.md`](docs/FEATURES.md) for per-feature Done / Partial / Missing. This roadmap describes *what* to build, *in what order*, and *which track* each item belongs to.
+**Live status:** P0–P8 are **implemented** in `src/` + `templates/shell.cl.jac` (see [`docs/FEATURES.md`](docs/FEATURES.md)). P9 (LSP depth, RAG, migration agent) remains deferred research.
 
 ---
-
-## Current snapshot (2026-05)
+## Current snapshot (2026-05-23)
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Headless runtime (`src/`) | Mostly done | Store, bridge, auth, session, core tools wired |
-| Ink shell (`templates/shell.cl.jac`) | Mostly done | Transcript, streaming, auth overlays, slash routing |
-| Core agent tools | Done | read, write, edit, bash |
-| Jac MCP | Partial | Loads from config; lazy boot + full tool surface still in progress |
-| Jackal slash workflows | Partial | `/jac-check`, autocheck; `/fix`, plan mode, subagents not fully ported |
-| Terminal agent foundation | Early | Missing: tool approval modes, `@file`/`!cmd`, checkpointing, `/resume`, `run` mode, explorer |
-| Jac differentiators | Planned | OSP assistant, Python→Jac, diagram-to-model, idiom reviewer |
+| Headless runtime (`src/`) | Done | Store, bridge, auth, session, tools, MCP, subagents |
+| Ink shell (`templates/shell.cl.jac`) | Done | Transcript, streaming, auth, slash routing, explorer, approval |
+| Core agent tools | Done | read, write, edit, bash, glob + path cwd guards |
+| Jac MCP | Done | Lazy boot via `scheduleMcpConnect`; `/mcp` status |
+| Jackal slash workflows | Done | `/fix`, plan mode, subagents, Jac toolchain commands |
+| Terminal agent foundation | Done | Modes, `@file`/`!cmd`, checkpointing, `/resume`, `jackal run`, explorer |
+| Jac differentiators | Done | OSP, Python→Jac, idiom review, explain, diagram-to-model (text) |
+| Advanced (P9) | Deferred | Deep LSP port, RAG, graph trace visualizer, migration agent |
 
 ---
 

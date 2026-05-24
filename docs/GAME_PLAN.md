@@ -1,6 +1,7 @@
 # Jackal Roadmap — Master Game Plan
 
 **Started:** 2026-05-23  
+**Completed:** 2026-05-23 (P0–P8)  
 **Goal:** Complete ROADMAP.md P0–P8 and reach **nanocoder feature parity** on terminal agent foundation (Track A), then Jac differentiators (Track B).
 
 ## Strategy
@@ -14,57 +15,31 @@
 
 ## Build order (strict)
 
-| Stage | Phases | Gate |
-|-------|--------|------|
-| 1 — Credible agent | P0 → P2 | `./jackal.sh`, modes, `@file`, tool timeline |
-| 2 — Daily driver | P3 → P6 | `/resume`, `/compact`, checkpoints, `jackal run` |
-| 3 — Jac MVP | P7 | `/jac-check`, `/fix`, doctor, autocheck |
-| 4 — Killer demos | P8 | `/osp`, convert-python, idioms |
-| 5 — Advanced | P9 | LSP, AST (defer until P0–P8 done) |
+| Stage | Phases | Gate | Status |
+|-------|--------|------|--------|
+| 1 — Credible agent | P0 → P2 | `./jackal.sh`, modes, `@file`, tool timeline | ✅ |
+| 2 — Daily driver | P3 → P6 | `/resume`, `/compact`, checkpoints, `jackal run` | ✅ |
+| 3 — Jac MVP | P7 | `/jac-check`, `/fix`, doctor, autocheck | ✅ |
+| 4 — Killer demos | P8 | `/osp`, convert-python, idioms, diagram-to-model | ✅ |
+| 5 — Advanced | P9 | LSP depth, AST, RAG (defer) | ⏸ |
 
 ## Nanocoder parity checklist (Track A)
 
-- [ ] P0: Smoke/CI boot, lazy MCP, graceful dispose
-- [ ] P1: Tool detail rows, Ctrl+O, Esc/double-Esc
-- [ ] P2: Dev modes, tool approval, `@file`, `!cmd`, `/explorer`
-- [ ] P3: `/resume`, auto-save, `/compact`+backup, `/usage`, auto-compact
-- [ ] P4: Checkpoints, `/tasks`
-- [ ] P5: Subagents, chains, custom commands, skills, `/init`
-- [ ] P6: `jackal run`, `--plain`, `--mode`
+- [x] P0: Smoke/CI boot, lazy MCP, graceful dispose
+- [x] P1: Tool detail rows, Ctrl+O, Esc/double-Esc
+- [x] P2: Dev modes, tool approval, `@file`, `!cmd`, `/explorer`
+- [x] P3: `/resume`, auto-save, `/compact`+backup, `/usage`, auto-compact
+- [x] P4: Checkpoints, `/tasks`
+- [x] P5: Subagents, chains, custom commands, skills, `/init`
+- [x] P6: `jackal run`, `--plain`, `--mode`
 
 ## Jac parity checklist (Track B)
 
-- [ ] P7: `/jac-doctor`, `/jac-check`, `/fix`, test/format/run, explain
-- [ ] P8: `/osp`, convert-python, idiom review, multimodal (basic)
-
-## Subagent assignments
-
-| Agent | Phase | Focus |
-|-------|-------|-------|
-| A | P0 | Smoke CLI, lazy MCP boot |
-| B | P1 | Tool timeline UI in shell |
-| C | P2 | Dev modes + approval queue |
-| D | P2 | `@file`, `!cmd`, explorer |
-| E | P3 | Session resume + auto-save |
-| F | P3 | Context compression + `/usage` |
-| G | P4 | Checkpoints + tasks |
-| H | P5 | Subagents + extensibility |
-| I | P6 | `jackal run` headless |
-| J | P7 | Jac toolchain slash commands |
-| K | P8 | OSP + convert-python + idioms |
-
-## Files to touch (by layer)
-
-| Layer | Path |
-|-------|------|
-| Runtime | `src/store.ts`, `src/adapter.ts`, `src/bridge.ts`, `src/runtime/*` |
-| CLI | `jackal.sh`, `bin/jackal` (new) |
-| Ink shell | `templates/shell.cl.jac` |
-| Config | `.jackal` schema in `project-config.ts` |
-| Docs | `docs/FEATURES.md`, `docs/PROGRESS.md` |
+- [x] P7: `/jac-doctor`, `/jac-check`, `/fix`, test/format/run, explain
+- [x] P8: `/osp`, convert-python, idiom review, diagram-to-model (text)
 
 ## Current focus
 
-**2026-05-23:** P0–P2 and P6–P7 runtime complete. P3–P5 and P8 partial (Ink overlays and `/explorer` remain). P9 deferred.
+**P9 deferred:** semantic synthesis, local docs RAG, graph trace visualizer, migration agent.
 
 See [`PROGRESS.md`](./PROGRESS.md) for live status.

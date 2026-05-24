@@ -24,6 +24,19 @@ def phase_label(phase: str) -> str {
 }
 
 
+def context_color(percent: float) -> str {
+    if percent >= 60.0 { return "yellow"; }
+    return "green";
+}
+
+
+def context_text(percent: float) -> str {
+    base: str = "Context: " + str(int(percent)) + "%";
+    if percent >= 60.0 { return base + " (use /compact)"; }
+    return base;
+}
+
+
 def:pub StatusBar(
     phase: str,
     model: str,
@@ -37,19 +50,8 @@ def:pub StatusBar(
     session_display: str = session_name if session_name else "new session";
     pc: str = phase_color(phase);
     pl: str = phase_label(phase);
-
-    has ctx_color: str = "green";
-    if context_percent >= 80.0 {
-        ctx_color = "yellow";
-    }
-    elif context_percent >= 60.0 {
-        ctx_color = "yellow";
-    }
-
-    has ctx_text: str = "Context: " + str(int(context_percent)) + "%";
-    if context_percent >= 60.0 {
-        ctx_text = ctx_text + " (use /compact)";
-    }
+    ctx_color: str = context_color(context_percent);
+    ctx_text: str = context_text(context_percent);
 
     return (
         <Box

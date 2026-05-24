@@ -4,16 +4,13 @@ import from "ink" { Box, Text }
 import from .theme { TOOL, SECONDARY, SUCCESS, WARNING }
 
 
-def:pub ToolRow(
-    tool_name: str,
-    status: str,
-    input_preview: str,
-) -> JsxElement {
+def:pub ToolRow(props: any) -> JsxElement {
+    tool_name: str = str(props.tool_name) if props.tool_name else "unknown";
+    status: str = str(props.status) if props.status else "done";
+    input_preview: str = str(props.input_preview) if props.input_preview else "";
     running: bool = status == "running";
-    has color: str = "green";
-    if running { color = "yellow"; }
-    has icon: str = "✓";
-    if running { icon = "⏵"; }
+    color: str = "yellow" if running else "green";
+    icon: str = "⏵" if running else "✓";
     detail: str = input_preview if input_preview else "";
 
     # Truncate detail to 60 chars

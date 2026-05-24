@@ -103,8 +103,16 @@ export {
   buildExplainPrompt,
   runExplain,
   runInit as runJacInit,
+  runDiagramToModel,
   type ExplainMode,
 } from "./runtime/jac-workflows.js";
+
+export {
+  listProjectFiles,
+  estimateTokensFromChars,
+  formatTokenEstimate,
+  estimateSelectionChars,
+} from "./runtime/file-explorer.js";
 
 // Mermaid ASCII renderer
 export {

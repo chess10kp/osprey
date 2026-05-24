@@ -7,15 +7,15 @@ Last updated: 2026-05-23
 | Phase | Status | Notes |
 |-------|--------|-------|
 | **P0** | done | Smoke `--check`, lazy MCP, `scheduleMcpConnect` |
-| **P1** | done | Tool rows (args/duration), Ctrl+O compact, Esc/double-Esc, MCP status bar |
-| **P2** | done | Dev modes, tool approval, `@file`/`!cmd` expand, Shift+Tab |
-| **P3** | partial | Session index, resume, auto-save, compact backup; Ink picker overlay TODO |
-| **P4** | partial | Checkpoints + tasks runtime; slash wired via facade |
-| **P5** | partial | Subagents, chains, custom commands, `agent` tool |
+| **P1** | done | Tool rows, Ctrl+O, Esc/double-Esc, MCP status bar |
+| **P2** | done | Dev modes, tool approval, `@file`/`!cmd`, `/explorer` overlay |
+| **P3** | done | Session index, resume picker, auto-save, compact backup, `/usage`, auto-compact |
+| **P4** | done | Checkpoints + tasks runtime + shell slash |
+| **P5** | done | Subagents, chains, custom commands, skill index, `/init` |
 | **P6** | done | `jackal run`, `--plain`, `--mode`, exit codes |
-| **P7** | done | jac-cli, doctor, fix flow, format/test tools |
-| **P8** | partial | OSP/convert-python/idioms workflows; multimodal deferred |
-| **P9** | deferred | LSP, AST, RAG |
+| **P7** | done | jac-cli, doctor, fix flow, format/test/run tools |
+| **P8** | done | OSP, convert-python, idioms, diagram-to-model (text), Ctrl+j shortcuts |
+| **P9** | deferred | Deep LSP, AST edits, RAG, migration agent |
 
 ## Nanocoder parity (Track A)
 
@@ -28,14 +28,14 @@ Last updated: 2026-05-23
 | Dev modes + approval | done |
 | `@file` / `!cmd` | done |
 | Tool timeline | done |
-| `/resume`, auto-save | partial (no full picker UI) |
-| `/compact`, `/usage` | partial |
-| Checkpoints | partial |
-| Tasks | partial |
-| Subagents | partial |
+| `/resume`, auto-save | done |
+| `/compact`, `/usage` | done |
+| Checkpoints | done |
+| Tasks | done |
+| Subagents | done |
 | Custom commands | done |
 | `jackal run` | done |
-| `/explorer` | missing |
+| `/explorer` | done |
 | Scheduler | deferred |
 
 ## Jac differentiators (Track B)
@@ -44,22 +44,14 @@ Last updated: 2026-05-23
 |---------|--------|
 | `/jac-doctor`, `/jac-check` | done |
 | `/fix` + autocheck | done |
-| `/osp`, convert-python, idioms | partial (runtime prompts) |
-| Multimodal diagrams | deferred |
+| `/osp`, convert-python, idioms | done |
+| `/jac explain`, diagram-to-model | done |
+| Multimodal image ingest | deferred (P9+) |
 
 ## Runtime modules (`src/runtime/`)
 
-`agent-session`, `auth`, `chains`, `checkpoints`, `cli-run` (via `src/cli-run.ts`), `context-input`, `context-usage`, `custom-commands`, `dev-mode`, `jac-cli`, `jac-doctor`, `jac-types`, `jac-workflows`, `mcp-client`, `project-config`, `session`, `session-index`, `subagent-runner`, `subagents`, `system-prompt`, `task-tools`, `tasks`, `tool-approval`, `tools`, `agent-tool`
+`agent-session`, `auth`, `auto-compact`, `chains`, `checkpoints`, `context-input`, `context-usage`, `custom-commands`, `dev-mode`, `file-explorer`, `frontmatter`, `jac-cli`, `jac-doctor`, `jac-types`, `jac-workflows`, `lsp-tools`, `mcp-client`, `mermaid-render`, `project-config`, `project-init`, `session`, `session-index`, `skill-index`, `subagent-runner`, `subagents`, `system-prompt`, `task-tools`, `tasks`, `tool-approval`, `tools`, `agent-tool`
 
 ## Session log
 
-- **2026-05-23:** Master game plan + phase files P0–P9. Parallel subagents implemented P0–P8 runtime. Shell/facade wired for modes, approval, slash commands, keyboard map. Build + smoke pass.
-
-## Next (if continuing)
-
-1. Ink `/explorer` overlay (P2)
-2. Session resume picker UI (P3)
-3. Auto-compact threshold hook (P3)
-4. `/init` AGENTS.md generator (P5)
-5. Skill index in system prompt footer (P5)
-6. P9 LSP port from `pi-lsp-extension`
+- **2026-05-23:** Completed P2–P5 and P8 shell wiring: `/explorer`, resume picker, export-to-file, compact flags, `/init`, `/jac explain`, diagram-to-model, Ctrl+j Jac shortcuts. ROADMAP P0–P8 complete.

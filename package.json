@@ -26,14 +26,22 @@
     "build:agent": "tsc -p tsconfig.json",
     "check": "npm run build:agent && node dist/index.js --check",
     "run:agent": "node dist/index.js run",
-    "start:agent-shell": "npm run build:agent && jac tui templates/shell.cl.jac --install --run"
+    "start:agent-shell": "npm run build:agent && jac tui templates/shell.cl.jac --install --run",
+    "test": "vitest run",
+    "test:tui": "vitest run tests/tui",
+    "test:adapter": "vitest run tests/adapter",
+    "test:tui:compile": "node tests/setup/compile-tui-fixtures.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "^0.75.4",
     "@earendil-works/pi-ai": "^0.75.4",
+    "@inkjs/ui": "^2.0.0",
     "ink": "^7.0.3",
+    "ink-testing-library": "^4.0.0",
     "patch-package": "^8.0.1",
     "react": "^19.2.6",
-    "typescript-language-server": "^5.2.0"
+    "strip-ansi": "^7.2.0",
+    "typescript-language-server": "^5.2.0",
+    "vitest": "^4.1.7"
   }
 }

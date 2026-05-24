@@ -4,8 +4,9 @@ import from "ink" { Box, Text }
 import from .theme { PRIMARY, SECONDARY, TEXT }
 
 
-def:pub UserMessage(message: str, tokens: int) -> JsxElement {
-    # Simple token estimate
+def:pub UserMessage(props: any) -> JsxElement {
+    message: str = str(props.message) if props.message else "";
+    tokens: int = int(props.tokens) if props.tokens else 0;
     token_str: str = "~" + str(tokens) if tokens > 0 else "";
 
     return (

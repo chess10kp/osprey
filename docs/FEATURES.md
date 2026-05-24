@@ -132,11 +132,11 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | Feature | Description | Status |
 |---------|-------------|--------|
 | `.jackal` project config | Read `autocheck`, `verbose`, `plan`, `autoCompact`, `sessions` from project root | Done |
-| `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Partial |
-| `/jac-check` | Run `jac check`, display diagnostics | Partial |
+| `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Done |
+| `/jac-check` | Run `jac check`, display diagnostics | Done |
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
-| `/fix` | Check → patch → re-check loop (capped retries) | Partial (prefers MCP `validate_jac` path when available; CLI fallback remains) |
-| `/create` | Wrapper around `jac create` templates | Partial (tool-driven wrapper) |
+| `/fix` | Check → patch → re-check loop (capped retries) | Done |
+| `/create` | Wrapper around `jac create` templates | Done |
 | Skills on demand | Load `pi/skills/*/SKILL.md` when task matches | Done (skill index in system prompt, agent reads via read tool) |
 | Prompt templates | Reusable prompts from `pi/prompts/` | Done (explain, osp, convert-python, review-idioms, explain-walker, explain-error, explain-graph) |
 

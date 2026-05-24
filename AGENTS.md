@@ -3,6 +3,8 @@
 ## Guidelines
 
 - Commit after each feature or bugfix
+- If there are bugs with jac-ink, let the human know. Tell them to fix the errors upstream and it will be done.
+- Do not write shim scripts. What we want to do instead is to fix the actual jac-tui plugin upstream.
 
 ## What
 
