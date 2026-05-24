@@ -230,6 +230,16 @@ function useMessages() {
   return snap?.messages ?? [];
 }
 
+function useTranscript() {
+  const snap = useAgentState();
+  return snap?.transcript ?? [];
+}
+
+function useLiveToolCallId() {
+  const snap = useAgentState();
+  return snap?.liveToolCallId ?? null;
+}
+
 function useToolTimeline() {
   const snap = useAgentState();
   if (!snap) return [];
@@ -470,6 +480,8 @@ export {
   useAgentState,
   useAgentStream,
   useMessages,
+  useTranscript,
+  useLiveToolCallId,
   useToolTimeline,
   useAuthFlow,
   useJackalUI,

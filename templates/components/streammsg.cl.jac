@@ -7,29 +7,12 @@ import from "@inkjs/ui" { Spinner }
 import from .theme { SECONDARY, INFO, TEXT, ACCENT }
 
 
-def stream_lines(text: str) -> list {
-    lines: list = [];
-    current: str = "";
-    for ch in text {
-        # ord/chr avoids jac2ink emitting literal "\\n" for "\n"
-        if ord(ch) == 10 {
-            lines.append(current);
-            current = "";
-        } else {
-            current = current + str(ch);
-        }
-    }
-    lines.append(current);
-    return lines;
-}
-
-
 def stream_truncate(text: str, max_lines: int) -> str {
     if not text { return ""; }
-    lines: list = stream_lines(text);
+    lines: list = text.split(chr(10));
     if len(lines) <= max_lines { return text; }
-    sep: str = chr(10);
-    return "…" + sep.join(lines[-max_lines:]);
+    tail: list = lines[-max_lines:];
+    return "…" + chr(10).join(tail);
 }
 
 

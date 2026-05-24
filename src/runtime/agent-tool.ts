@@ -4,6 +4,7 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import type { JackalAuth, JackalModels } from "./auth.js";
 import type { DevMode } from "./dev-mode.js";
 import { SubagentRunner, buildSubagentToolDescription } from "./subagent-runner.js";
+import { wrapToolOutputLimit } from "./tool-output-limit.js";
 
 export interface AgentToolContext {
   cwd: string;
@@ -15,7 +16,7 @@ export interface AgentToolContext {
 }
 
 export function createAgentTool(ctx: AgentToolContext): AgentTool {
-  return {
+  return wrapToolOutputLimit({
     name: "agent",
     label: "Subagent",
     description: buildSubagentToolDescription(ctx.cwd),
@@ -63,5 +64,5 @@ export function createAgentTool(ctx: AgentToolContext): AgentTool {
         details: result,
       };
     },
-  };
+  });
 }

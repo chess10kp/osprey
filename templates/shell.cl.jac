@@ -2,7 +2,7 @@
 Ported visual design from nanocoder."""
 
 import from "ink" { Box, Text, useInput }
-import from "./components/transcript.cl.jac" { ChatHistory }
+import from "./components/transcript.cl.jac" { ChatHistory, LiveToolRow }
 import from "./components/streammsg.cl.jac" { StreamingMessage }
 import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
@@ -10,6 +10,8 @@ import from "./jac_pi_runtime_shim.mjs" {
     useAgentState,
     useAgentStream,
     useMessages,
+    useTranscript,
+    useLiveToolCallId,
     useToolTimeline,
     useAuthFlow,
     useJackalUI,
@@ -383,48 +385,7 @@ def:pub CompletionsList(props: any) -> JsxElement {
     );
 }
 
-# ── Tool rows ───────────────────────────────────────────────────────
-
-def:pub ToolRow(props: any) -> JsxElement {
-    tool: any = props.tool;
-    compact: bool = bool(props.compact) if props.compact is not None else False;
-    name: str = str(getattr(tool, "toolName", getattr(tool, "name", "unknown")));
-    status: str = str(getattr(tool, "status", "done"));
-    running: bool = status == "running";
-    color: str = "yellow" if running else "green";
-    icon: str = "⏵" if running else "✓";
-    duration_ms: any = getattr(tool, "durationMs", None);
-    duration_label: str = "";
-    if duration_ms is not None {
-        duration_label = "  (" + str(duration_ms) + "ms)";
-    }
-    input_obj: any = getattr(tool, "input", None);
-    input_preview: str = "";
-    if input_obj is not None {
-        input_preview = str(input_obj);
-        if len(input_preview) > 80 { input_preview = input_preview[:80] + "..."; }
-    }
-    result_text: str = to_str(getattr(tool, "result", ""));
-    if compact and len(result_text) > 80 {
-        result_text = result_text[:80] + "...";
-    } elif (not compact) and len(result_text) > 2000 {
-        result_text = result_text[:2000] + "\n...[truncated]";
-    } elif compact and len(result_text) > 0 {
-        result_text = "";
-    }
-
-    return (
-        <Box flexDirection="column">
-            <Box>
-                <Text color={color}>{icon + " "}</Text>
-                <Text bold>{name}</Text>
-                {duration_label and <Text dimColor>{duration_label}</Text>}
-            </Box>
-            {input_preview and <Text dimColor>{"  args: " + input_preview}</Text>}
-            {result_text and <Text dimColor>{"  " + result_text}</Text>}
-        </Box>
-    );
-}
+# ── Tool approval banner ────────────────────────────────────────────
 
 def:pub ApprovalBanner(props: any) -> JsxElement {
     pending: any = props.pending;
@@ -525,6 +486,8 @@ def:pub app() -> JsxElement {
     auth: any = useAuthFlow();
     ui: any = useJackalUI();
     messages: any = useMessages();
+    transcript: any = useTranscript();
+    live_tool_id: any = useLiveToolCallId();
     tools: any = useToolTimeline();
     streaming: any = useAgentStream();
     session: any = useJackalSession();
@@ -1205,8 +1168,30 @@ def:pub app() -> JsxElement {
     running_tools: list = [
         t for t in tools_list if to_str(t.status) == "running"
     ];
-    recent_tools: list = tools_list[-5:] if len(tools_list) > 5 else tools_list;
-    tool_rows: list = [<ToolRow tool={t} compact={compact_tools}/> for t in recent_tools];
+
+    transcript_list: list = list(transcript) if transcript else [];
+    live_tool_component: any = None;
+    if live_tool_id {
+        live_id: str = to_str(live_tool_id);
+        for trow in transcript_list {
+            row_kind: str = "";
+            if hasattr(trow, "kind") {
+                row_kind = to_str(trow.kind);
+            } elif hasattr(trow, "keys") and "kind" in trow {
+                row_kind = to_str(trow["kind"]);
+            }
+            if row_kind != "tool" { continue; }
+            call_id: str = "";
+            if hasattr(trow, "toolCallId") {
+                call_id = to_str(trow.toolCallId);
+            } elif hasattr(trow, "keys") and "toolCallId" in trow {
+                call_id = to_str(trow["toolCallId"]);
+            }
+            if call_id != live_id { continue; }
+            live_tool_component = <LiveToolRow row={trow} compact={compact_tools}/>;
+            break;
+        }
+    }
 
     auth_kind: any = "idle";
     if auth and auth.step { auth_kind = to_str(auth.step.kind); }
@@ -1258,16 +1243,12 @@ def:pub app() -> JsxElement {
             {(not compact_layout) and (
                 <Box key={"chat-" + str(transcript_epoch)}>
                     <ChatHistory
-                        messages={msgs_list}
+                        transcript={transcript_list}
                         model={model_id}
+                        compact={compact_tools}
                         live_component={live_component}
+                        live_tool_component={live_tool_component}
                     />
-                </Box>
-            )}
-            {(not compact_layout) and len(tools_list) > 0 and (
-                <Box flexDirection="column" paddingX={1} marginTop={1}>
-                    <Text dimColor bold>{"Tools"}</Text>
-                    {tool_rows}
                 </Box>
             )}
             {last_notif and (

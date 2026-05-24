@@ -7,15 +7,17 @@
 
 import type { AgentStore, AgentMessage as StoreMessage } from "./store.js";
 import type { DevMode } from "./runtime/dev-mode.js";
+import { truncateToolPayload } from "./runtime/tool-output-limit.js";
 
 function formatToolPayload(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
+  return truncateToolPayload(value);
+}
+
+function toolResultStatus(value: unknown): "done" | "error" {
+  if (value && typeof value === "object" && "error" in value) {
+    return "error";
   }
+  return "done";
 }
 
 function agentMessageToStore(message: {
@@ -115,6 +117,7 @@ export function bridgeEvents(
         if (store.getSnapshot().streamingText !== null) {
           store.finalizeStreaming();
         }
+        store.pruneToolExecutions();
         store.setPhase("ready");
         break;
 
@@ -146,6 +149,9 @@ export function bridgeEvents(
 
       // ── Tool executions ───────────────────────────────────────────
       case "tool_execution_start": {
+        if (store.getSnapshot().streamingText !== null) {
+          store.finalizeStreaming();
+        }
         const toolCallId = String(event.toolCallId ?? "");
         startedAt.set(toolCallId, Date.now());
         store.upsertToolExecution({
@@ -165,7 +171,7 @@ export function bridgeEvents(
         store.upsertToolExecution({
           toolCallId,
           toolName: String(event.toolName ?? "unknown"),
-          status: "done",
+          status: toolResultStatus(event.result),
           input: event.input as Record<string, unknown> | undefined,
           result: formatToolPayload(event.result),
           durationMs,

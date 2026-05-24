@@ -13,7 +13,6 @@ import from "./components/authflow.cl.jac" {
     AuthErrorView,
 }
 import from "./components/helppanel.cl.jac" { HelpPanel }
-import from "./components/toolline.cl.jac" { ToolRow, ToolTimeline }
 import from "./components/userinput.cl.jac" { UserInput, CompletionList }
 
 

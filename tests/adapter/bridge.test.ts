@@ -43,25 +43,40 @@ describe("bridgeEvents", () => {
     expect(snap.phase).toBe("ready");
     expect(snap.streamingText).toBeNull();
     expect(snap.messages.at(-1)).toMatchObject({ role: "assistant", text: "hi" });
+    expect(snap.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "hi" });
 
     unsub();
   });
 
-  it("tracks tool execution lifecycle", () => {
+  it("tracks tool execution lifecycle in transcript order", () => {
     const store = new AgentStore();
     const session = createMockSession();
     const unsub = bridgeEvents(session, store);
 
+    store.pushUserMessage("read foo");
     session.emit({
       type: "tool_execution_start",
       toolCallId: "t1",
       toolName: "read",
       input: { path: "foo.jac" },
     });
-    expect(store.getSnapshot().toolExecutions.t1).toMatchObject({
+
+    let snap = store.getSnapshot();
+    expect(snap.toolExecutions.t1).toMatchObject({
       status: "running",
       toolName: "read",
     });
+    expect(snap.liveToolCallId).toBe("t1");
+    expect(snap.transcript).toEqual([
+      { kind: "user", text: "read foo" },
+      expect.objectContaining({
+        kind: "tool",
+        toolCallId: "t1",
+        toolName: "read",
+        status: "running",
+        input: { path: "foo.jac" },
+      }),
+    ]);
 
     session.emit({
       type: "tool_execution_end",
@@ -69,8 +84,69 @@ describe("bridgeEvents", () => {
       toolName: "read",
       result: "ok",
     });
-    expect(store.getSnapshot().toolExecutions.t1?.status).toBe("done");
-    expect(store.getSnapshot().toolExecutions.t1?.result).toBe("ok");
+
+    snap = store.getSnapshot();
+    expect(snap.toolExecutions.t1?.status).toBe("done");
+    expect(snap.toolExecutions.t1?.result).toBe("ok");
+    expect(snap.liveToolCallId).toBeNull();
+    expect(snap.transcript.at(-1)).toMatchObject({
+      kind: "tool",
+      toolCallId: "t1",
+      status: "done",
+      result: "ok",
+    });
+    const toolEntry = snap.transcript.at(-1);
+    expect(toolEntry?.kind === "tool" && toolEntry.durationMs).toBeTypeOf("number");
+
+    unsub();
+  });
+
+  it("finalizes streaming assistant text before tool start", () => {
+    const store = new AgentStore();
+    const session = createMockSession();
+    const unsub = bridgeEvents(session, store);
+
+    session.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Checking" } });
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "read",
+      input: {},
+    });
+
+    const snap = store.getSnapshot();
+    expect(snap.streamingText).toBeNull();
+    expect(snap.transcript).toEqual([
+      { kind: "assistant", text: "Checking" },
+      expect.objectContaining({ kind: "tool", toolCallId: "t1", status: "running" }),
+    ]);
+
+    unsub();
+  });
+
+  it("marks failed tool executions as error in transcript", () => {
+    const store = new AgentStore();
+    const session = createMockSession();
+    const unsub = bridgeEvents(session, store);
+
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+      input: { command: "false" },
+    });
+    session.emit({
+      type: "tool_execution_end",
+      toolCallId: "t1",
+      toolName: "bash",
+      result: { error: "exit 1" },
+    });
+
+    expect(store.getSnapshot().transcript.at(-1)).toMatchObject({
+      kind: "tool",
+      status: "error",
+      result: "exit 1",
+    });
 
     unsub();
   });
@@ -97,6 +173,7 @@ describe("bridgeEvents", () => {
 
     session.emit({ type: "session_start", sessionId: "s2", reason: "new" });
     expect(store.getSnapshot().messages).toEqual([]);
+    expect(store.getSnapshot().transcript).toEqual([]);
 
     unsub();
   });
@@ -146,5 +223,6 @@ describe("seedStoreFromSession", () => {
     expect(snap.model).toBe("claude-3");
     expect(snap.sessionId).toBe("abc");
     expect(snap.messages).toEqual([{ role: "user", text: "hello" }]);
+    expect(snap.transcript).toEqual([{ kind: "user", text: "hello" }]);
   });
 });

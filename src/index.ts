@@ -1,5 +1,5 @@
 export { AgentStore } from "./store.js";
-export type { AgentSnapshot, AgentPhase, ToolExecution } from "./store.js";
+export type { AgentSnapshot, AgentPhase, ToolExecution, TranscriptEntry, ToolTranscriptEntry } from "./store.js";
 export { bridgeEvents } from "./bridge.js";
 export { runNextAgentSmoke, createNextAgent, runJacCheck, runJacDoctor, runJacFormat, runJacTest, runJacRun } from "./adapter.js";
 export type { NextAgentResult, CreateNextAgentOptions, JacDiagnostic, JacDoctorReport, CheckpointMetadata, CheckpointListItem, LoadCheckpointOptions, Task } from "./adapter.js";

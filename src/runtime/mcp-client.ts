@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { truncateToolPayload, wrapToolsOutputLimit } from "./tool-output-limit.js";
 
 interface McpConfig {
   mcpServers?: Record<string, { command?: string; args?: string[] }>;
@@ -140,7 +141,8 @@ export class JackalMcpClient {
   }
 
   toAgentTools(defs: ToolDef[]): AgentTool[] {
-    return defs.map((d) => ({
+    return wrapToolsOutputLimit(
+      defs.map((d) => ({
       name: d.name,
       label: `${this._serverName}:${d.name}`,
       description: d.description ?? `MCP tool ${d.name}`,
@@ -172,13 +174,15 @@ export class JackalMcpClient {
             })
             .join("\n");
         }
+        text = text || "(no output)";
 
         return {
-          content: [{ type: "text", text: text || "(no output)" }],
+          content: [{ type: "text", text }],
           details: result,
         };
       },
-    }));
+    })),
+    );
   }
 
   async disconnect(): Promise<void> {

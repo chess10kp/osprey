@@ -8,6 +8,7 @@
 
 import type { DevMode } from "./runtime/dev-mode.js";
 import type { PendingApproval } from "./runtime/tool-approval.js";
+import { truncateToolOutput } from "./runtime/tool-output-limit.js";
 
 export type AgentPhase =
   | "booting"
@@ -20,16 +21,40 @@ export type AgentPhase =
 export interface ToolExecution {
   toolCallId: string;
   toolName: string;
-  status: "running" | "done";
+  status: "running" | "done" | "error";
   input?: Record<string, unknown>;
   result?: string;
   durationMs?: number;
 }
 
+export interface ToolTranscriptEntry {
+  kind: "tool";
+  toolCallId: string;
+  toolName: string;
+  status: "running" | "done" | "error";
+  input?: Record<string, unknown>;
+  result?: string;
+  durationMs?: number;
+}
+
+export type TranscriptEntry =
+  | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
+  | { kind: "system"; text: string }
+  | ToolTranscriptEntry;
+
 export interface AgentMessage {
   role: "user" | "assistant" | "system";
   text: string;
   toolCalls?: ToolExecution[];
+}
+
+/** Map legacy chat messages to transcript entries (no tool rows). */
+export function agentMessagesToTranscript(messages: AgentMessage[]): TranscriptEntry[] {
+  return messages.map((message) => ({
+    kind: message.role,
+    text: message.text,
+  }));
 }
 
 export interface AgentSnapshot {
@@ -45,11 +70,16 @@ export interface AgentSnapshot {
   mcpServer: string;
   mcpToolCount: number;
   mcpError: string | null;
+  /** Chat-only view for legacy UI; canonical order is `transcript`. */
   messages: AgentMessage[];
+  /** Ordered transcript: user, assistant, and tool rows. */
+  transcript: TranscriptEntry[];
   /** Bumps when transcript is cleared or replaced (Ink Static remount). */
   transcriptEpoch: number;
   /** In-flight assistant message text (null when idle). */
   streamingText: string | null;
+  /** Running tool id for live transcript slot (PR2 UI). */
+  liveToolCallId: string | null;
   toolExecutions: Record<string, ToolExecution>;
   tokens: { in: number; out: number } | null;
   cost: number | null;
@@ -70,8 +100,10 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
   mcpToolCount: 0,
   mcpError: null,
   messages: [],
+  transcript: [],
   transcriptEpoch: 0,
   streamingText: null,
+  liveToolCallId: null,
   toolExecutions: {},
   tokens: null,
   cost: null,
@@ -80,9 +112,15 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
 
 export type Listener = () => void;
 
+/** Keep only the most recent tool executions in the store. */
+export const MAX_TOOL_EXECUTIONS = 40;
+/** Throttle streaming UI updates to reduce re-render churn (~30 fps). */
+export const STREAM_EMIT_MS = 32;
+
 export class AgentStore {
   private _snapshot: AgentSnapshot = { ...INITIAL_SNAPSHOT };
   private _listeners = new Set<Listener>();
+  private _streamEmitTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Get current immutable snapshot. */
   getSnapshot(): AgentSnapshot {
@@ -147,28 +185,96 @@ export class AgentStore {
   /** Append text delta to the current streaming message. */
   appendStreamText(delta: string): void {
     const current = this._snapshot.streamingText ?? "";
-    // Mutate directly for perf (listeners see final snapshot)
     this._snapshot = { ...this._snapshot, streamingText: current + delta };
-    this._emit();
+    this._scheduleStreamEmit();
   }
 
   /** Finalize the streaming message into the messages list. */
   finalizeStreaming(): void {
+    this._flushStreamEmit();
     const text = this._snapshot.streamingText ?? "";
+    if (!text) {
+      this._patch({ phase: "ready", streamingText: null });
+      return;
+    }
     const messages = [...this._snapshot.messages, { role: "assistant" as const, text }];
-    this._patch({ phase: "ready", streamingText: null, messages });
+    const transcript = [...this._snapshot.transcript, { kind: "assistant" as const, text }];
+    this._patch({ phase: "ready", streamingText: null, messages, transcript });
   }
 
   /** Add a user message to the transcript. */
   pushUserMessage(text: string): void {
     const messages = [...this._snapshot.messages, { role: "user" as const, text }];
-    this._patch({ messages });
+    const transcript = [...this._snapshot.transcript, { kind: "user" as const, text }];
+    this._patch({ messages, transcript });
   }
 
-  /** Upsert a tool execution. */
+  /** Upsert a tool execution and mirror it into the ordered transcript. */
   upsertToolExecution(exec: ToolExecution): void {
-    const toolExecutions = { ...this._snapshot.toolExecutions, [exec.toolCallId]: exec };
-    this._patch({ toolExecutions });
+    const trimmed: ToolExecution = {
+      ...exec,
+      result: exec.result != null ? truncateToolOutput(exec.result) : undefined,
+    };
+    let toolExecutions = {
+      ...this._snapshot.toolExecutions,
+      [trimmed.toolCallId]: trimmed,
+    };
+    toolExecutions = this._pruneToolExecutions(toolExecutions);
+
+    const transcript = [...this._snapshot.transcript];
+    const toolEntry: ToolTranscriptEntry = {
+      kind: "tool",
+      toolCallId: trimmed.toolCallId,
+      toolName: trimmed.toolName,
+      status: trimmed.status,
+      input: trimmed.input,
+      result: trimmed.result,
+      durationMs: trimmed.durationMs,
+    };
+
+    const index = transcript.findIndex(
+      (entry) => entry.kind === "tool" && entry.toolCallId === trimmed.toolCallId,
+    );
+    if (index >= 0) {
+      transcript[index] = toolEntry;
+    } else if (trimmed.status === "running") {
+      transcript.push(toolEntry);
+    }
+
+    const keptIds = new Set(Object.keys(toolExecutions));
+    const prunedTranscript = transcript.filter(
+      (entry) => entry.kind !== "tool" || keptIds.has(entry.toolCallId),
+    );
+
+    let liveToolCallId = this._snapshot.liveToolCallId;
+    if (trimmed.status === "running") {
+      liveToolCallId = trimmed.toolCallId;
+    } else if (liveToolCallId === trimmed.toolCallId) {
+      liveToolCallId = null;
+    }
+
+    this._patch({
+      toolExecutions,
+      transcript: prunedTranscript,
+      liveToolCallId,
+    });
+  }
+
+  /** Drop oldest tool rows after each agent turn to cap heap growth. */
+  pruneToolExecutions(maxKeep = MAX_TOOL_EXECUTIONS): void {
+    const toolExecutions = this._pruneToolExecutions(this._snapshot.toolExecutions, maxKeep);
+    if (toolExecutions === this._snapshot.toolExecutions) return;
+
+    const keptIds = new Set(Object.keys(toolExecutions));
+    const transcript = this._snapshot.transcript.filter(
+      (entry) => entry.kind !== "tool" || keptIds.has(entry.toolCallId),
+    );
+    const liveToolCallId =
+      this._snapshot.liveToolCallId && keptIds.has(this._snapshot.liveToolCallId)
+        ? this._snapshot.liveToolCallId
+        : null;
+
+    this._patch({ toolExecutions, transcript, liveToolCallId });
   }
 
   /** Mark the store as ready (boot complete). */
@@ -180,7 +286,9 @@ export class AgentStore {
   clearTranscript(): void {
     this._patch({
       messages: [],
+      transcript: [],
       streamingText: null,
+      liveToolCallId: null,
       toolExecutions: {},
       phase: "ready",
       error: null,
@@ -192,7 +300,9 @@ export class AgentStore {
   setTranscript(messages: AgentMessage[]): void {
     this._patch({
       messages: [...messages],
+      transcript: agentMessagesToTranscript(messages),
       streamingText: null,
+      liveToolCallId: null,
       toolExecutions: {},
       phase: "ready",
       error: null,
@@ -211,6 +321,35 @@ export class AgentStore {
   private _patch(partial: Partial<AgentSnapshot>): void {
     this._snapshot = { ...this._snapshot, ...partial };
     this._emit();
+  }
+
+  private _scheduleStreamEmit(): void {
+    if (this._streamEmitTimer) return;
+    this._streamEmitTimer = setTimeout(() => {
+      this._streamEmitTimer = null;
+      this._emit();
+    }, STREAM_EMIT_MS);
+  }
+
+  private _flushStreamEmit(): void {
+    if (this._streamEmitTimer) {
+      clearTimeout(this._streamEmitTimer);
+      this._streamEmitTimer = null;
+    }
+    this._emit();
+  }
+
+  private _pruneToolExecutions(
+    toolExecutions: Record<string, ToolExecution>,
+    maxKeep = MAX_TOOL_EXECUTIONS,
+  ): Record<string, ToolExecution> {
+    const ids = Object.keys(toolExecutions);
+    if (ids.length <= maxKeep) return toolExecutions;
+    const next: Record<string, ToolExecution> = {};
+    for (const id of ids.slice(ids.length - maxKeep)) {
+      next[id] = toolExecutions[id]!;
+    }
+    return next;
   }
 
   private _emit(): void {

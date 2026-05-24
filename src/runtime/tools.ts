@@ -27,12 +27,7 @@ import {
   formatHoverInfo,
   formatLocations,
 } from "./lsp-tools.js";
-
-const MAX_TOOL_TEXT = 50_000;
-
-function limitText(s: string): string {
-  return s.length > MAX_TOOL_TEXT ? `${s.slice(0, MAX_TOOL_TEXT)}\n...[truncated]` : s;
-}
+import { truncateToolOutput, wrapToolsOutputLimit } from "./tool-output-limit.js";
 
 function safeResolve(cwd: string, inputPath: string): string {
   const abs = isAbsolute(inputPath) ? normalize(inputPath) : resolve(cwd, inputPath);
@@ -86,7 +81,7 @@ async function maybeAutoCheck(cwd: string, path: string): Promise<string | null>
     const parts = [
       `[autocheck] jac check: ${errors.length} error(s), ${warnings.length} warning(s)`,
       diagnostics.length > 0 ? formatDiagnostics(diagnostics) : "",
-      rawOutput.trim() ? `raw:\n${limitText(rawOutput)}` : "",
+      rawOutput.trim() ? `raw:\n${truncateToolOutput(rawOutput)}` : "",
     ].filter(Boolean);
     return parts.join("\n");
   } catch (error) {
@@ -107,7 +102,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const abs = safeResolve(cwd, params.path);
       const content = await readFile(abs, "utf-8");
       return {
-        content: [{ type: "text", text: limitText(content) }],
+        content: [{ type: "text", text: truncateToolOutput(content) }],
         details: { path: params.path, bytes: content.length },
       };
     },
@@ -188,8 +183,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const payload = JSON.stringify(
         {
           code: result.code,
-          stdout: limitText(result.stdout),
-          stderr: limitText(result.stderr),
+          stdout: truncateToolOutput(result.stdout),
+          stderr: truncateToolOutput(result.stderr),
           durationMs: result.durationMs,
         },
         null,
@@ -224,8 +219,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
         `command: jac ${params.args.join(" ")}`,
         `exit=${String(result.exitCode)}`,
         result.diagnostics.length > 0 ? formatDiagnostics(result.diagnostics) : "",
-        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
-        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        result.stdout ? `stdout:\n${truncateToolOutput(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${truncateToolOutput(result.stderr)}` : "",
       ].filter(Boolean).join("\n\n");
       return { content: [{ type: "text", text }], details: { ...result, command: `jac ${params.args.join(" ")}` } };
     },
@@ -251,7 +246,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
           ? "jac check passed — no errors."
           : `jac check: ${errors.length} error(s), ${warnings.length} warning(s)`,
         diagnostics.length > 0 ? formatDiagnostics(diagnostics) : "",
-        rawOutput.trim() ? `\n--- raw output ---\n${limitText(rawOutput)}` : "",
+        rawOutput.trim() ? `\n--- raw output ---\n${truncateToolOutput(rawOutput)}` : "",
       ].filter(Boolean).join("\n\n");
       return {
         content: [{ type: "text", text }],
@@ -283,8 +278,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const result = await runBash(cwd, "jac create --help", 60);
       const text = [
         `exit=${String(result.code)}`,
-        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
-        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        result.stdout ? `stdout:\n${truncateToolOutput(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${truncateToolOutput(result.stderr)}` : "",
       ].filter(Boolean).join("\n\n");
       return { content: [{ type: "text", text }], details: result };
     },
@@ -309,8 +304,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const text = [
         `command: ${pieces.join(" ")}`,
         `exit=${String(result.code)}`,
-        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
-        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        result.stdout ? `stdout:\n${truncateToolOutput(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${truncateToolOutput(result.stderr)}` : "",
       ].filter(Boolean).join("\n\n");
       return { content: [{ type: "text", text }], details: { ...result, command: pieces.join(" ") } };
     },
@@ -401,7 +396,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const text = [
         result.passed ? "jac test: passed" : `jac test: failed (${errors.length} error(s))`,
         result.diagnostics.length > 0 ? formatDiagnostics(result.diagnostics) : "",
-        result.rawOutput.trim() ? `\n--- raw output ---\n${limitText(result.rawOutput)}` : "",
+        result.rawOutput.trim() ? `\n--- raw output ---\n${truncateToolOutput(result.rawOutput)}` : "",
       ].filter(Boolean).join("\n\n");
       return {
         content: [{ type: "text", text }],
@@ -422,7 +417,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const result = await runJacFormat(cwd, params.files);
       const text = [
         result.changed ? `formatted: ${params.files.join(", ")}` : "no formatting changes",
-        result.rawOutput.trim() ? limitText(result.rawOutput) : "",
+        result.rawOutput.trim() ? truncateToolOutput(result.rawOutput) : "",
       ].filter(Boolean).join("\n\n");
       return {
         content: [{ type: "text", text }],
@@ -449,8 +444,8 @@ export function createCoreTools(cwd: string): AgentTool[] {
       const parts = [
         `command: jac run ${params.file}`,
         `exit=${String(result.exitCode)}`,
-        result.stdout ? `stdout:\n${limitText(result.stdout)}` : "",
-        result.stderr ? `stderr:\n${limitText(result.stderr)}` : "",
+        result.stdout ? `stdout:\n${truncateToolOutput(result.stdout)}` : "",
+        result.stderr ? `stderr:\n${truncateToolOutput(result.stderr)}` : "",
         result.error ? `error: ${result.error}` : "",
       ].filter(Boolean);
       return {
@@ -619,7 +614,7 @@ export function createCoreTools(cwd: string): AgentTool[] {
     }),
   };
 
-  return [
+  return wrapToolsOutputLimit([
     readTool,
     writeTool,
     editTool,
@@ -641,5 +636,5 @@ export function createCoreTools(cwd: string): AgentTool[] {
     mermaidTool,
     compactTool,
     ...createTaskTools(cwd),
-  ];
+  ]);
 }

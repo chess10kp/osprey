@@ -3,6 +3,7 @@
 import from "ink" { Box, Static, Text }
 import from .usermsg { UserMessage }
 import from .asstmsg { AssistantMessage }
+import from .toolline { ToolMessage }
 
 
 def estimate_tokens(text: str) -> int {
@@ -55,32 +56,116 @@ def msg_role(msg: any) -> str {
 }
 
 
-def:pub TranscriptRow(props: any) -> JsxElement {
-    msg: any = props.msg;
-    model: str = str(props.model) if props.model else "";
-    role: str = msg_role(msg);
-    text: str = safe_text(msg);
-
-    if role == "user" {
-        return <UserMessage message={text} tokens={estimate_tokens(text)}/>;
+def entry_kind(row: any) -> str {
+    if hasattr(row, "kind") {
+        kind_val: any = row.kind;
+        if kind_val is not None { return str(kind_val); }
     }
-    if role == "assistant" {
-        return <AssistantMessage message={text} model={model}/>;
+    if hasattr(row, "keys") and "kind" in row {
+        return str(row["kind"]);
+    }
+    return msg_role(row);
+}
+
+
+def entry_field(row: any, key: str) -> any {
+    if hasattr(row, key) {
+        return getattr(row, key, None);
+    }
+    if hasattr(row, "keys") and key in row {
+        return row[key];
+    }
+    return None;
+}
+
+
+def normalize_transcript(props: any) -> list {
+    raw: any = props.transcript if props.transcript else None;
+    if raw is not None {
+        items: list = list(raw);
+        if len(items) > 0 { return items; }
+    }
+    messages: list = list(props.messages) if props.messages else [];
+    normalized: list = [];
+    for m in messages {
+        role: str = msg_role(m);
+        normalized.append({"kind": role, "text": safe_text(m)});
+    }
+    return normalized;
+}
+
+
+def:pub LiveToolRow(props: any) -> JsxElement {
+    row: any = props.row;
+    compact: bool = bool(props.compact) if props.compact is not None else False;
+    tool_name: str = str(entry_field(row, "toolName")) if entry_field(row, "toolName") else "unknown";
+    status: str = str(entry_field(row, "status")) if entry_field(row, "status") else "running";
+    return (
+        <ToolMessage
+            tool_name={tool_name}
+            status={status}
+            input={entry_field(row, "input")}
+            result={entry_field(row, "result")}
+            duration_ms={entry_field(row, "durationMs")}
+            compact={compact}
+        />
+    );
+}
+
+
+def:pub TranscriptRow(props: any) -> JsxElement {
+    row: any = props.msg;
+    model: str = str(props.model) if props.model else "";
+    compact: bool = bool(props.compact) if props.compact is not None else False;
+    kind: str = entry_kind(row);
+
+    if kind == "user" {
+        return <UserMessage message={safe_text(row)} tokens={estimate_tokens(safe_text(row))}/>;
+    }
+    if kind == "assistant" {
+        return <AssistantMessage message={safe_text(row)} model={model}/>;
+    }
+    if kind == "tool" {
+        tool_name: str = str(entry_field(row, "toolName")) if entry_field(row, "toolName") else "unknown";
+        status: str = str(entry_field(row, "status")) if entry_field(row, "status") else "done";
+        return (
+            <ToolMessage
+                tool_name={tool_name}
+                status={status}
+                input={entry_field(row, "input")}
+                result={entry_field(row, "result")}
+                duration_ms={entry_field(row, "durationMs")}
+                compact={compact}
+            />
+        );
+    }
+    if kind == "system" {
+        return (
+            <Box flexDirection="column" paddingX={1} marginBottom={1}>
+                <Text dimColor>{"[system] " + safe_text(row)}</Text>
+            </Box>
+        );
     }
     return (
         <Box flexDirection="column" paddingX={1} marginBottom={1}>
-            <Text dimColor>{"[" + role + "] " + text}</Text>
+            <Text dimColor>{"[" + kind + "] " + safe_text(row)}</Text>
         </Box>
     );
 }
 
 
-def build_transcript_rows(messages: list, model: str) -> list {
+def build_transcript_rows(transcript: list, model: str, compact: bool) -> list {
     rows: list = [];
-    # range loop — jac2ink breaks enumerate when JSX key= references the index
-    for i in range(len(messages)) {
-        f = messages[i];
-        rows.append(<TranscriptRow key={"row-" + str(i)} msg={f} model={model}/>);
+    for i in range(len(transcript)) {
+        row: any = transcript[i];
+        kind: str = entry_kind(row);
+        if kind == "tool" {
+            status: str = str(entry_field(row, "status")) if entry_field(row, "status") else "done";
+            if status == "running" { continue; }
+        }
+        rows.append(
+            <TranscriptRow key={"row-" + str(i)} msg={row} model={model} compact={compact}/>
+        );
     }
     return rows;
 }
@@ -92,9 +177,10 @@ def render_static_row(row: any, _index: int) -> any {
 
 
 def:pub ChatQueue(props: any) -> JsxElement {
-    messages: list = list(props.messages) if props.messages else [];
+    transcript: list = normalize_transcript(props);
     model: str = str(props.model) if props.model else "";
-    rows: list = build_transcript_rows(messages, model);
+    compact: bool = bool(props.compact) if props.compact is not None else False;
+    rows: list = build_transcript_rows(transcript, model, compact);
 
     if len(rows) == 0 {
         return <Box flexDirection="column"></Box>;
@@ -109,13 +195,19 @@ def:pub ChatQueue(props: any) -> JsxElement {
 
 
 def:pub ChatHistory(props: any) -> JsxElement {
-    messages: any = props.messages;
-    model: any = props.model;
+    model: str = str(props.model) if props.model else "";
+    compact: bool = bool(props.compact) if props.compact is not None else False;
     live: any = props.live_component;
+    live_tool: any = props.live_tool_component;
 
     return (
         <Box flexDirection="column" flexGrow={1}>
-            <ChatQueue messages={messages} model={model}/>
+            <ChatQueue transcript={normalize_transcript(props)} model={model} compact={compact}/>
+            {live_tool and (
+                <Box flexDirection="column">
+                    {live_tool}
+                </Box>
+            )}
             {live and (
                 <Box flexDirection="column" paddingX={1}>
                     {live}
