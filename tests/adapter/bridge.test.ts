@@ -151,6 +151,32 @@ describe("bridgeEvents", () => {
     unsub();
   });
 
+  it("extracts text content from pi-agent tool results for display", () => {
+    const store = new AgentStore();
+    const session = createMockSession();
+    const unsub = bridgeEvents(session, store);
+
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "t2",
+      toolName: "read",
+      input: { path: "foo.jac" },
+    });
+    session.emit({
+      type: "tool_execution_end",
+      toolCallId: "t2",
+      toolName: "read",
+      result: {
+        content: [{ type: "text", text: "walker foo;\n" }],
+        details: { path: "foo.jac", bytes: 12 },
+      },
+    });
+
+    expect(store.getSnapshot().toolExecutions.t2?.result).toBe("walker foo;\n");
+
+    unsub();
+  });
+
   it("updates model on model_select", () => {
     const store = new AgentStore();
     const session = createMockSession();

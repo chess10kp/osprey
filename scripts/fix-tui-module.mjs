@@ -55,6 +55,9 @@ for (let i = 0; i < lines.length; i++) {
     if (spec === "../markdown.mjs") {
       spec = "./markdown.mjs";
     }
+    if (spec === "../text-wrapping.mjs") {
+      spec = "./text-wrapping.mjs";
+    }
     if (!merged.has(spec)) merged.set(spec, new Set());
     for (const part of importMatch[1].split(",")) {
       const name = part.trim();
@@ -94,6 +97,15 @@ for (const sym of ["Box", "Text", "useInput"]) {
     merged.get("ink").add(sym);
   }
 }
+if (/\bwrapPlainText\b/.test(code) || /\bgetTerminalWidth\b/.test(code)) {
+  if (!merged.has("./text-wrapping.mjs")) merged.set("./text-wrapping.mjs", new Set());
+  if (/\bwrapPlainText\b/.test(code)) merged.get("./text-wrapping.mjs").add("wrapPlainText");
+  if (/\bgetTerminalWidth\b/.test(code)) merged.get("./text-wrapping.mjs").add("getTerminalWidth");
+}
+if (/\bwrapWithTrimmedContinuations\b/.test(code)) {
+  if (!merged.has("./text-wrapping.mjs")) merged.set("./text-wrapping.mjs", new Set());
+  merged.get("./text-wrapping.mjs").add("wrapWithTrimmedContinuations");
+}
 
 const importLines = [];
 const order = [
@@ -101,6 +113,7 @@ const order = [
   "./jac_runtime_shim.mjs",
   "./jac_builtin_runtime.mjs",
   "./markdown.mjs",
+  "./text-wrapping.mjs",
   "ink",
   "@inkjs/ui",
   "./jac_pi_runtime_shim.mjs",
@@ -146,6 +159,20 @@ out = out.replace(
 
 // jac2ink: "\u25b8" in source double-escapes to literal "\\u25b8" in emitted JS.
 out = out.replace(/"\\\\u25b8 "/g, '"\\u25b8 "');
+
+// Unmounting ChatHistory (Ink Static) on /new causes yoga getComputedWidth OOB.
+out = out.replace(
+  /let show_welcome = false;\n  let compact_layout = \(\(\(\(total === 0\) && !is_streaming\) && \(auth_kind === "idle"\)\) && !has_dialog\);\n/,
+  "",
+);
+out = out.replace(
+  /\(!compact_layout && __jacJsx\(Box, \{"key": \("chat-" \+ String\(transcript_epoch\)\)(?: \+ "-" \+ String\(tool_display_epoch\))?\}, \[__jacJsx\(ChatHistory, (\{[^}]+\}), \[\]\)\]\)\),/,
+  '__jacJsx(Box, {"flexGrow": 1, "flexDirection": "column", "minHeight": 0}, [__jacJsx(ChatHistory, $1, [])]),',
+);
+out = out.replace(
+  /function ChatHistory\(props\) \{\n  let model = \(props\.model \? String\(props\.model\) : ""\);\n  let compact = \(\(props\.compact !== null\) \? _jac\.builtin\.bool\(props\.compact\) : false\);\n  let live = props\.live_component;\n  let live_tool = props\.live_tool_component;\n  return __jacJsx\(Box, \{"flexDirection": "column", "flexGrow": 1\},/,
+  'function ChatHistory(props) {\n  let model = (props.model ? String(props.model) : "");\n  let compact = ((props.compact !== null) ? _jac.builtin.bool(props.compact) : false);\n  let live = props.live_component;\n  let live_tool = props.live_tool_component;\n  return __jacJsx(Box, {"flexDirection": "column", "flexGrow": 1, "minHeight": 0},',
+);
 
 fs.writeFileSync(path, out);
 console.error(`fix-tui-module: merged ${importLines.length} import line(s) in ${path}`);

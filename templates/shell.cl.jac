@@ -405,42 +405,42 @@ def:pub DialogOverlay(props: any) -> JsxElement {
 
 # ── Session resume picker ───────────────────────────────────────────
 
-def session_entry_id(entry: any) -> str {
-    if hasattr(entry, "id") { return to_str(entry.id); }
-    if hasattr(entry, "get") { return to_str(entry.get("id", "")); }
+def session_entry_id(sess: any) -> str {
+    if hasattr(sess, "id") { return to_str(sess.id); }
+    if hasattr(sess, "get") { return to_str(sess.get("id", "")); }
     return "";
 }
 
-def session_entry_name(entry: any) -> str {
-    if hasattr(entry, "name") { return to_str(entry.name); }
-    if hasattr(entry, "get") { return to_str(entry.get("name", "(unnamed)")); }
+def session_entry_name(sess: any) -> str {
+    if hasattr(sess, "name") { return to_str(sess.name); }
+    if hasattr(sess, "get") { return to_str(sess.get("name", "(unnamed)")); }
     return "(unnamed)";
 }
 
-def session_entry_count(entry: any) -> int {
-    if hasattr(entry, "messageCount") { return int(entry.messageCount); }
-    if hasattr(entry, "get") { return int(entry.get("messageCount", 0)); }
+def session_entry_count(sess: any) -> int {
+    if hasattr(sess, "messageCount") { return int(sess.messageCount); }
+    if hasattr(sess, "get") { return int(sess.get("messageCount", 0)); }
     return 0;
 }
 
-def session_entry_updated(entry: any) -> str {
+def session_entry_updated(sess: any) -> str {
     raw: str = "";
-    if hasattr(entry, "updatedAt") { raw = to_str(entry.updatedAt); }
-    elif hasattr(entry, "get") { raw = to_str(entry.get("updatedAt", "")); }
+    if hasattr(sess, "updatedAt") { raw = to_str(sess.updatedAt); }
+    elif hasattr(sess, "get") { raw = to_str(sess.get("updatedAt", "")); }
     if len(raw) >= 10 { return raw[:10]; }
     return raw;
 
-def session_entry_cwd(entry: any) -> str {
-    if hasattr(entry, "cwd") { return to_str(entry.cwd); }
-    if hasattr(entry, "get") { return to_str(entry.get("cwd", "")); }
+def session_entry_cwd(sess: any) -> str {
+    if hasattr(sess, "cwd") { return to_str(sess.cwd); }
+    if hasattr(sess, "get") { return to_str(sess.get("cwd", "")); }
     return "";
 
-def format_resume_row(entry: any, index: int, selected: bool) -> str {
-    sid: str = session_entry_id(entry);
+def format_resume_row(sess: any, index: int, selected: bool) -> str {
+    sid: str = session_entry_id(sess);
     short_id: str = sid[:8] + "…" if len(sid) > 8 else sid;
-    name: str = session_entry_name(entry);
-    count: int = session_entry_count(entry);
-    when: str = session_entry_updated(entry);
+    name: str = session_entry_name(sess);
+    count: int = session_entry_count(sess);
+    when: str = session_entry_updated(sess);
     icon: str = "▸ " if selected else "  ";
     return icon + "[" + str(index + 1) + "] " + name + " (" + str(count) + " msgs, " + when + ", " + short_id + ")";
 
@@ -454,12 +454,12 @@ def:pub ResumePickerOverlay(props: any) -> JsxElement {
     start: int = max(0, min(idx - visible // 2, max(0, len(items) - visible)));
     shown: list = items[start:start + visible];
     rows: list = [];
-    for i, entry in enumerate(shown) {
+    for (i, f) in enumerate(shown) {
         real_i: int = start + i;
         is_cur: bool = real_i == idx;
         rows.append(
             <Text bold={is_cur} color={"cyan" if is_cur else "white"}>
-                {format_resume_row(entry, real_i, is_cur)}
+                {format_resume_row(f, real_i, is_cur)}
             </Text>
         );
     }
@@ -580,13 +580,23 @@ def:pub ApprovalBanner(props: any) -> JsxElement {
     pending: any = props.pending;
     if not pending { return <Text></Text>; }
     tool_name: str = to_str(getattr(pending, "toolName", "tool"));
-    subagent_name: str = to_str(getattr(pending, "subagentName", ""));
+    headline: str = to_str(getattr(pending, "headline", "")) if getattr(pending, "headline", None) else tool_name;
+    detail_lines: list = list(getattr(pending, "detailLines", [])) if getattr(pending, "detailLines", None) else [];
     return (
-        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginTop={1}>
+        <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} paddingY={1} marginTop={1}>
             <Text bold color="yellow">{"Tool approval required"}</Text>
-            {subagent_name and <Text>{"Subagent: " + subagent_name}</Text>}
-            <Text>{"Tool: " + tool_name}</Text>
-            <Text dimColor>{"Enter = allow for session   Esc = reject   Shift+Tab = change mode"}</Text>
+            <Text bold color="white">{"  " + headline}</Text>
+            <Box flexDirection="column" marginTop={1}>
+                {for i in range(len(detail_lines)) {
+                    line: str = to_str(detail_lines[i]);
+                    if line.strip() {
+                        <Text key={i} wrap="wrap">{line}</Text>
+                    }
+                }}
+            </Box>
+            <Box marginTop={1}>
+                <Text dimColor>{"Enter = allow for session   Esc = reject   Shift+Tab = change mode"}</Text>
+            </Box>
         </Box>
     );
 }
@@ -635,7 +645,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>
-                {"Keys: Esc cancel run  Esc×2 clear input  Ctrl+C×2 quit  Shift+Tab mode  Ctrl+O compact  @file  !cmd"}
+                {"Keys: Esc cancel run  Esc×2 clear input  Ctrl+C×2 quit  Shift+Tab mode  Ctrl+O tool output  @file  !cmd"}
             </Text>
         </Box>
     );
@@ -697,7 +707,8 @@ def:pub app() -> JsxElement {
     # multiline is always enabled -- Enter submits, Ctrl+J / Shift+Enter inserts newline
     has show_help: bool = False;
     has selected_completion_index: int = 0;
-    has compact_tools: bool = False;
+    has compact_tools: bool = True;
+    has tool_display_epoch: int = 0;
     has ctrl_j_pending: bool = False;
     has esc_armed: bool = False;
     has resume_picker_active: bool = False;
@@ -706,7 +717,7 @@ def:pub app() -> JsxElement {
     has resume_picker_show_all: bool = False;
     has show_usage_detail: bool = False;
 
-    completions: any = useCompletions(input_text);
+    completions: any = useCompletions(input_text, input_cursor);
 
     # Derived from snap - plain locals, not has (would call setState during render)
     phase: any = "ready";
@@ -767,8 +778,8 @@ def:pub app() -> JsxElement {
             return;
         }
         pick: int = max(0, min(resume_picker_index, len(resume_picker_items) - 1));
-        entry: any = resume_picker_items[pick];
-        sid: str = session_entry_id(entry);
+        sess: any = resume_picker_items[pick];
+        sid: str = session_entry_id(sess);
         close_resume_picker();
         if session and sid and hasattr(session, "resumeSession") {
             session.resumeSession(sid);
@@ -1288,6 +1299,7 @@ def:pub app() -> JsxElement {
             }
             if key.ctrl and ch == "o" {
                 compact_tools = not compact_tools;
+                tool_display_epoch = tool_display_epoch + 1;
                 return;
             }
             if key.ctrl and ch == "d" {
@@ -1503,15 +1515,8 @@ def:pub app() -> JsxElement {
         live_component = <StreamingMessage streaming_text={to_str(streaming)} model={model_id}/>;
     }
 
-    # Welcome banner disabled.
-    show_welcome: bool = False;
-
-    compact_layout: bool = (
-        total == 0
-        and (not is_streaming)
-        and auth_kind == "idle"
-        and (not has_dialog)
-    );
+    # ChatHistory must stay mounted — it owns Ink Static; unmounting crashes yoga on /new.
+    static_display_epoch: int = (transcript_epoch * 1000) + tool_display_epoch;
 
     prompt_props: dict = {
         "prompt_marker": prompt_marker,
@@ -1543,17 +1548,16 @@ def:pub app() -> JsxElement {
                     message_tokens={context_message_tokens}
                 />
             )}
-            {(not compact_layout) and (
-                <Box key={"chat-" + str(transcript_epoch)}>
-                    <ChatHistory
-                        transcript={transcript_list}
-                        model={model_id}
-                        compact={compact_tools}
-                        live_component={live_component}
-                        live_tool_component={live_tool_component}
-                    />
-                </Box>
-            )}
+            <Box flexGrow={1} flexDirection="column" minHeight={0}>
+                <ChatHistory
+                    transcript={transcript_list}
+                    model={model_id}
+                    compact={compact_tools}
+                    display_epoch={static_display_epoch}
+                    live_component={live_component}
+                    live_tool_component={live_tool_component}
+                />
+            </Box>
             {last_notif and (
                 <Box paddingX={1}>
                     <Text color="yellow">{"! "}</Text>

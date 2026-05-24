@@ -42,6 +42,12 @@ function copyRuntimeAssets(outDir) {
     throw new Error("templates/markdown.mjs missing");
   }
   fs.copyFileSync(markdown, path.join(outDir, "markdown.mjs"));
+
+  const wrapping = path.join(JACKAL_ROOT, "templates/text-wrapping.mjs");
+  if (!fs.existsSync(wrapping)) {
+    throw new Error("templates/text-wrapping.mjs missing");
+  }
+  fs.copyFileSync(wrapping, path.join(outDir, "text-wrapping.mjs"));
 }
 
 function postprocessModule(outDir, modulePath) {

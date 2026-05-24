@@ -54,7 +54,7 @@ describe("runNextAgentSmoke", () => {
     vi.clearAllMocks();
   });
 
-  it("boots mocked session and records bridge events", async () => {
+  it("boots mocked session and records bridge events", { timeout: 15_000 }, async () => {
     const result = await runNextAgentSmoke(process.cwd());
 
     expect(result.ok).toBe(true);

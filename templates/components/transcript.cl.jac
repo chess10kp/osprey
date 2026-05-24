@@ -174,6 +174,7 @@ def:pub ChatQueue(props: any) -> JsxElement {
     transcript: list = normalize_transcript(props);
     model: str = str(props.model) if props.model else "";
     compact: bool = bool(props.compact) if props.compact is not None else False;
+    display_epoch: int = int(props.display_epoch) if props.display_epoch is not None else 0;
     rows: list = build_transcript_rows(transcript, model, compact);
 
     if len(rows) == 0 {
@@ -182,7 +183,7 @@ def:pub ChatQueue(props: any) -> JsxElement {
 
     return (
         <Box flexDirection="column">
-            <Static items={rows}>{render_static_row}</Static>
+            <Static key={"transcript-" + str(display_epoch)} items={rows}>{render_static_row}</Static>
         </Box>
     );
 }
@@ -191,12 +192,18 @@ def:pub ChatQueue(props: any) -> JsxElement {
 def:pub ChatHistory(props: any) -> JsxElement {
     model: str = str(props.model) if props.model else "";
     compact: bool = bool(props.compact) if props.compact is not None else False;
+    display_epoch: int = int(props.display_epoch) if props.display_epoch is not None else 0;
     live: any = props.live_component;
     live_tool: any = props.live_tool_component;
 
     return (
-        <Box flexDirection="column" flexGrow={1}>
-            <ChatQueue transcript={normalize_transcript(props)} model={model} compact={compact}/>
+        <Box flexDirection="column" flexGrow={1} minHeight={0}>
+            <ChatQueue
+                transcript={normalize_transcript(props)}
+                model={model}
+                compact={compact}
+                display_epoch={display_epoch}
+            />
             {live_tool and (
                 <Box flexDirection="column">
                     {live_tool}

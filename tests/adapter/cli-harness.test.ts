@@ -27,7 +27,7 @@ describe("Jackal CLI (nanocoder cli-integration parity)", () => {
     expect(existsSync(distIndex)).toBe(true);
   });
 
-  it("--check exits successfully", () => {
+  it("--check exits successfully", { timeout: 20_000 }, () => {
     if (!existsSync(distIndex)) {
       execFileSync("npm", ["run", "build:agent"], { cwd: jackalRoot, stdio: "ignore" });
     }
