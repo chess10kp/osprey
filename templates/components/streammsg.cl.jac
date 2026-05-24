@@ -1,4 +1,4 @@
-"""StreamingMessage — live streaming assistant text with spinner + model header + token counter.
+"""StreamingMessage — live streaming assistant text with spinner + model header.
 Shows tail-truncated plain text during streaming for cheap re-renders.
 Full markdown rendering happens in AssistantMessage when the turn completes."""
 
@@ -16,25 +16,16 @@ def stream_truncate(text: str, max_lines: int) -> str {
 }
 
 
-def stream_estimate_tokens(text: str) -> int {
-    if not text { return 0; }
-    # Rough estimate: ~4 chars per token
-    return int(len(text) / 4);
-}
-
-
 def:pub StreamingMessage(props: any) -> JsxElement {
     streaming_text: str = str(props.streaming_text) if props.streaming_text else "";
     model: str = str(props.model) if props.model else "";
     display: str = stream_truncate(streaming_text, 15);
-    tokens: int = stream_estimate_tokens(streaming_text);
 
     return (
         <Box flexDirection="column">
             <Box marginBottom={1} marginTop={1} flexDirection="row">
                 <Spinner type="dots" />
                 <Text color={INFO} bold>{" " + (model if model else "Thinking")}</Text>
-                <Text>{"  ~" + str(tokens) + " tokens"}</Text>
             </Box>
             <Box
                 flexDirection="column"

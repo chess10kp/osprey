@@ -6,12 +6,6 @@ import from .asstmsg { AssistantMessage }
 import from .toolline { ToolMessage }
 
 
-def estimate_tokens(text: str) -> int {
-    if not text { return 0; }
-    return int(len(text) / 4);
-}
-
-
 def safe_text(msg: any) -> str {
     if not msg { return ""; }
 
@@ -120,7 +114,7 @@ def:pub TranscriptRow(props: any) -> JsxElement {
     kind: str = entry_kind(row);
 
     if kind == "user" {
-        return <UserMessage message={safe_text(row)} tokens={estimate_tokens(safe_text(row))}/>;
+        return <UserMessage message={safe_text(row)}/>;
     }
     if kind == "assistant" {
         return <AssistantMessage message={safe_text(row)} model={model}/>;

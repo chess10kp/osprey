@@ -1,13 +1,11 @@
 """UserMessage — bordered box showing the user's prompt. Ported from nanocoder."""
 
 import from "ink" { Box, Text }
-import from .theme { PRIMARY, SECONDARY, TEXT }
+import from .theme { PRIMARY }
 
 
 def:pub UserMessage(props: any) -> JsxElement {
     message: str = str(props.message) if props.message else "";
-    tokens: int = int(props.tokens) if props.tokens else 0;
-    token_str: str = "~" + str(tokens) if tokens > 0 else "";
 
     return (
         <Box flexDirection="column">
@@ -28,11 +26,6 @@ def:pub UserMessage(props: any) -> JsxElement {
             >
                 <Text>{message}</Text>
             </Box>
-            {token_str and (
-                <Box marginBottom={1}>
-                    <Text color={SECONDARY}>{token_str + " tokens"}</Text>
-                </Box>
-            )}
         </Box>
     );
 }

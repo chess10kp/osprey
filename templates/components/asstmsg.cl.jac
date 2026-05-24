@@ -9,16 +9,9 @@ import from .theme { SECONDARY, INFO, TEXT, PRIMARY, TOOL }
 import from "../markdown.mjs" { parseMarkdownParts }
 
 
-def asst_estimate_tokens(text: str) -> int {
-    if not text { return 0; }
-    return int(len(text) / 4);
-}
-
-
 def:pub AssistantMessage(props: any) -> JsxElement {
     message: str = str(props.message) if props.message else "";
     model: str = str(props.model) if props.model else "";
-    tokens: int = asst_estimate_tokens(message);
     display: str = message.strip() if message else "";
 
     colors: dict = {
@@ -53,9 +46,6 @@ def:pub AssistantMessage(props: any) -> JsxElement {
                     borderLeftColor={SECONDARY}
                 >
                     <Text>{display}</Text>
-                </Box>
-                <Box marginBottom={1}>
-                    <Text color={SECONDARY}>{"~" + str(tokens) + " tokens"}</Text>
                 </Box>
             </Box>
         );
@@ -104,9 +94,6 @@ def:pub AssistantMessage(props: any) -> JsxElement {
                 <Text color={INFO} bold>{(model if model else "Assistant") + ":"}</Text>
             </Box>
             {rendered_parts}
-            <Box marginBottom={1}>
-                <Text color={SECONDARY}>{"~" + str(tokens) + " tokens"}</Text>
-            </Box>
         </Box>
     );
 }
