@@ -36,12 +36,24 @@ EOF
   exit 1
 fi
 
+# Node defaults to ~2GB heap; long Jackal sessions can exceed that.
+jackal_node() {
+  local heap_mb="${JACKAL_HEAP_MB:-4096}"
+  if [[ -z "${NODE_OPTIONS:-}" ]]; then
+    NODE_OPTIONS="--max-old-space-size=${heap_mb}"
+  elif [[ "$NODE_OPTIONS" != *"max-old-space-size"* ]]; then
+    NODE_OPTIONS="${NODE_OPTIONS} --max-old-space-size=${heap_mb}"
+  fi
+  export NODE_OPTIONS
+  exec -a jackal node "$@"
+}
+
 run_smoke_check() {
   export JACKAL_AGENT_CWD="${JACKAL_AGENT_CWD:-$PWD}"
   if [[ ! -f "$JACKAL_DIR/dist/index.js" ]]; then
     (cd "$JACKAL_DIR" && npm run build:agent >/dev/null)
   fi
-  exec -a jackal node "$JACKAL_DIR/dist/index.js" --check "$@"
+  jackal_node "$JACKAL_DIR/dist/index.js" --check "$@"
 }
 
 # Headless smoke/CI — no Ink compile or TUI boot.
@@ -97,7 +109,7 @@ run_headless() {
   if [[ ! -f "$JACKAL_DIR/dist/index.js" ]]; then
     (cd "$JACKAL_DIR" && npm run build:agent >/dev/null)
   fi
-  exec -a jackal node "$JACKAL_DIR/dist/index.js" "$@"
+  jackal_node "$JACKAL_DIR/dist/index.js" "$@"
 }
 
 # Headless single-shot — no Ink compile or TUI boot.
@@ -217,4 +229,9 @@ if [[ ! -d "$TUI_OUT/node_modules/cli-highlight" ]]; then
   (cd "$TUI_OUT" && npm install --ignore-scripts cli-highlight)
 fi
 
-exec -a jackal node "$TUI_OUT/runner.mjs" "$@"
+# Ensure table rendering is available for the markdown renderer.
+if [[ ! -d "$TUI_OUT/node_modules/cli-table3" ]]; then
+  (cd "$TUI_OUT" && npm install --ignore-scripts cli-table3)
+fi
+
+jackal_node "$TUI_OUT/runner.mjs" "$@"
