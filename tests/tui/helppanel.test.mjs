@@ -3,13 +3,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderInk, wrapPositional } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("HelpPanel (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadHelpPanel() {
-    const mod = await import("../fixtures/tui/helppanel/module.mjs");
+    const mod = await loadShellModule();
     return wrapPositional(mod.HelpPanel, [], {});
   }
 

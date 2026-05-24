@@ -4,13 +4,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { asPropsComponent, renderInk, wrapPositional } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("ToolRow (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadToolRow() {
-    const mod = await import("../fixtures/tui/toolline/module.mjs");
+    const mod = await loadShellModule();
     return asPropsComponent(mod.ToolRow);
   }
 
@@ -88,7 +88,7 @@ describe.skipIf(!canRunTui)("ToolTimeline (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadToolTimeline() {
-    const mod = await import("../fixtures/tui/toolline/module.mjs");
+    const mod = await loadShellModule();
     return wrapPositional(mod.ToolTimeline, [
       "tool_name_list",
       "tool_status_list",

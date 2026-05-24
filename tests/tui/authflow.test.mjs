@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderInk, wrapPositional } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 import { jacDict } from "../setup/jac-dict.mjs";
 
 const providers = [
@@ -27,7 +27,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   it("ProviderPicker lists providers with configured marker", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const ProviderPicker = wrapPositional(mod.ProviderPicker, ["providers"], { providers: [] });
     const { frame, unmount } = renderInk(ProviderPicker, { providers });
     const out = frame();
@@ -38,7 +38,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   });
 
   it("BrowserAuthView shows URL and instructions", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const BrowserAuthView = wrapPositional(mod.BrowserAuthView, ["url", "instructions"], {
       url: "",
       instructions: "",
@@ -55,7 +55,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   });
 
   it("AuthPromptView shows message and input cursor", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const AuthPromptView = wrapPositional(
       mod.AuthPromptView,
       ["message", "input_text", "placeholder"],
@@ -73,7 +73,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   });
 
   it("ModelPicker shows filter hint and count", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const ModelPicker = wrapPositional(mod.ModelPicker, ["models", "query"], {
       models: [],
       query: "",
@@ -90,7 +90,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   });
 
   it("ModelPicker filters models by query", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const ModelPicker = wrapPositional(mod.ModelPicker, ["models", "query"], {
       models: [],
       query: "",
@@ -105,7 +105,7 @@ describe.skipIf(!canRunTui)("AuthFlow views (nanocoder parity)", () => {
   });
 
   it("AuthErrorView shows error message", async () => {
-    const mod = await import("../fixtures/tui/authflow/module.mjs");
+    const mod = await loadShellModule();
     const AuthErrorView = wrapPositional(mod.AuthErrorView, ["message"], { message: "" });
     const { frame, unmount } = renderInk(AuthErrorView, {
       message: "Invalid credentials",

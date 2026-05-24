@@ -3,13 +3,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderInk, wrapPositional } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("WelcomeMessage (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadWelcome() {
-    const mod = await import("../fixtures/tui/welcomemsg/module.mjs");
+    const mod = await loadShellModule();
     return wrapPositional(mod.WelcomeMessage, ["version"], { version: "" });
   }
 

@@ -6,13 +6,13 @@ import React from "react";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { asPropsComponent, renderInk } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("ChatQueue (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadChatQueue() {
-    const mod = await import("../fixtures/tui/transcript/module.mjs");
+    const mod = await loadShellModule();
     return asPropsComponent(mod.ChatQueue);
   }
 
@@ -53,7 +53,7 @@ describe.skipIf(!canRunTui)("ChatHistory (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadChatHistory() {
-    const mod = await import("../fixtures/tui/transcript/module.mjs");
+    const mod = await loadShellModule();
     return asPropsComponent(mod.ChatHistory);
   }
 
@@ -95,7 +95,7 @@ describe.skipIf(!canRunTui)("TranscriptRow (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadTranscriptRow() {
-    const mod = await import("../fixtures/tui/transcript/module.mjs");
+    const mod = await loadShellModule();
     return asPropsComponent(mod.TranscriptRow);
   }
 

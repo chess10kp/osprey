@@ -4,13 +4,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderInk, wrapPositional } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth, defaultUserInputProps } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth, defaultUserInputProps } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("CompletionList (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadCompletionList() {
-    const mod = await import("../fixtures/tui/userinput/module.mjs");
+    const mod = await loadShellModule();
     return wrapPositional(mod.CompletionList, ["items", "selected_index"], {
       items: [],
       selected_index: 0,
@@ -55,7 +55,7 @@ describe.skipIf(!canRunTui)("UserInput (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadUserInput() {
-    const mod = await import("../fixtures/tui/userinput/module.mjs");
+    const mod = await loadShellModule();
     return wrapPositional(
       mod.UserInput,
       ["input_text", "placeholder", "completions", "completion_index", "disabled", "on_change", "on_submit"],

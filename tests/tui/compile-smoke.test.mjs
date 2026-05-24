@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { COMPONENTS, SHELL } from "../setup/component-manifest.mjs";
+import { TUI_TEST } from "../setup/component-manifest.mjs";
 import { FIXTURES_ROOT, MANIFEST_PATH, fixtureModule } from "../setup/paths.mjs";
 
 function loadManifest() {
@@ -19,7 +19,7 @@ describe.skipIf(!canRun)("TUI compile smoke", () => {
     expect(fs.existsSync(FIXTURES_ROOT)).toBe(true);
   });
 
-  for (const spec of [...COMPONENTS, SHELL]) {
+  for (const spec of [TUI_TEST]) {
     it(`${spec.file} emits expected symbols`, () => {
       const modulePath = fixtureModule(spec.stem);
       expect(fs.existsSync(modulePath)).toBe(true);

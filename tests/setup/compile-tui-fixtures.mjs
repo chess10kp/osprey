@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Compile Jackal .cl.jac TUI components into tests/fixtures/tui/<stem>/ for render tests.
- * Skips gracefully when jac-ink (`jac tui`) is unavailable — writes manifest with compiled=false.
+ * Compile templates/tui-test.cl.jac into tests/fixtures/tui/shell/ for render tests.
+ * Single compile unit — same graph as production shell (markdown import, inlined components).
+ * Skips gracefully when jac-ink (`jac tui`) is unavailable.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMPONENTS, SHELL } from "./component-manifest.mjs";
+import { TUI_TEST } from "./component-manifest.mjs";
 import {
   FIXTURES_ROOT,
   JACKAL_ROOT,
@@ -35,15 +36,12 @@ function findJacBin() {
   return null;
 }
 
-function ensureMarkdownSupport(outDir, modulePath) {
-  const code = fs.readFileSync(modulePath, "utf8");
-  if (!/\bparseMarkdownParts\b/.test(code)) return;
-
-  const src = path.join(JACKAL_ROOT, "templates/markdown.mjs");
-  if (!fs.existsSync(src)) {
-    throw new Error("templates/markdown.mjs missing — required for AssistantMessage fixtures");
+function copyRuntimeAssets(outDir) {
+  const markdown = path.join(JACKAL_ROOT, "templates/markdown.mjs");
+  if (!fs.existsSync(markdown)) {
+    throw new Error("templates/markdown.mjs missing");
   }
-  fs.copyFileSync(src, path.join(outDir, "markdown.mjs"));
+  fs.copyFileSync(markdown, path.join(outDir, "markdown.mjs"));
 }
 
 function postprocessModule(outDir, modulePath) {
@@ -51,11 +49,12 @@ function postprocessModule(outDir, modulePath) {
   if (fs.existsSync(fixScript)) {
     execFileSync(process.execPath, [fixScript, modulePath], { stdio: "inherit" });
   }
-  ensureMarkdownSupport(outDir, modulePath);
+  copyRuntimeAssets(outDir);
   execFileSync(process.execPath, ["--check", modulePath], { stdio: "pipe" });
 }
 
-function compileOne(jacBin, spec) {
+function compileTestBundle(jacBin) {
+  const spec = TUI_TEST;
   const src = path.join(JACKAL_ROOT, spec.file);
   const out = fixtureDir(spec.stem);
   fs.rmSync(out, { recursive: true, force: true });
@@ -76,13 +75,6 @@ function compileOne(jacBin, spec) {
   const modulePath = path.join(out, "module.mjs");
   if (!fs.existsSync(modulePath)) {
     throw new Error(`missing module.mjs after compiling ${spec.file}`);
-  }
-
-  if (spec.stem === "shell") {
-    const dedupe = path.join(JACKAL_ROOT, "scripts/dedupe-jac-runtime.mjs");
-    if (fs.existsSync(dedupe)) {
-      execFileSync(process.execPath, [dedupe, modulePath], { stdio: "inherit" });
-    }
   }
 
   postprocessModule(out, modulePath);
@@ -143,16 +135,11 @@ export function compileTuiFixtures() {
     return false;
   }
 
-  const compiled = [];
-  for (const spec of COMPONENTS) {
-    console.log(`compiling ${spec.file} …`);
-    compiled.push(compileOne(jacBin, spec));
-  }
-  console.log(`compiling ${SHELL.file} …`);
-  compiled.push(compileOne(jacBin, SHELL));
+  console.log(`compiling ${TUI_TEST.file} …`);
+  const compiled = compileTestBundle(jacBin);
 
-  writeManifest(compiled);
-  console.log(`compiled ${compiled.length} TUI fixture(s) into ${FIXTURES_ROOT}`);
+  writeManifest([compiled]);
+  console.log(`compiled TUI test bundle into ${fixtureDir(TUI_TEST.stem)}`);
   return true;
 }
 

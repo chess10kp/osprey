@@ -4,13 +4,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { asPropsComponent, renderInk } from "../setup/render-helpers.mjs";
-import { canRunTui, useTerminalWidth } from "../setup/tui-suite.mjs";
+import { canRunTui, loadShellModule, useTerminalWidth } from "../setup/tui-suite.mjs";
 
 describe.skipIf(!canRunTui)("AssistantMessage (nanocoder parity)", () => {
   useTerminalWidth(100);
 
   async function loadAssistantMessage() {
-    const mod = await import("../fixtures/tui/asstmsg/module.mjs");
+    const mod = await loadShellModule();
     return asPropsComponent(mod.AssistantMessage);
   }
 
