@@ -371,11 +371,28 @@ def:pub CompletionsList(props: any) -> JsxElement {
     for i in range(len(shown)) {
         f = shown[i];
         is_sel: bool = i == sel_idx;
-        icon: str = "▸ " if is_sel else "  ";
-        label: str = str(getattr(f, "label", str(f)));
-        rows.append(
-            <Text color="cyan" bold={is_sel}>{icon + label}</Text>
-        );
+        icon: str = "\u25b8 " if is_sel else "  ";
+        raw_label: str = str(getattr(f, "label", str(f)));
+        cmd_part: str = raw_label;
+        desc_part: str = "";
+        # label is "command  description" — split on double space
+        dbl: int = raw_label.find("  ");
+        if dbl >= 0 and raw_label.startswith("/") {
+            cmd_part = raw_label[:dbl];
+            desc_part = raw_label[dbl:].strip();
+        }
+        if desc_part {
+            rows.append(
+                <Box>
+                    <Text color="cyan" bold={is_sel}>{icon + cmd_part}</Text>
+                    <Text dimColor>{"  " + desc_part}</Text>
+                </Box>
+            );
+        } else {
+            rows.append(
+                <Text color="cyan" bold={is_sel}>{icon + raw_label}</Text>
+            );
+        }
     }
     return (
         <Box flexDirection="column" paddingX={1}>

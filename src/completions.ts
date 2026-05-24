@@ -12,42 +12,47 @@ export interface Suggestion {
   value: string;
 }
 
-const COMMANDS = [
-  "/help",
-  "/login",
-  "/logout",
-  "/model",
-  "/abort",
-  "/clear",
-  "/new",
-  "/compact",
-  "/usage",
-  "/resume",
-  "/rename",
-  "/export",
-  "/checkpoint",
-  "/tasks",
-  "/mcp",
-  "/osp",
-  "/agents",
-  "/commands",
-  "/init",
-  "/jac-check",
-  "/jac-doctor",
-  "/jac-test",
-  "/jac-format",
-  "/jac explain",
-  "/jac convert-python",
-  "/jac review-idioms",
-  "/jac create",
-  "/fix",
-  "/create",
-  "/explorer",
-  "/context-max",
-  "/jac diagram-to-model",
-  "/refactor",
-  "/exit",
-  "/cancel",
+interface CommandEntry {
+  slash: string;
+  description: string;
+}
+
+const COMMANDS: CommandEntry[] = [
+  { slash: "/help", description: "toggle help panel" },
+  { slash: "/login", description: "start auth flow" },
+  { slash: "/logout", description: "logout provider" },
+  { slash: "/model", description: "open model picker or set" },
+  { slash: "/abort", description: "cancel active run" },
+  { slash: "/clear", description: "new session" },
+  { slash: "/new", description: "new session" },
+  { slash: "/compact", description: "compact context" },
+  { slash: "/usage", description: "context utilization" },
+  { slash: "/resume", description: "load prior session" },
+  { slash: "/rename", description: "rename current session" },
+  { slash: "/export", description: "export session to file" },
+  { slash: "/checkpoint", description: "snapshot files + chat" },
+  { slash: "/tasks", description: "task list" },
+  { slash: "/mcp", description: "MCP connection status" },
+  { slash: "/osp", description: "OSP graph design" },
+  { slash: "/agents", description: "list subagents" },
+  { slash: "/commands", description: "list custom commands" },
+  { slash: "/init", description: "generate AGENTS.md" },
+  { slash: "/jac-check", description: "run jac check" },
+  { slash: "/jac-doctor", description: "environment diagnostics" },
+  { slash: "/jac-test", description: "run jac test" },
+  { slash: "/jac-format", description: "format .jac files" },
+  { slash: "/jac explain", description: "explain file/walker/error/graph" },
+  { slash: "/jac convert-python", description: "convert Python to Jac" },
+  { slash: "/jac review-idioms", description: "review Jac idioms" },
+  { slash: "/jac create", description: "run jac create template" },
+  { slash: "/fix", description: "jac check/fix loop" },
+  { slash: "/create", description: "list jac templates" },
+  { slash: "/explorer", description: "multi-select @file context" },
+  { slash: "/context-max", description: "set/show max context tokens" },
+  { slash: "/jac diagram-to-model", description: "diagram → OSP model" },
+  { slash: "/refactor", description: "refactor code" },
+  { slash: "/exit", description: "quit" },
+  { slash: "/cancel", description: "cancel auth flow" },
 ];
 
 function rank(input: string, value: string): number {
@@ -67,6 +72,15 @@ function sortAndMap(input: string, values: string[]): Suggestion[] {
     .sort((a, b) => b.s - a.s || a.v.localeCompare(b.v))
     .slice(0, 8)
     .map((x) => ({ label: x.v, value: x.v }));
+}
+
+function sortAndMapCommands(input: string, commands: CommandEntry[]): Suggestion[] {
+  return commands
+    .map((c) => ({ c, s: rank(input, c.slash) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => b.s - a.s || a.c.slash.localeCompare(b.c.slash))
+    .slice(0, 8)
+    .map((x) => ({ label: `${x.c.slash}  ${x.c.description}`, value: x.c.slash }));
 }
 
 function getCurrentFileMention(input: string): { mention: string; start: number; end: number } | null {
@@ -176,5 +190,5 @@ export function getSuggestions(input: string, ctx: CompletionContext): Suggestio
     if (customMatches.length > 0) return customMatches;
   }
 
-  return sortAndMap(trimmed, COMMANDS);
+  return sortAndMapCommands(trimmed, COMMANDS);
 }
