@@ -32,7 +32,7 @@ def:pub AssistantMessage(props: any) -> JsxElement {
 
     # Fallback: if parsing returned nothing useful, render plain text
     has_parts: bool = len(parts) > 0;
-    single_empty: bool = len(parts) == 1 and not str(parts[0].get("content", "")).strip();
+    single_empty: bool = len(parts) == 1 and not str(parts[0]["content"]).strip();
 
     if not has_parts or single_empty {
         return (
@@ -61,11 +61,12 @@ def:pub AssistantMessage(props: any) -> JsxElement {
         );
     }
 
-    # Render each markdown part: text in bordered box, code without border
+    # range loop — jac2ink breaks enumerate when bracket keys like "type" appear in body
     rendered_parts: list = [];
-    for (i, p) in enumerate(parts) {
-        ptype: str = str(p.get("type", "text"));
-        pcontent: str = str(p.get("content", ""));
+    for i in range(len(parts)) {
+        part: any = parts[i];
+        ptype: str = str(part["type"]) if "type" in part else "text";
+        pcontent: str = str(part["content"]) if "content" in part else "";
         if not pcontent.strip() { continue; }
 
         if ptype == "code" {

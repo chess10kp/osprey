@@ -77,7 +77,9 @@ def:pub TranscriptRow(props: any) -> JsxElement {
 
 def build_transcript_rows(messages: list, model: str) -> list {
     rows: list = [];
-    for (i, f) in enumerate(messages) {
+    # range loop — jac2ink breaks enumerate when JSX key= references the index
+    for i in range(len(messages)) {
+        f = messages[i];
         rows.append(<TranscriptRow key={"row-" + str(i)} msg={f} model={model}/>);
     }
     return rows;

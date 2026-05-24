@@ -14,7 +14,8 @@ import from "./jac_pi_runtime_shim.mjs" {
     useAuthFlow,
     useJackalUI,
     useCompletions,
-    useExplorerState
+    useExplorerState,
+    useScreenEpoch
 }
 
 def to_str(value: any) -> str {
@@ -494,9 +495,6 @@ def:pub PromptBar(props: any) -> JsxElement {
     prompt_marker: str = props.prompt_marker;
     input_text: str = props.input_text;
     input_cursor: int = props.input_cursor;
-    show_completions: bool = props.show_completions;
-    completions_list: list = props.completions_list;
-    completion_selection: int = props.completion_selection;
 
     cur: int = max(0, min(input_cursor, len(input_text)));
     before: str = input_text[:cur];
@@ -515,7 +513,6 @@ def:pub PromptBar(props: any) -> JsxElement {
                 </Box>
                 {len(input_text) == 0 and <Text color="gray">{" Type a message (Enter=send, Ctrl+J=newline, /help)"}</Text>}
             </Box>
-            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
     );
 }
@@ -532,6 +529,7 @@ def:pub app() -> JsxElement {
     streaming: any = useAgentStream();
     session: any = useJackalSession();
     explorer: any = useExplorerState();
+    screen_epoch: int = int(useScreenEpoch());
 
     has input_text: str = "";
     has input_cursor: int = 0;
@@ -1249,13 +1247,10 @@ def:pub app() -> JsxElement {
         "input_reset_key": input_reset_key,
         "input_text": input_text,
         "input_cursor": input_cursor,
-        "show_completions": show_completions,
-        "completions_list": completions_list,
-        "completion_selection": completion_selection,
     };
 
     return (
-        <Box flexDirection="column" padding={0}>
+        <Box key={"shell-" + str(screen_epoch)} flexDirection="column" padding={0}>
             {pending_approval and <ApprovalBanner pending={pending_approval}/>}
             <Text color="gray">{divider}</Text>
             {show_help and <HelpPanel/>}
@@ -1319,6 +1314,7 @@ def:pub app() -> JsxElement {
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}
                 usage_line={usage_line}
             />
+            {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>
     );
 }

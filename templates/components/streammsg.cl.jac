@@ -11,7 +11,8 @@ def stream_lines(text: str) -> list {
     lines: list = [];
     current: str = "";
     for ch in text {
-        if ch == "\n" {
+        # ord/chr avoids jac2ink emitting literal "\\n" for "\n"
+        if ord(ch) == 10 {
             lines.append(current);
             current = "";
         } else {
@@ -27,7 +28,8 @@ def stream_truncate(text: str, max_lines: int) -> str {
     if not text { return ""; }
     lines: list = stream_lines(text);
     if len(lines) <= max_lines { return text; }
-    return "…" + "\n".join(lines[-max_lines:]);
+    sep: str = chr(10);
+    return "…" + sep.join(lines[-max_lines:]);
 }
 
 

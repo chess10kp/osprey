@@ -207,29 +207,6 @@ function parseMarkdownCore(text, themeColors, width) {
   return { text: result, codeBlocks, inlineCodes };
 }
 
-// ---------------------------------------------------------------------------
-// Jac dict compatibility — compiled .cl.jac code calls `.get()` on dicts
-// ---------------------------------------------------------------------------
-
-function asJacDict(record) {
-  return {
-    get(key, defaultValue = undefined) {
-      if (Object.prototype.hasOwnProperty.call(record, key)) {
-        return record[key];
-      }
-      return defaultValue;
-    },
-  };
-}
-
-function asJacDictParts(parts) {
-  return parts.map(asJacDict);
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /**
  * Parse markdown and return structured parts for Ink rendering.
  * Text parts go inside the bordered box; code parts render without border.
@@ -240,7 +217,7 @@ function asJacDictParts(parts) {
  * @returns {Array<{type: 'text'|'code', content: string}>}
  */
 export function parseMarkdownParts(text, themeColors, width) {
-  if (!text || !text.trim()) return asJacDictParts([{ type: "text", content: "" }]);
+  if (!text || !text.trim()) return [{ type: "text", content: "" }];
 
   try {
     const { text: processed, codeBlocks, inlineCodes } = parseMarkdownCore(
@@ -272,9 +249,9 @@ export function parseMarkdownParts(text, themeColors, width) {
       }
     }
 
-    return asJacDictParts(parts);
+    return parts;
   } catch {
-    return asJacDictParts([{ type: "text", content: text }]);
+    return [{ type: "text", content: text }];
   }
 }
 

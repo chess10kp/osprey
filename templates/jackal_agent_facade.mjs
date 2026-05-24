@@ -126,7 +126,18 @@ const state = {
   adapter: null,
   listeners: new Set(),
   initPromise: null,
+  screenEpoch: 0,
 };
+
+async function forceInkRedraw() {
+  const ink = globalThis.__JACKAL_INK;
+  const root = globalThis.__JACKAL_INK_ROOT;
+  if (!ink?.rerender || !root) return;
+  ink.rerender(root);
+  if (typeof ink.waitUntilRenderFlush === "function") {
+    await ink.waitUntilRenderFlush();
+  }
+}
 
 function emit() {
   for (const fn of state.listeners) {
@@ -253,7 +264,12 @@ function useJackalSession() {
       abort: () => a.actions.abort(),
       resolveDialog: (id, value) => a.actions.resolveDialog(id, value),
       setModel: (provider, modelId) => a.actions.setModel(provider, modelId),
-      clearSession: () => a.actions.clearSession(),
+      clearSession: async () => {
+        await a.actions.clearSession();
+        state.screenEpoch += 1;
+        emit();
+        await forceInkRedraw();
+      },
       compactSession: (opts) => a.actions.compactSession(opts),
       listSessions: (all) => a.actions.listSessions(all),
       resumeSession: (target) => a.actions.resumeSession(target),
@@ -403,6 +419,11 @@ function useExplorerState() {
   };
 }
 
+function useScreenEpoch() {
+  useTick();
+  return state.screenEpoch;
+}
+
 function useCompletions(input) {
   useTick();
   const [list, setList] = useState([]);
@@ -454,4 +475,5 @@ export {
   useJackalUI,
   useCompletions,
   useExplorerState,
+  useScreenEpoch,
 };
