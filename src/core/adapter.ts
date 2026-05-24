@@ -311,7 +311,16 @@ export async function createNextAgent(
   const models = new JackalModels(auth);
   const authActions = new AuthActions(auth, models, authFlow);
 
-  const sessionManager = JackalSessionManager.continueRecent(cwd, options?.sessionDir);
+  const { manager: sessionManager, prunedSessionIds } = JackalSessionManager.continueRecent(
+    cwd,
+    options?.sessionDir,
+  );
+  if (prunedSessionIds.length > 0) {
+    uiContext.notify(
+      `Pruned ${String(prunedSessionIds.length)} old session(s) per retention policy.`,
+      "info",
+    );
+  }
   const initialMode = resolveBootMode(cwd, options?.mode);
   const contextMaxOverride = resolveContextMax(cwd, options);
   store.setMode(initialMode);
@@ -401,16 +410,22 @@ export async function createNextAgent(
         uiContext.notify("Chat cleared.", "success");
       },
       compactSession: async (compactOptions?: CompactContextOptions) => {
-        const result = session.compactContext(compactOptions ?? {});
+        const result = await session.compactContext(compactOptions ?? {});
         if (result.preview && result.summaryPreview) {
+          const via =
+            result.strategy === "llm" ? " (LLM preview)" : " (mechanical preview)";
           uiContext.notify(
-            `Preview: ${result.dropped} message(s) would drop (${result.messageCountBefore} → ${result.messageCountAfter}).`,
+            `Preview: ${result.dropped} message(s) would drop (${result.messageCountBefore} → ${result.messageCountAfter})${via}.`,
             "info",
           );
         } else if (result.restored) {
           uiContext.notify("Restored pre-compaction backup.", "success");
         } else if (result.compacted) {
-          uiContext.notify(`Compacted ${result.dropped} older message(s).`, "success");
+          const via = result.strategy === "llm" ? " via LLM summary" : " (mechanical)";
+          uiContext.notify(
+            `Compacted ${result.dropped} older message(s)${via}.`,
+            "success",
+          );
         }
         return result;
       },

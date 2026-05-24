@@ -3,6 +3,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ContextUsage } from "../workflow/context-usage.js";
 
+export type CompactStrategy = "llm" | "mechanical";
+
 export interface AutoCompactConfig {
   enabled: boolean;
   /** Trigger compaction when context usage exceeds this percent (default 80). */
@@ -11,6 +13,8 @@ export interface AutoCompactConfig {
   keepTail: number;
   /** Notify the user when auto-compact runs. */
   notify: boolean;
+  /** `llm` uses the active model with mechanical fallback; `mechanical` is local only. */
+  strategy: CompactStrategy;
 }
 
 export const DEFAULT_AUTO_COMPACT: AutoCompactConfig = {
@@ -18,10 +22,13 @@ export const DEFAULT_AUTO_COMPACT: AutoCompactConfig = {
   thresholdPercent: 80,
   keepTail: 12,
   notify: true,
+  strategy: "llm",
 };
 
 export function resolveAutoCompactConfig(raw: {
   autoCompact?: boolean | Partial<AutoCompactConfig>;
+  /** Top-level override for compaction strategy (`.jackal` JSON). */
+  compactStrategy?: CompactStrategy;
 }): AutoCompactConfig {
   if (raw.autoCompact === false) {
     return { ...DEFAULT_AUTO_COMPACT, enabled: false };
@@ -29,13 +36,14 @@ export function resolveAutoCompactConfig(raw: {
   if (raw.autoCompact === true) {
     return { ...DEFAULT_AUTO_COMPACT, enabled: true };
   }
-  if (raw.autoCompact && typeof raw.autoCompact === "object") {
-    return {
-      ...DEFAULT_AUTO_COMPACT,
-      ...raw.autoCompact,
-    };
+  const merged =
+    raw.autoCompact && typeof raw.autoCompact === "object"
+      ? { ...DEFAULT_AUTO_COMPACT, ...raw.autoCompact }
+      : { ...DEFAULT_AUTO_COMPACT };
+  if (raw.compactStrategy === "llm" || raw.compactStrategy === "mechanical") {
+    merged.strategy = raw.compactStrategy;
   }
-  return { ...DEFAULT_AUTO_COMPACT };
+  return merged;
 }
 
 export interface AutoCompactResult {

@@ -613,7 +613,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/abort         cancel active run"}</Text>
                 <Text color="white">{"/clear,/new    new session"}</Text>
                 <Text color="white">{"Ctrl+J / Shift+Enter  insert newline"}</Text>
-                <Text color="white">{"/compact       compact context (--preview, --restore)"}</Text>
+                <Text color="white">{"/compact       compact (--preview, --restore, --llm, --mechanical)"}</Text>
                 <Text color="white">{"/usage         toggle context usage panel"}</Text>
                 <Text color="white">{"/context-max   set/show max context tokens"}</Text>
                 <Text color="white">{"/resume [--all]  pick prior session (Enter to load)"}</Text>
@@ -808,6 +808,8 @@ def:pub app() -> JsxElement {
                 opts: dict = {};
                 if "--preview" in cmd { opts["preview"] = True; }
                 if "--restore" in cmd { opts["restore"] = True; }
+                if "--llm" in cmd { opts["useLlm"] = True; }
+                if "--mechanical" in cmd { opts["mechanical"] = True; }
                 session.compactSession(opts);
             }
             return;

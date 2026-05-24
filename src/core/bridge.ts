@@ -232,8 +232,9 @@ export function bridgeEvents(
 
       case "auto_compact": {
         const percentBefore = typeof event.percentBefore === "number" ? event.percentBefore : "?";
+        const via = event.strategy === "llm" ? " (LLM summary)" : "";
         store.pushUserMessage(
-          `[auto-compact] Compacted ${String(event.dropped ?? 0)} message(s) — context was at ${String(percentBefore)}%.`,
+          `[auto-compact] Compacted ${String(event.dropped ?? 0)} message(s)${via} — context was at ${String(percentBefore)}%.`,
         );
         break;
       }

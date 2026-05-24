@@ -13,7 +13,9 @@ import {
   buildMechanicalSummary,
   resolveAutoCompactConfig,
   type AutoCompactConfig,
+  type CompactStrategy,
 } from "./auto-compact.js";
+import { summarizeForCompaction } from "./llm-compact.js";
 import type { SessionRecord } from "./session-index.js";
 import {
   formatDiagnostics,
@@ -65,6 +67,10 @@ export interface CompactContextOptions {
   preview?: boolean;
   restore?: boolean;
   keepTail?: number;
+  /** Force LLM summarization (falls back to mechanical on failure). */
+  useLlm?: boolean;
+  /** Force mechanical compaction only. */
+  mechanical?: boolean;
 }
 
 export interface CompactContextResult {
@@ -75,6 +81,7 @@ export interface CompactContextResult {
   summaryPreview?: string;
   messageCountBefore?: number;
   messageCountAfter?: number;
+  strategy?: CompactStrategy;
 }
 
 export class JackalAgentSession {
@@ -305,12 +312,15 @@ export class JackalAgentSession {
   }
 
   /** Check if auto-compact should trigger and run it if needed. */
-  private _maybeAutoCompact(): void {
+  private async _maybeAutoCompact(): Promise<void> {
     const usage = this.getContextUsage();
     if (!shouldAutoCompact(usage, this._autoCompactConfig)) return;
 
-    const result = this.compactContext({
+    const result = await this.compactContext({
       keepTail: this._autoCompactConfig.keepTail,
+      ...(this._autoCompactConfig.strategy === "mechanical"
+        ? { mechanical: true }
+        : { useLlm: true }),
     });
 
     if (result.compacted && this._autoCompactConfig.notify) {
@@ -320,6 +330,7 @@ export class JackalAgentSession {
         messageCountBefore: result.messageCountBefore,
         messageCountAfter: result.messageCountAfter,
         percentBefore: usage.percent,
+        strategy: result.strategy,
       });
     }
   }
@@ -489,7 +500,7 @@ export class JackalAgentSession {
     await this._agent.prompt(outgoing);
 
     // Auto-compact check after each successful turn
-    this._maybeAutoCompact();
+    await this._maybeAutoCompact();
 
     return "sent";
   }
@@ -708,7 +719,7 @@ export class JackalAgentSession {
     });
   }
 
-  compactContext(options: CompactContextOptions = {}): CompactContextResult {
+  async compactContext(options: CompactContextOptions = {}): Promise<CompactContextResult> {
     if (options.restore) {
       const backup = this._sessionManager.loadCompactionBackup();
       if (!backup) {
@@ -727,7 +738,7 @@ export class JackalAgentSession {
     }
 
     const all = this._agent.state.messages;
-    const keepTail = options.keepTail ?? 12;
+    const keepTail = options.keepTail ?? this._autoCompactConfig.keepTail;
     if (all.length <= keepTail) {
       return {
         compacted: false,
@@ -740,7 +751,30 @@ export class JackalAgentSession {
     const dropped = all.slice(0, all.length - keepTail);
     const kept = all.slice(all.length - keepTail);
 
-    const summaryText = buildMechanicalSummary(dropped);
+    let wantLlm: boolean;
+    if (options.mechanical) {
+      wantLlm = false;
+    } else if (options.useLlm) {
+      wantLlm = true;
+    } else {
+      wantLlm = this._autoCompactConfig.strategy === "llm";
+    }
+    let strategy: CompactStrategy = "mechanical";
+    let summaryText = buildMechanicalSummary(dropped);
+
+    if (wantLlm) {
+      const llmSummary = await summarizeForCompaction(
+        dropped,
+        this._agent.state.model,
+        (provider) => Promise.resolve(this._auth.getApiKey(provider) ?? undefined),
+        this._agent.signal,
+      );
+      if (llmSummary) {
+        summaryText = llmSummary;
+        strategy = "llm";
+      }
+    }
+
     const summary: AgentMessage = {
       role: "user",
       content: summaryText,
@@ -755,6 +789,7 @@ export class JackalAgentSession {
         summaryPreview: summaryText,
         messageCountBefore: all.length,
         messageCountAfter: kept.length + 1,
+        strategy,
       };
     }
 
@@ -770,6 +805,7 @@ export class JackalAgentSession {
       dropped: dropped.length,
       messageCountBefore: all.length,
       messageCountAfter: kept.length + 1,
+      strategy,
     };
   }
 

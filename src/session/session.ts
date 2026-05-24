@@ -64,11 +64,23 @@ export class JackalSessionManager {
     this._saveIntervalMs = Math.max(1000, options?.saveIntervalMs ?? DEFAULT_SAVE_INTERVAL_MS);
   }
 
+  /** Prune old sessions per `.jackal` `sessions.maxCount` / `retentionDays`. */
+  static pruneConfigured(cwd: string, sessionDir?: string): string[] {
+    const dir = sessionDir ?? join(cwd, ".jackal", "sessions");
+    if (!existsSync(dir)) return [];
+    const cfg = loadProjectConfig(cwd);
+    if (!cfg.sessions?.maxCount && !cfg.sessions?.retentionDays) return [];
+    return pruneSessions(dir, {
+      maxCount: cfg.sessions.maxCount,
+      retentionDays: cfg.sessions.retentionDays,
+    });
+  }
+
   static continueRecent(
     cwd: string,
     sessionDir?: string,
     options?: JackalSessionOptions,
-  ): JackalSessionManager {
+  ): { manager: JackalSessionManager; prunedSessionIds: string[] } {
     const dir = sessionDir ?? join(cwd, ".jackal", "sessions");
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -76,14 +88,8 @@ export class JackalSessionManager {
 
     migrateLegacyLatest(dir, cwd);
 
-    // Prune old sessions based on config
+    const prunedSessionIds = JackalSessionManager.pruneConfigured(cwd, dir);
     const cfg = loadProjectConfig(cwd);
-    if (cfg.sessions?.maxCount || cfg.sessions?.retentionDays) {
-      pruneSessions(dir, {
-        maxCount: cfg.sessions.maxCount,
-        retentionDays: cfg.sessions.retentionDays,
-      });
-    }
 
     const sessionOpts: JackalSessionOptions = {
       autoSave: cfg.sessions?.autoSave ?? options?.autoSave ?? true,
@@ -94,7 +100,10 @@ export class JackalSessionManager {
     if (last) {
       const loaded = loadSessionById(dir, last.id);
       if (loaded) {
-        return JackalSessionManager.fromRecord(cwd, dir, loaded, sessionOpts);
+        return {
+          manager: JackalSessionManager.fromRecord(cwd, dir, loaded, sessionOpts),
+          prunedSessionIds,
+        };
       }
     }
 
@@ -108,7 +117,7 @@ export class JackalSessionManager {
       sessionOpts,
     );
     mgr._startAutoSave();
-    return mgr;
+    return { manager: mgr, prunedSessionIds };
   }
 
   static loadById(

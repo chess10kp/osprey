@@ -100,7 +100,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 |------|---------|--------|
 | `agent` | Delegate to subagent (scout, architect, implementer) | Done |
 | `mermaid` | Render Mermaid diagram as ASCII | Done |
-| `compact_context` | Context compaction (stub) | Partial |
+| `compact_context` | Context compaction (LLM + mechanical) | Done |
 
 ### MCP tools
 Any tools exposed by `jac mcp` are auto-discovered and available (validate_jac, search_docs, get_ast, etc.)

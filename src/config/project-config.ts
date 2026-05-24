@@ -42,7 +42,11 @@ export interface JackalProjectConfig {
     keepTail?: number;
     /** Notify the user when auto-compact runs (default true). */
     notify?: boolean;
+    /** `llm` (default) or `mechanical` compaction strategy. */
+    strategy?: "llm" | "mechanical";
   };
+  /** Session-wide default compaction strategy for `/compact` and auto-compact. */
+  compactStrategy?: "llm" | "mechanical";
 }
 
 /** Resolve boot mode from `.jackal` (`mode` key, legacy `plan: true`). */

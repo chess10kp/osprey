@@ -83,7 +83,12 @@ export {
   buildLlmSummaryPrompt,
   resolveAutoCompactConfig,
 } from "./session/auto-compact.js";
-export type { AutoCompactConfig, AutoCompactResult } from "./session/auto-compact.js";
+export type {
+  AutoCompactConfig,
+  AutoCompactResult,
+  CompactStrategy,
+} from "./session/auto-compact.js";
+export { summarizeForCompaction, wrapCompactionSummary } from "./session/llm-compact.js";
 
 // Session retention
 export { pruneSessions } from "./session/session-index.js";
