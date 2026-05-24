@@ -22,7 +22,6 @@ describe.skipIf(!canRunTui)("StreamingMessage (nanocoder parity)", () => {
     const out = frame();
     expect(out).toMatch(/test-model/);
     expect(out).toMatch(/Hello world/);
-    expect(out).toMatch(/~\d+ tokens/);
     unmount();
   });
 

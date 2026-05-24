@@ -81,16 +81,6 @@ describe.skipIf(!canRunTui)("AssistantMessage (nanocoder parity)", () => {
     unmount();
   });
 
-  it("displays approximate token count", async () => {
-    const AssistantMessage = await loadAssistantMessage();
-    const { frame, unmount } = renderInk(AssistantMessage, {
-      message: "Hello world",
-      model: "test-model",
-    });
-    expect(frame()).toMatch(/~\d+ tokens/);
-    unmount();
-  });
-
   it("strips leading newlines from message body", async () => {
     const AssistantMessage = await loadAssistantMessage();
     const { frame, unmount } = renderInk(AssistantMessage, {

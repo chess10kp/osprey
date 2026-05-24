@@ -16,7 +16,7 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
 
   it("renders with basic message", async () => {
     const UserMessage = await loadUserMessage();
-    const { frame, unmount } = renderInk(UserMessage, { message: "Hello world", tokens: 0 });
+    const { frame, unmount } = renderInk(UserMessage, { message: "Hello world" });
     const out = frame();
     expect(out).toMatch(/You:/);
     expect(out).toMatch(/Hello world/);
@@ -27,7 +27,6 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
     const UserMessage = await loadUserMessage();
     const { frame, unmount } = renderInk(UserMessage, {
       message: "This is a normal message",
-      tokens: 0,
     });
     expect(frame()).toMatch(/This is a normal message/);
     unmount();
@@ -37,7 +36,6 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
     const UserMessage = await loadUserMessage();
     const { frame, unmount } = renderInk(UserMessage, {
       message: "Line 1\nLine 2\nLine 3",
-      tokens: 0,
     });
     const out = frame();
     expect(out).toMatch(/Line 1/);
@@ -48,7 +46,7 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
 
   it("renders with empty message", async () => {
     const UserMessage = await loadUserMessage();
-    const { frame, unmount } = renderInk(UserMessage, { message: "", tokens: 0 });
+    const { frame, unmount } = renderInk(UserMessage, { message: "" });
     expect(frame()).toMatch(/You:/);
     unmount();
   });
@@ -57,7 +55,6 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
     const UserMessage = await loadUserMessage();
     const { frame, unmount } = renderInk(UserMessage, {
       message: "Email me at user@example.com",
-      tokens: 0,
     });
     expect(frame()).toMatch(/user@example\.com/);
     unmount();
@@ -67,7 +64,6 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
     const UserMessage = await loadUserMessage();
     const { frame, unmount } = renderInk(UserMessage, {
       message: "First paragraph\n\nSecond paragraph\n\nThird paragraph",
-      tokens: 0,
     });
     const out = frame();
     expect(out).toMatch(/First paragraph/);
@@ -78,22 +74,8 @@ describe.skipIf(!canRunTui)("UserMessage (nanocoder parity)", () => {
 
   it("renders without crashing", async () => {
     const UserMessage = await loadUserMessage();
-    const { frame, unmount } = renderInk(UserMessage, { message: "Test", tokens: 0 });
+    const { frame, unmount } = renderInk(UserMessage, { message: "Test" });
     expect(frame().length).toBeGreaterThan(0);
-    unmount();
-  });
-
-  it("displays approximate token count when tokens provided", async () => {
-    const UserMessage = await loadUserMessage();
-    const { frame, unmount } = renderInk(UserMessage, { message: "Hello world", tokens: 3 });
-    expect(frame()).toMatch(/~3 tokens/);
-    unmount();
-  });
-
-  it("hides token footer when tokens is zero", async () => {
-    const UserMessage = await loadUserMessage();
-    const { frame, unmount } = renderInk(UserMessage, { message: "Hello", tokens: 0 });
-    expect(frame()).not.toMatch(/tokens/);
     unmount();
   });
 });
