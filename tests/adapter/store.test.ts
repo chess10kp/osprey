@@ -77,6 +77,28 @@ describe("AgentStore memory bounds", () => {
     ).toHaveLength(MAX_TOOL_EXECUTIONS);
   });
 
+  it("preserves tool input when end event omits it", () => {
+    const store = new AgentStore();
+
+    store.upsertToolExecution({
+      toolCallId: "r1",
+      toolName: "read",
+      status: "running",
+      input: { path: "foo.jac" },
+    });
+    store.upsertToolExecution({
+      toolCallId: "r1",
+      toolName: "read",
+      status: "done",
+      result: "walker init;",
+    });
+
+    expect(store.getSnapshot().toolExecutions.r1).toMatchObject({
+      input: { path: "foo.jac" },
+      result: "walker init;",
+    });
+  });
+
   it("pruneToolExecutions drops old transcript tool rows", () => {
     const store = new AgentStore();
 

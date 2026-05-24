@@ -24,6 +24,8 @@ export interface ToolExecution {
   toolName: string;
   status: "running" | "done" | "error";
   input?: Record<string, unknown>;
+  /** Precomputed one-line label for compact tool rows in the TUI. */
+  summary?: string;
   result?: string;
   durationMs?: number;
 }
@@ -34,6 +36,7 @@ export interface ToolTranscriptEntry {
   toolName: string;
   status: "running" | "done" | "error";
   input?: Record<string, unknown>;
+  summary?: string;
   result?: string;
   durationMs?: number;
 }
@@ -218,9 +221,18 @@ export class AgentStore {
 
   /** Upsert a tool execution and mirror it into the ordered transcript. */
   upsertToolExecution(exec: ToolExecution): void {
+    const existing = this._snapshot.toolExecutions[exec.toolCallId];
     const trimmed: ToolExecution = {
+      ...existing,
       ...exec,
-      result: exec.result != null ? truncateToolOutput(exec.result) : undefined,
+      input: exec.input ?? existing?.input,
+      summary: exec.summary ?? existing?.summary,
+      result:
+        exec.result !== undefined
+          ? exec.result != null
+            ? truncateToolOutput(exec.result)
+            : undefined
+          : existing?.result,
     };
     let toolExecutions = {
       ...this._snapshot.toolExecutions,
@@ -235,6 +247,7 @@ export class AgentStore {
       toolName: trimmed.toolName,
       status: trimmed.status,
       input: trimmed.input,
+      summary: trimmed.summary,
       result: trimmed.result,
       durationMs: trimmed.durationMs,
     };

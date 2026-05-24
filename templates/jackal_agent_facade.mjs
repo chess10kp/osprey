@@ -233,7 +233,6 @@ const state = {
   adapter: null,
   listeners: new Set(),
   initPromise: null,
-  screenEpoch: 0,
 };
 
 function resetInkTerminal() {
@@ -406,10 +405,15 @@ function useJackalSession() {
       resolveDialog: (id, value) => a.actions.resolveDialog(id, value),
       setModel: (provider, modelId) => a.actions.setModel(provider, modelId),
       clearSession: async () => {
-        await a.actions.clearSession();
-        state.screenEpoch += 1;
-        emit();
-        await forceInkRedraw({ clearTerminal: true });
+        try {
+          // Clear terminal before store shrink — avoids Static unmount yoga crash.
+          resetInkTerminal();
+          await a.actions.clearSession();
+          emit();
+          await forceInkRedraw();
+        } catch (err) {
+          jackalNotify(err?.message || String(err), "error");
+        }
       },
       clearScreen: async () => {
         emit();
@@ -734,11 +738,6 @@ function useCheckpointOverlayState() {
   };
 }
 
-function useScreenEpoch() {
-  useTick();
-  return state.screenEpoch;
-}
-
 function useCompletions(input, cursorPosition) {
   useTick();
   const [list, setList] = useState([]);
@@ -798,5 +797,4 @@ export {
   useExplorerState,
   useTasksOverlayState,
   useCheckpointOverlayState,
-  useScreenEpoch,
 };

@@ -8,6 +8,11 @@
 import type { AgentStore, AgentMessage as StoreMessage } from "./store.js";
 import type { DevMode } from "../agent/dev-mode.js";
 import { truncateToolPayload } from "../agent/tool-output-limit.js";
+import {
+  enrichToolInputFromResult,
+  formatToolSummary,
+  toolEventInput,
+} from "./tool-summary.js";
 
 function toolResultDisplayText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -174,11 +179,14 @@ export function bridgeEvents(
         }
         const toolCallId = String(event.toolCallId ?? "");
         startedAt.set(toolCallId, Date.now());
+        const toolName = String(event.toolName ?? "unknown");
+        const input = toolEventInput(event);
         store.upsertToolExecution({
           toolCallId,
-          toolName: String(event.toolName ?? "unknown"),
+          toolName,
           status: "running",
-          input: event.input as Record<string, unknown> | undefined,
+          input,
+          summary: formatToolSummary(toolName, input),
         });
         break;
       }
@@ -188,11 +196,19 @@ export function bridgeEvents(
         const start = startedAt.get(toolCallId);
         const durationMs = typeof start === "number" ? Date.now() - start : undefined;
         startedAt.delete(toolCallId);
+        const toolName = String(event.toolName ?? "unknown");
+        const existing = store.getSnapshot().toolExecutions[toolCallId];
+        const input = enrichToolInputFromResult(
+          toolName,
+          toolEventInput(event) ?? existing?.input,
+          event.result,
+        );
         store.upsertToolExecution({
           toolCallId,
-          toolName: String(event.toolName ?? "unknown"),
+          toolName,
           status: toolResultStatus(event.result, event.isError),
-          input: event.input as Record<string, unknown> | undefined,
+          input,
+          summary: formatToolSummary(toolName, input),
           result: formatToolPayload(event.result),
           durationMs,
         });

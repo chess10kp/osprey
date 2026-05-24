@@ -94,9 +94,65 @@ describe("bridgeEvents", () => {
       toolCallId: "t1",
       status: "done",
       result: "ok",
+      input: { path: "foo.jac" },
     });
     const toolEntry = snap.transcript.at(-1);
     expect(toolEntry?.kind === "tool" && toolEntry.durationMs).toBeTypeOf("number");
+
+    unsub();
+  });
+
+  it("maps pi-agent args to input and preserves them on tool end", () => {
+    const store = new AgentStore();
+    const session = createMockSession();
+    const unsub = bridgeEvents(session, store);
+
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "w1",
+      toolName: "write",
+      args: { path: "src/foo.jac", content: "walker init;" },
+    });
+    session.emit({
+      type: "tool_execution_end",
+      toolCallId: "w1",
+      toolName: "write",
+      result: "Wrote src/foo.jac",
+    });
+
+    expect(store.getSnapshot().toolExecutions.w1).toMatchObject({
+      status: "done",
+      input: { path: "src/foo.jac", content: "walker init;" },
+      summary: "Wrote → src/foo.jac",
+      result: "Wrote src/foo.jac",
+    });
+
+    unsub();
+  });
+
+  it("parses stringified JSON args and sets summary", () => {
+    const store = new AgentStore();
+    const session = createMockSession();
+    const unsub = bridgeEvents(session, store);
+
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "r1",
+      toolName: "read",
+      args: '{"path":"templates/shell.cl.jac"}',
+    });
+    session.emit({
+      type: "tool_execution_end",
+      toolCallId: "r1",
+      toolName: "read",
+      result: "walker init;",
+    });
+
+    expect(store.getSnapshot().toolExecutions.r1).toMatchObject({
+      status: "done",
+      input: { path: "templates/shell.cl.jac" },
+      summary: "Read @ templates/shell.cl.jac",
+    });
 
     unsub();
   });

@@ -91,7 +91,7 @@ if (/\bTextInput\b/.test(code)) {
   if (!merged.has("@inkjs/ui")) merged.set("@inkjs/ui", new Set());
   merged.get("@inkjs/ui").add("TextInput");
 }
-for (const sym of ["Box", "Text", "useInput"]) {
+for (const sym of ["Box", "Text", "useInput", "usePaste"]) {
   if (new RegExp(`\\b${sym}\\b`).test(code)) {
     if (!merged.has("ink")) merged.set("ink", new Set());
     merged.get("ink").add(sym);

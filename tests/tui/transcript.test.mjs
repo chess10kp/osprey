@@ -185,6 +185,7 @@ describe.skipIf(!canRunTui)("TranscriptRow (nanocoder parity)", () => {
     const out = frame();
     expect(out).toMatch(/read/);
     expect(out).toMatch(/✓/);
+    expect(out).toMatch(/@ foo\.jac/);
     expect(out).toMatch(/file contents/);
     expect(out).toMatch(/42ms/);
     unmount();
@@ -205,6 +206,7 @@ describe.skipIf(!canRunTui)("TranscriptRow (nanocoder parity)", () => {
     const out = frame();
     expect(out).toMatch(/bash/);
     expect(out).toMatch(/⏵/);
+    expect(out).toMatch(/\$ ls/);
     unmount();
   });
 });

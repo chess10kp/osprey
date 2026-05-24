@@ -99,6 +99,7 @@ def:pub LiveToolRow(props: any) -> JsxElement {
             tool_name={tool_name}
             status={status}
             input={entry_field(row, "input")}
+            summary={entry_field(row, "summary")}
             result={entry_field(row, "result")}
             duration_ms={entry_field(row, "durationMs")}
             compact={compact}
@@ -127,6 +128,7 @@ def:pub TranscriptRow(props: any) -> JsxElement {
                 tool_name={tool_name}
                 status={status}
                 input={entry_field(row, "input")}
+                summary={entry_field(row, "summary")}
                 result={entry_field(row, "result")}
                 duration_ms={entry_field(row, "durationMs")}
                 compact={compact}
@@ -177,10 +179,7 @@ def:pub ChatQueue(props: any) -> JsxElement {
     display_epoch: int = int(props.display_epoch) if props.display_epoch is not None else 0;
     rows: list = build_transcript_rows(transcript, model, compact);
 
-    if len(rows) == 0 {
-        return <Box flexDirection="column"></Box>;
-    }
-
+    # Always mount Static — unmounting it on empty transcript crashes yoga on /new.
     return (
         <Box flexDirection="column">
             <Static key={"transcript-" + str(display_epoch)} items={rows}>{render_static_row}</Static>

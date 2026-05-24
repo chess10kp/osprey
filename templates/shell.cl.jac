@@ -1,7 +1,7 @@
 """Jackal Shell - Ink shell wired to the headless Jackal adapter via @jac/pi hooks.
 Ported visual design from nanocoder."""
 
-import from "ink" { Box, Text, useInput }
+import from "ink" { Box, Text, useInput, usePaste }
 import from "./components/transcript.cl.jac" { ChatHistory, LiveToolRow }
 import from "./components/streammsg.cl.jac" { StreamingMessage }
 import from "./jac_pi_runtime_shim.mjs" {
@@ -18,8 +18,7 @@ import from "./jac_pi_runtime_shim.mjs" {
     useCompletions,
     useExplorerState,
     useTasksOverlayState,
-    useCheckpointOverlayState,
-    useScreenEpoch
+    useCheckpointOverlayState
 }
 
 def to_str(value: any) -> str {
@@ -431,11 +430,13 @@ def session_entry_updated(sess: any) -> str {
     elif hasattr(sess, "get") { raw = to_str(sess.get("updatedAt", "")); }
     if len(raw) >= 10 { return raw[:10]; }
     return raw;
+}
 
 def session_entry_cwd(sess: any) -> str {
     if hasattr(sess, "cwd") { return to_str(sess.cwd); }
     if hasattr(sess, "get") { return to_str(sess.get("cwd", "")); }
     return "";
+}
 
 def format_resume_row(sess: any, index: int, selected: bool) -> str {
     sid: str = session_entry_id(sess);
@@ -445,6 +446,7 @@ def format_resume_row(sess: any, index: int, selected: bool) -> str {
     when: str = session_entry_updated(sess);
     icon: str = "▸ " if selected else "  ";
     return icon + "[" + str(index + 1) + "] " + name + " (" + str(count) + " msgs, " + when + ", " + short_id + ")";
+}
 
 def:pub ResumePickerOverlay(props: any) -> JsxElement {
     active: bool = bool(props.active);
@@ -878,7 +880,6 @@ def:pub app() -> JsxElement {
     explorer: any = useExplorerState();
     tasks_overlay: any = useTasksOverlayState();
     checkpoint_overlay: any = useCheckpointOverlayState();
-    screen_epoch: int = int(useScreenEpoch());
 
     has input_text: str = "";
     has input_cursor: int = 0;
@@ -940,6 +941,7 @@ def:pub app() -> JsxElement {
         resume_picker_active = False;
         resume_picker_items = [];
         resume_picker_index = 0;
+    }
 
     def open_resume_picker(show_all: bool) -> None {
         if not session or not hasattr(session, "listSessions") {
@@ -962,6 +964,7 @@ def:pub app() -> JsxElement {
                 session.notify("No prior sessions found.", "info");
             }
         }
+    }
 
     def confirm_resume_picker() -> None {
         if not resume_picker_active or len(resume_picker_items) == 0 {
@@ -975,6 +978,7 @@ def:pub app() -> JsxElement {
         if session and sid and hasattr(session, "resumeSession") {
             session.resumeSession(sid);
         }
+    }
 
     def submit_main(text: str) -> None {
         cmd: str = text.strip();
@@ -1355,6 +1359,41 @@ def:pub app() -> JsxElement {
             session.rejectTool();
         }
         approval_menu_index = 0;
+    }
+
+    def insert_input_at_cursor(text: str) -> None {
+        if not text {
+            return;
+        }
+        normalized: str = text.replace("\r\n", "\n").replace("\r", "\n");
+        input_text = input_text[:input_cursor] + normalized + input_text[input_cursor:];
+        input_cursor = input_cursor + len(normalized);
+        selected_completion_index = 0;
+    }
+
+    usePaste(
+        lambda (text: str) -> None {
+            if pending_approval {
+                return;
+            }
+            cp_paste: bool = checkpoint_overlay and bool(getattr(checkpoint_overlay, "active", False));
+            if cp_paste {
+                return;
+            }
+            tasks_paste: bool = tasks_overlay and bool(getattr(tasks_overlay, "active", False));
+            if tasks_paste {
+                return;
+            }
+            if resume_picker_active {
+                return;
+            }
+            explorer_paste: bool = explorer and bool(getattr(explorer, "active", False));
+            if explorer_paste {
+                return;
+            }
+            insert_input_at_cursor(text);
+        }
+    );
 
     useInput(
         lambda (ch: str, key: any) -> None {
@@ -1721,6 +1760,10 @@ def:pub app() -> JsxElement {
                 return;
             }
             if len(ch) > 0 and not key.ctrl and not key.meta {
+                if len(ch) > 1 {
+                    insert_input_at_cursor(ch);
+                    return;
+                }
                 input_text = input_text[:input_cursor] + ch + input_text[input_cursor:];
                 input_cursor = input_cursor + len(ch);
                 selected_completion_index = 0;
@@ -1818,7 +1861,7 @@ def:pub app() -> JsxElement {
     };
 
     return (
-        <Box key={"shell-" + str(screen_epoch)} flexDirection="column" padding={0}>
+        <Box flexDirection="column" padding={0}>
             {pending_approval and (
                 <ToolConfirmationOverlay pending={pending_approval} menu_index={approval_menu_index}/>
             )}
