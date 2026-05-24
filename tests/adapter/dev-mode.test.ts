@@ -5,7 +5,7 @@ import {
   isToolAllowedInPlanMode,
   parseModeFlag,
   shouldAutoApprove,
-} from "../../src/runtime/dev-mode.js";
+} from "../../src/agent/dev-mode.js";
 
 describe("isDestructiveBash", () => {
   it("flags rm -rf /", () => {

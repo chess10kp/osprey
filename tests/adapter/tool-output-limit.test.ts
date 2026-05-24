@@ -5,7 +5,7 @@ import {
   truncateToolPayload,
   limitToolResultContent,
   wrapToolOutputLimit,
-} from "../../src/runtime/tool-output-limit.js";
+} from "../../src/agent/tool-output-limit.js";
 
 describe("truncateToolOutput", () => {
   it("passes through text under the byte limit", () => {

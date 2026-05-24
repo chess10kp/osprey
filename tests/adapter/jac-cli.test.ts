@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJacCheckOutput, findJacBinary } from "../../src/runtime/jac-cli.js";
+import { parseJacCheckOutput, findJacBinary } from "../../src/jac/jac-cli.js";
 
 describe("parseJacCheckOutput", () => {
   it("parses single-line error format", () => {

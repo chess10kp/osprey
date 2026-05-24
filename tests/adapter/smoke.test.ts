@@ -39,11 +39,11 @@ const mockSession = vi.hoisted(() => {
   return MockJackalAgentSession;
 });
 
-vi.mock("../../src/runtime/agent-session.js", () => ({
+vi.mock("../../src/session/agent-session.js", () => ({
   JackalAgentSession: mockSession,
 }));
 
-import { runNextAgentSmoke } from "../../src/adapter.js";
+import { runNextAgentSmoke } from "../../src/core/adapter.js";
 
 describe("runNextAgentSmoke", () => {
   beforeEach(() => {

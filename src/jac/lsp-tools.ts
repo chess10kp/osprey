@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute, relative } from "node:path";
+import { getActiveLspService } from "./lsp-service.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +47,12 @@ export async function getFileDiagnostics(
   cwd: string,
   filePath: string,
 ): Promise<LspDiagnostic[]> {
+  const lsp = getActiveLspService();
+  if (lsp?.isReady()) {
+    const diags = await lsp.getFileDiagnostics(filePath);
+    if (diags) return diags;
+  }
+
   const abs = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
   if (!existsSync(abs)) {
     return [{ file: filePath, line: 0, severity: "error", message: `File not found: ${filePath}` }];
@@ -82,6 +89,12 @@ export async function getMultiFileDiagnostics(
   cwd: string,
   filePaths: string[],
 ): Promise<Map<string, LspDiagnostic[]>> {
+  const lsp = getActiveLspService();
+  if (lsp?.isReady()) {
+    const multi = await lsp.getMultiFileDiagnostics(filePaths);
+    if (multi) return multi;
+  }
+
   const results = new Map<string, LspDiagnostic[]>();
   const uniqueFiles = [...new Set(filePaths)];
 
@@ -136,6 +149,12 @@ export async function getHoverInfo(
   line: number,
   character: number,
 ): Promise<LspHoverInfo> {
+  const lsp = getActiveLspService();
+  if (lsp?.isReady()) {
+    const info = await lsp.getHoverInfo(filePath, line, character);
+    if (info) return info;
+  }
+
   const abs = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
 
   if (!existsSync(abs)) {
@@ -188,6 +207,12 @@ export async function findDefinitions(
   line: number,
   character: number,
 ): Promise<LspLocation[]> {
+  const lsp = getActiveLspService();
+  if (lsp?.isReady()) {
+    const defs = await lsp.findDefinitions(filePath, line, character);
+    if (defs) return defs;
+  }
+
   const abs = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
   if (!existsSync(abs)) return [];
 
@@ -215,6 +240,12 @@ export async function findReferences(
   line: number,
   character: number,
 ): Promise<LspLocation[]> {
+  const lsp = getActiveLspService();
+  if (lsp?.isReady()) {
+    const refs = await lsp.findReferences(filePath, line, character);
+    if (refs) return refs;
+  }
+
   const abs = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
   if (!existsSync(abs)) return [];
 

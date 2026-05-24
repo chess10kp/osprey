@@ -3,8 +3,8 @@ import {
   AgentStore,
   MAX_TOOL_EXECUTIONS,
   STREAM_EMIT_MS,
-} from "../../src/store.js";
-import { MAX_TOOL_OUTPUT_BYTES } from "../../src/runtime/tool-output-limit.js";
+} from "../../src/core/store.js";
+import { MAX_TOOL_OUTPUT_BYTES } from "../../src/agent/tool-output-limit.js";
 
 describe("AgentStore memory bounds", () => {
   beforeEach(() => {

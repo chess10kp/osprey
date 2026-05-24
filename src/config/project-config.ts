@@ -18,6 +18,8 @@ export interface JackalProjectConfig {
   maxFixAttempts?: number;
   mermaid?: boolean;
   notify?: boolean;
+  /** Start Jac LSP on session boot (default true). Set false to disable. */
+  lsp?: boolean;
   subagents?: boolean | JackalSubagentsConfig;
   /** Override model context window (tokens) for `/usage` and auto-compact. */
   contextMax?: number;
@@ -29,6 +31,8 @@ export interface JackalProjectConfig {
     /** Prune sessions older than this many days. */
     retentionDays?: number;
   };
+  /** Tool names that never require approval (also see `alwaysAllow` in pi/mcp.json). */
+  alwaysAllow?: string[];
   /** Auto-compact context when usage exceeds threshold. */
   autoCompact?: boolean | {
     enabled?: boolean;

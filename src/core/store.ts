@@ -8,6 +8,7 @@
 
 import type { DevMode } from "../agent/dev-mode.js";
 import type { PendingApproval } from "../agent/tool-approval.js";
+import type { PendingSubagentApproval } from "../agent/subagent-approval.js";
 import { truncateToolOutput } from "../agent/tool-output-limit.js";
 
 export type AgentPhase =
@@ -61,6 +62,7 @@ export interface AgentSnapshot {
   phase: AgentPhase;
   mode: DevMode;
   pendingApproval: PendingApproval | null;
+  pendingSubagentApproval: PendingSubagentApproval | null;
   model: string;
   provider: string;
   sessionId: string;
@@ -90,6 +92,7 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
   phase: "booting",
   mode: "normal",
   pendingApproval: null,
+  pendingSubagentApproval: null,
   model: "",
   provider: "",
   sessionId: "",
@@ -159,6 +162,10 @@ export class AgentStore {
 
   setPendingApproval(pendingApproval: PendingApproval | null): void {
     this._patch({ pendingApproval });
+  }
+
+  setPendingSubagentApproval(pendingSubagentApproval: PendingSubagentApproval | null): void {
+    this._patch({ pendingSubagentApproval });
   }
 
   setMcpStatus(status: {

@@ -202,6 +202,7 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
     });
     await session.initialize();
     session.scheduleMcpConnect();
+    session.scheduleLspConnect();
 
     try {
       await session.sendUserMessage("Respond with exactly: headless-ok");
@@ -209,6 +210,7 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
     } finally {
       unsubEvents();
       unsubBridge();
+      await session.shutdownBackground();
       session.dispose();
     }
 
@@ -324,6 +326,9 @@ export async function createNextAgent(
     onPendingApprovalChange: (pending) => {
       store.setPendingApproval(pending);
     },
+    onPendingSubagentApprovalChange: (pending) => {
+      store.setPendingSubagentApproval(pending);
+    },
   });
 
   const storageDir = sessionStorageDir(cwd, options?.sessionDir);
@@ -341,6 +346,7 @@ export async function createNextAgent(
   await session.initialize();
   store.markReady();
   session.scheduleMcpConnect();
+  session.scheduleLspConnect();
   await clearTasks(cwd);
 
   return {
@@ -654,6 +660,7 @@ export async function createNextAgent(
       rejectTool: () => session.rejectTool(),
       dispose: () => {
         unsubBridge();
+        void session.shutdownBackground();
         session.dispose();
         store.reset();
         authFlow.reset();

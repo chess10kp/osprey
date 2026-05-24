@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bridgeEvents, seedStoreFromSession } from "../../src/bridge.js";
-import { AgentStore } from "../../src/store.js";
+import { bridgeEvents, seedStoreFromSession } from "../../src/core/bridge.js";
+import { AgentStore } from "../../src/core/store.js";
 
 type BridgeEvent = { type?: string; [key: string]: unknown };
 

@@ -107,7 +107,10 @@ function lastAssistantText(messages: { role: string; text: string }[]): string {
   return "";
 }
 
-function approvalMessage(toolName: string): string {
+function approvalMessage(toolName: string, subagentName?: string): string {
+  if (subagentName) {
+    return `Tool approval required for subagent '${subagentName}': ${toolName}`;
+  }
   return `Tool approval required for: ${toolName}`;
 }
 
@@ -130,6 +133,7 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
   const { store, actions } = agent;
   let approvalBlocked = false;
   let blockedTool = "";
+  let blockedSubagent = "";
   let streamedLen = 0;
   const printedTools = new Set<string>();
   let lastPhase = store.getSnapshot().phase;
@@ -151,6 +155,14 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
 
   const unsub = store.subscribe(() => {
     const snap = store.getSnapshot();
+
+    if (snap.pendingSubagentApproval && !approvalBlocked) {
+      approvalBlocked = true;
+      blockedTool = snap.pendingSubagentApproval.toolName;
+      blockedSubagent = snap.pendingSubagentApproval.subagentName;
+      void actions.abort();
+      return;
+    }
 
     if (snap.pendingApproval && !approvalBlocked) {
       approvalBlocked = true;
@@ -196,15 +208,21 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
   unsub();
 
   const snap = store.getSnapshot();
-  const pendingTool = snap.pendingApproval?.toolName ?? blockedTool;
-  const blocked = approvalBlocked || snap.pendingApproval !== null;
+  const pendingSubagent = snap.pendingSubagentApproval;
+  const pendingTool =
+    pendingSubagent?.toolName ?? snap.pendingApproval?.toolName ?? blockedTool;
+  const blocked =
+    approvalBlocked ||
+    snap.pendingSubagentApproval !== null ||
+    snap.pendingApproval !== null;
 
   if (blocked && pendingTool) {
+    const subagentName = pendingSubagent?.subagentName || blockedSubagent || undefined;
     actions.dispose();
     return {
       exitCode: 1,
       output: plain ? "" : lastAssistantText(snap.messages),
-      error: approvalMessage(pendingTool),
+      error: approvalMessage(pendingTool, subagentName),
     };
   }
 

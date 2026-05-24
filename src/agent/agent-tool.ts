@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { JackalAuth, JackalModels } from "../auth/auth.js";
 import type { DevMode } from "./dev-mode.js";
+import type { SessionPermissions } from "./session-permissions.js";
 import { SubagentRunner, buildSubagentToolDescription } from "../orchestration/subagent-runner.js";
 import { wrapToolOutputLimit } from "./tool-output-limit.js";
 
@@ -13,6 +14,14 @@ export interface AgentToolContext {
   getParentModel: () => Model<Api>;
   getParentTools: () => AgentTool[];
   getMode: () => DevMode;
+  sessionPermissions: SessionPermissions;
+  alwaysAllow: ReadonlySet<string>;
+  requestSubagentApproval: (
+    toolCallId: string,
+    toolName: string,
+    params: Record<string, unknown>,
+    subagentName: string,
+  ) => Promise<boolean>;
 }
 
 export function createAgentTool(ctx: AgentToolContext): AgentTool {
@@ -35,6 +44,9 @@ export function createAgentTool(ctx: AgentToolContext): AgentTool {
         parentModel: ctx.getParentModel(),
         parentTools: ctx.getParentTools(),
         mode: ctx.getMode(),
+        sessionPermissions: ctx.sessionPermissions,
+        alwaysAllow: ctx.alwaysAllow,
+        requestApproval: ctx.requestSubagentApproval,
         getApiKey: (provider) => ctx.auth.getApiKey(provider),
       });
 

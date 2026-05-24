@@ -64,6 +64,14 @@ export {
 } from "./agent/dev-mode.js";
 export type { PendingApproval } from "./agent/tool-approval.js";
 export { ToolApprovalQueue } from "./agent/tool-approval.js";
+export type { PendingSubagentApproval } from "./agent/subagent-approval.js";
+export { SubagentApprovalQueue } from "./agent/subagent-approval.js";
+export {
+  SessionPermissions,
+  loadAlwaysAllowTools,
+  needsToolApproval,
+  isAlwaysAllowedTool,
+} from "./agent/session-permissions.js";
 export { resolveDefaultMode } from "./config/project-config.js";
 export { runCli, parseRunArgs, resolveRunMode, printRunUsage } from "./cli/run.js";
 export type { RunCliOptions, RunCliResult } from "./cli/run.js";

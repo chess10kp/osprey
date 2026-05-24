@@ -408,11 +408,13 @@ def:pub ApprovalBanner(props: any) -> JsxElement {
     pending: any = props.pending;
     if not pending { return <Text></Text>; }
     tool_name: str = to_str(getattr(pending, "toolName", "tool"));
+    subagent_name: str = to_str(getattr(pending, "subagentName", ""));
     return (
         <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginTop={1}>
             <Text bold color="yellow">{"Tool approval required"}</Text>
+            {subagent_name and <Text>{"Subagent: " + subagent_name}</Text>}
             <Text>{"Tool: " + tool_name}</Text>
-            <Text dimColor>{"Enter = approve   Esc = reject   Shift+Tab = change mode"}</Text>
+            <Text dimColor>{"Enter = allow for session   Esc = reject   Shift+Tab = change mode"}</Text>
         </Box>
     );
 }
@@ -480,8 +482,19 @@ def:pub PromptBar(props: any) -> JsxElement {
     after: str = input_text[cur + 1:] if cur < len(input_text) else "";
 
     return (
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
-            <Box borderStyle="single" borderColor="gray" paddingX={1}>
+        <Box flexDirection="column" marginTop={1}>
+            <Box
+                flexDirection="row"
+                backgroundColor="#1a1a2e"
+                paddingX={1}
+                paddingY={0}
+                borderStyle="bold"
+                borderTop={true}
+                borderBottom={false}
+                borderLeft={false}
+                borderRight={false}
+                borderTopColor="gray"
+            >
                 {prompt_marker and <Text color="green" bold>{prompt_marker}</Text>}
                 {prompt_marker and <Text>{" "}</Text>}
                 <Box>
@@ -535,7 +548,8 @@ def:pub app() -> JsxElement {
     dev_mode: any = "normal";
     if snap and snap.mode { dev_mode = to_str(snap.mode); }
     pending_approval: any = None;
-    if snap and snap.pendingApproval { pending_approval = snap.pendingApproval; }
+    if snap and snap.pendingSubagentApproval { pending_approval = snap.pendingSubagentApproval; }
+    elif snap and snap.pendingApproval { pending_approval = snap.pendingApproval; }
     usage_line: str = "";
     if session and hasattr(session, "getUsageLine") {
         usage_line = to_str(session.getUsageLine());
@@ -1225,7 +1239,6 @@ def:pub app() -> JsxElement {
         completion_selection = 0;
     }
 
-    divider: str = "-" * 70;
     prompt_marker: str = "";
     is_streaming: bool = streaming is not None or phase == "streaming";
 
@@ -1254,7 +1267,6 @@ def:pub app() -> JsxElement {
     return (
         <Box key={"shell-" + str(screen_epoch)} flexDirection="column" padding={0}>
             {pending_approval and <ApprovalBanner pending={pending_approval}/>}
-            <Text color="gray">{divider}</Text>
             {show_help and <HelpPanel/>}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
             {(not compact_layout) and (
