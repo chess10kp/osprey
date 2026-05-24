@@ -170,11 +170,10 @@ postprocess_tui() {
     -e 's/useExtensionUI/useJackalUI/g' \
     "$TUI_OUT/module.mjs"
 
-  # Work around a jac2ink codegen bug: missing closing brace in CompletionsList.
-  perl -0pi -e 's/(rows\.push\(__jacJsx\(Text, \{"color": "cyan", "bold": is_sel\}, \[\(icon \+ label\)\]\)\);\n\s*)(return __jacJsx\(Box, \{"flexDirection": "column", "paddingX": 1\}, \[__jacJsx\(Text, \{"dimColor": true\}, \["Completions:"\]\), rows\]\);)/$1  }\n  $2/s' "$TUI_OUT/module.mjs"
-
   cp "$JACKAL_DIR/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
+  cp "$JACKAL_DIR/templates/markdown.mjs" "$TUI_OUT/markdown.mjs"
   node "$JACKAL_DIR/scripts/dedupe-jac-runtime.mjs" "$TUI_OUT/module.mjs"
+  node "$JACKAL_DIR/scripts/fix-tui-module.mjs" "$TUI_OUT/module.mjs"
   node --check "$TUI_OUT/module.mjs" >/dev/null
 }
 
@@ -210,6 +209,11 @@ fi
 # Ensure readline-capable input component is available in the generated Ink app.
 if [[ ! -d "$TUI_OUT/node_modules/@inkjs/ui" ]]; then
   (cd "$TUI_OUT" && npm install --ignore-scripts @inkjs/ui)
+fi
+
+# Ensure syntax highlighting is available for the markdown renderer.
+if [[ ! -d "$TUI_OUT/node_modules/cli-highlight" ]]; then
+  (cd "$TUI_OUT" && npm install --ignore-scripts cli-highlight)
 fi
 
 exec -a jackal node "$TUI_OUT/runner.mjs" "$@"

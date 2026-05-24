@@ -1,14 +1,31 @@
 """StreamingMessage — live streaming assistant text with spinner + model header + token counter.
-Ported from nanocoder's StreamingMessage."""
+Shows tail-truncated plain text during streaming for cheap re-renders.
+Full markdown rendering happens in AssistantMessage when the turn completes."""
 
 import from "ink" { Box, Text }
 import from "@inkjs/ui" { Spinner }
 import from .theme { SECONDARY, INFO, TEXT, ACCENT }
 
 
+def stream_lines(text: str) -> list {
+    lines: list = [];
+    current: str = "";
+    for ch in text {
+        if ch == "\n" {
+            lines.append(current);
+            current = "";
+        } else {
+            current = current + str(ch);
+        }
+    }
+    lines.append(current);
+    return lines;
+}
+
+
 def stream_truncate(text: str, max_lines: int) -> str {
     if not text { return ""; }
-    lines: list = text.split("\n");
+    lines: list = stream_lines(text);
     if len(lines) <= max_lines { return text; }
     return "…" + "\n".join(lines[-max_lines:]);
 }
@@ -21,20 +38,18 @@ def stream_estimate_tokens(text: str) -> int {
 }
 
 
-def:pub StreamingMessage(streaming_text: str, model: str) -> JsxElement {
-    # Show tail of content to keep render small
+def:pub StreamingMessage(props: any) -> JsxElement {
+    streaming_text: str = str(props.streaming_text) if props.streaming_text else "";
+    model: str = str(props.model) if props.model else "";
     display: str = stream_truncate(streaming_text, 15);
     tokens: int = stream_estimate_tokens(streaming_text);
 
     return (
         <Box flexDirection="column">
-            <Box marginBottom={1} marginTop={1}>
-                <Text color={INFO} bold>
-                    <Spinner type="dots" /> {" " + (model if model else "Thinking")}
-                </Text>
-                <Text>
-                    {"  ~" + str(tokens) + " tokens"}
-                </Text>
+            <Box marginBottom={1} marginTop={1} flexDirection="row">
+                <Spinner type="dots" />
+                <Text color={INFO} bold>{" " + (model if model else "Thinking")}</Text>
+                <Text>{"  ~" + str(tokens) + " tokens"}</Text>
             </Box>
             <Box
                 flexDirection="column"
