@@ -69,6 +69,120 @@ describe.skipIf(!canRunTui)("ToolRow (nanocoder parity)", () => {
     unmount();
   });
 
+  it("shows bash command in compact ToolMessage summary", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "bash",
+      status: "done",
+      input: { command: "git status" },
+      result: "On branch main",
+      compact: true,
+    });
+    const out = frame();
+    expect(out).toMatch(/\$ git status/);
+    expect(out).not.toMatch(/On branch main/);
+    unmount();
+  });
+
+  it("shows bash command and output when expanded", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "bash",
+      status: "done",
+      input: { command: "git status" },
+      result: "On branch main",
+      compact: false,
+    });
+    const out = frame();
+    expect(out).toMatch(/\$ git status/);
+    expect(out).toMatch(/On branch main/);
+    unmount();
+  });
+
+  it("shows read path in compact ToolMessage summary", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "read",
+      status: "done",
+      input: { path: "src/foo.jac" },
+      result: "walker init;",
+      compact: true,
+    });
+    const out = frame();
+    expect(out).toMatch(/Read @ src\/foo\.jac/);
+    expect(out).not.toMatch(/walker init/);
+    unmount();
+  });
+
+  it("prefers precomputed summary over generic fallback", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "bash",
+      status: "done",
+      input: {},
+      summary: "$ git status",
+      result: "On branch main",
+      compact: true,
+    });
+    const out = frame();
+    expect(out).toMatch(/\$ git status/);
+    expect(out).not.toMatch(/Ran shell command/);
+    unmount();
+  });
+
+  it("shows read path and file content when expanded", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "read",
+      status: "done",
+      input: { path: "src/foo.jac" },
+      result: "walker init;",
+      compact: false,
+    });
+    const out = frame();
+    expect(out).toMatch(/@ src\/foo\.jac/);
+    expect(out).toMatch(/walker init/);
+    unmount();
+  });
+
+  it("shows write path in compact ToolMessage summary", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "write",
+      status: "done",
+      input: { path: "src/bar.jac", content: "node foo;" },
+      result: "Wrote src/bar.jac",
+      compact: true,
+    });
+    const out = frame();
+    expect(out).toMatch(/Wrote → src\/bar\.jac/);
+    expect(out).not.toMatch(/node foo/);
+    unmount();
+  });
+
+  it("shows write path and result when expanded", async () => {
+    const mod = await loadShellModule();
+    const ToolMessage = asPropsComponent(mod.ToolMessage);
+    const { frame, unmount } = renderInk(ToolMessage, {
+      tool_name: "write",
+      status: "done",
+      input: { path: "src/bar.jac", content: "node foo;" },
+      result: "Wrote src/bar.jac",
+      compact: false,
+    });
+    const out = frame();
+    expect(out).toMatch(/→ src\/bar\.jac/);
+    expect(out).toMatch(/Wrote src\/bar\.jac/);
+    expect(out).not.toMatch(/node foo/);
+    unmount();
+  });
+
   it("truncates long input preview to 60 chars", async () => {
     const ToolRow = await loadToolRow();
     const long = "a".repeat(61);

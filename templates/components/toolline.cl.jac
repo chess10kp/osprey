@@ -5,20 +5,96 @@ import from .theme { PRIMARY, INFO, TEXT, SECONDARY, TOOL }
 import from "../markdown.mjs" { parseMarkdownParts }
 
 
-def tool_format_input(input_obj: any) -> str {
+def tool_input_field(input_obj: any, key: str) -> str {
     if input_obj is None { return ""; }
+    if hasattr(input_obj, key) {
+        val: any = getattr(input_obj, key, None);
+        if val is not None { return str(val); }
+    }
+    if hasattr(input_obj, "keys") and key in input_obj {
+        val2: any = input_obj[key];
+        if val2 is not None { return str(val2); }
+    }
+    if hasattr(input_obj, "get") {
+        val3: any = input_obj.get(key, None);
+        if val3 is not None { return str(val3); }
+    }
+    return "";
+}
+
+
+def tool_bash_command(input_obj: any) -> str {
+    cmd: str = tool_input_field(input_obj, "command");
+    if not cmd { cmd = tool_input_field(input_obj, "cmd"); }
+    return cmd;
+}
+
+
+def tool_file_path(input_obj: any) -> str {
+    path: str = tool_input_field(input_obj, "path");
+    if not path { path = tool_input_field(input_obj, "file_path"); }
+    if not path { path = tool_input_field(input_obj, "target_file"); }
+    return path;
+}
+
+
+def tool_format_input(tool_name: str, input_obj: any) -> str {
+    if input_obj is None { return ""; }
+
+    if tool_name == "bash" {
+        cmd: str = tool_bash_command(input_obj);
+        if cmd { return "$ " + cmd; }
+    }
+    if tool_name == "read" or tool_name == "write" or tool_name == "edit" {
+        path: str = tool_file_path(input_obj);
+        if path {
+            if tool_name == "read" { return "@ " + path; }
+            if tool_name == "write" { return "→ " + path; }
+            return path;
+        }
+    }
+    if tool_name == "glob" {
+        pattern: str = tool_input_field(input_obj, "pattern");
+        if pattern { return pattern; }
+    }
+
     preview: str = str(input_obj);
     if len(preview) > 80 { return preview[:80] + "…"; }
     return preview;
 }
 
 
-def tool_compact_description(tool_name: str) -> str {
-    if tool_name == "read" { return "Read 1 file"; }
-    if tool_name == "write" { return "Wrote 1 file"; }
-    if tool_name == "edit" { return "Made 1 edit"; }
-    if tool_name == "bash" { return "Ran 1 command"; }
-    if tool_name == "glob" { return "Ran 1 file search"; }
+def tool_compact_description(tool_name: str, input_obj: any) -> str {
+    if tool_name == "read" {
+        path: str = tool_file_path(input_obj);
+        if path {
+            if len(path) > 60 { return "Read @ " + path[:57] + "…"; }
+            return "Read @ " + path;
+        }
+        return "Read file";
+    }
+    if tool_name == "write" {
+        path: str = tool_file_path(input_obj);
+        if path {
+            if len(path) > 60 { return "Wrote → " + path[:57] + "…"; }
+            return "Wrote → " + path;
+        }
+        return "Wrote file";
+    }
+    if tool_name == "edit" {
+        path: str = tool_file_path(input_obj);
+        if path { return "Edited " + path; }
+        return "Edited file";
+    }
+    if tool_name == "bash" {
+        cmd: str = tool_bash_command(input_obj);
+        if cmd {
+            if len(cmd) > 60 { return "$ " + cmd[:57] + "…"; }
+            return "$ " + cmd;
+        }
+        return "Ran shell command";
+    }
+    if tool_name == "glob" { return "File search"; }
     if tool_name == "agent" { return "Delegated 1 task to subagent"; }
     if tool_name == "mermaid" { return "Rendered 1 diagram"; }
     if tool_name == "jac_check" or tool_name == "jac_check_syntax" { return "Ran jac check"; }
@@ -34,7 +110,7 @@ def tool_compact_description(tool_name: str) -> str {
     if tool_name == "definition" { return "Found definition"; }
     if tool_name == "references" { return "Found references"; }
     if tool_name.startswith("jac_") { return "Ran " + tool_name; }
-    return "Executed " + tool_name;
+    return "Ran " + tool_name;
 }
 
 
@@ -126,14 +202,20 @@ def:pub ToolMessage(props: any) -> JsxElement {
     if duration_ms is not None {
         duration_label = "  (" + str(duration_ms) + "ms)";
     }
-    input_preview: str = tool_format_input(props.input);
+    input_preview: str = tool_format_input(tool_name, props.input);
     result_raw: str = str(props.result) if props.result else "";
     show_compact: bool = compact and not is_error and not running;
     result_text: str = tool_format_result(result_raw, show_compact);
     result_blocks: list = tool_render_content_blocks(result_text) if result_text else [];
 
     if show_compact {
-        summary: str = tool_compact_description(tool_name);
+        summary: str = "";
+        if props.summary {
+            summary = str(props.summary);
+        }
+        if not summary {
+            summary = tool_compact_description(tool_name, props.input);
+        }
         return (
             <Box marginBottom={1} marginTop={1}>
                 <Text color={color}>{icon + " "}</Text>

@@ -180,20 +180,19 @@ export function createCoreTools(cwd: string): AgentTool[] {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as { command: string; timeout?: number };
       const result = await runBash(cwd, params.command, params.timeout ?? 60);
-      const payload = JSON.stringify(
-        {
-          code: result.code,
-          stdout: truncateToolOutput(result.stdout),
-          stderr: truncateToolOutput(result.stderr),
-          durationMs: result.durationMs,
-        },
-        null,
-        2,
-      );
+      const stdout = truncateToolOutput(result.stdout);
+      const stderr = truncateToolOutput(result.stderr);
+      const lines: string[] = [];
+      if (stdout.trim()) lines.push(stdout.trimEnd());
+      if (stderr.trim()) lines.push(`stderr:\n${stderr.trimEnd()}`);
+      if (result.code !== 0 && result.code !== null) {
+        lines.push(`exit code: ${result.code}`);
+      }
+      const text = lines.length > 0 ? lines.join("\n\n") : "(no output)";
 
       return {
-        content: [{ type: "text", text: payload }],
-        details: result,
+        content: [{ type: "text", text }],
+        details: { ...result, command: params.command },
       };
     },
   };
