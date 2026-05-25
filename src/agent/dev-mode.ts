@@ -30,7 +30,7 @@ export const PLAN_MODE_SYSTEM_APPENDIX = `
 
 You are in **plan mode**: explore, analyze, and produce a clear implementation plan. You must **not** modify project source files.
 
-- Use read, search, diagnostics, \`jac check\`, tests, bash, LSP, and MCP read tools freely.
+- Use read, web_search, web_fetch, diagnostics, \`jac check\`, tests, bash, LSP, and MCP read tools freely.
 - Do **not** call \`write\`, \`edit\`, format/fix/create tools, or task mutations — they are blocked.
 - Output a numbered plan the user can approve; tell them to switch out of plan mode (Shift+Tab) to implement.
 `;

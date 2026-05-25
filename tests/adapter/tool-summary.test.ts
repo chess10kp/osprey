@@ -23,6 +23,15 @@ describe("formatToolSummary", () => {
     expect(formatToolSummary("bash", { command: "npm test" })).toBe("$ npm test");
   });
 
+  it("formats web tools", () => {
+    expect(formatToolSummary("web_search", { search_term: "jac lang release" })).toBe(
+      "Web search: jac lang release",
+    );
+    expect(formatToolSummary("web_fetch", { url: "https://docs.jaseci.org" })).toBe(
+      "Fetched https://docs.jaseci.org",
+    );
+  });
+
   it("formats update_task with task id and status", () => {
     expect(
       formatToolSummary("update_task", {

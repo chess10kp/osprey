@@ -16,6 +16,7 @@ import {
 import { runJacDoctor } from "../jac/jac-doctor.js";
 import type { JacDiagnostic } from "../jac/jac-types.js";
 import { createTaskTools } from "./task-tools.js";
+import { createWebTools } from "./web-tools.js";
 import { renderMermaidAscii } from "../render/mermaid-render.js";
 import {
   getFileDiagnostics,
@@ -651,6 +652,7 @@ export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] 
     lspRefsTool,
     mermaidTool,
     compactTool,
+    ...createWebTools(),
     ...createTaskTools(cwd),
   ]);
 }

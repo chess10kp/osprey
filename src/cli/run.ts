@@ -95,6 +95,16 @@ function formatToolLine(toolName: string, input?: Record<string, unknown>): stri
     const short = cmd.length > 72 ? `${cmd.slice(0, 69)}...` : cmd;
     return `⚒ Bash ${short}`;
   }
+  if (toolName === "web_search" && input?.search_term) {
+    const q = String(input.search_term);
+    const short = q.length > 60 ? `${q.slice(0, 57)}...` : q;
+    return `⚒ Search ${short}`;
+  }
+  if (toolName === "web_fetch" && input?.url) {
+    const url = String(input.url);
+    const short = url.length > 60 ? `${url.slice(0, 57)}...` : url;
+    return `⚒ Fetch ${short}`;
+  }
   return `⚒ ${toolName}`;
 }
 

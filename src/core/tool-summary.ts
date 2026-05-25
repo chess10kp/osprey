@@ -126,6 +126,16 @@ export function formatToolSummary(toolName: string, input?: Record<string, unkno
   if (toolName === "hover") return "Looked up type info";
   if (toolName === "definition") return "Found definition";
   if (toolName === "references") return "Found references";
+  if (toolName === "web_search") {
+    const q = toolInputField(input, "search_term") || toolInputField(input, "query");
+    if (q) return `Web search: ${truncate(q, 55)}`;
+    return "Web search";
+  }
+  if (toolName === "web_fetch") {
+    const url = toolInputField(input, "url");
+    if (url) return `Fetched ${truncate(url, 55)}`;
+    return "Fetched URL";
+  }
   if (toolName.startsWith("jac_")) return `Ran ${toolName}`;
   return `Ran ${toolName}`;
 }

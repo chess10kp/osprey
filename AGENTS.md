@@ -52,6 +52,8 @@ The canonical set of tools Jackal may use, organized by tier.
 
 | Tool | Purpose |
 |------|---------|
+| `web_search` | Search the public web (Brave API; set `BRAVE_API_KEY`) |
+| `web_fetch` | Fetch a URL and return readable text |
 | `jac_search_docs` | Look up Jac syntax, APIs, and patterns by keyword |
 | `code_overview` | Summarize project structure (directory tree + top-level symbols) |
 | `ast_search` | Find code matching a structural pattern (walkers, nodes, etc.) |
