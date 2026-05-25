@@ -8,6 +8,19 @@ export interface JackalSubagentsConfig {
   [agentName: string]: string | { model?: string } | boolean | undefined;
 }
 
+export type PatternType = "glob" | "regex" | "exact" | "prefix";
+
+export interface PermissionPatternConfig {
+  /** Tool name or "*" for all tools. */
+  tool: string;
+  /** Pattern to match against the resource (command, path, etc.). */
+  pattern: string;
+  /** Pattern type: "glob" (default), "regex", "exact", "prefix". */
+  type?: PatternType;
+  /** Action: "allow" (default) or "deny". Deny takes precedence. */
+  action?: "allow" | "deny";
+}
+
 export interface JackalProjectConfig {
   autocheck?: boolean;
   autoformat?: boolean;
@@ -33,6 +46,8 @@ export interface JackalProjectConfig {
   };
   /** Tool names that never require approval (also see `alwaysAllow` in pi/mcp.json). */
   alwaysAllow?: string[];
+  /** Structured permission patterns for fine-grained allow/deny rules. */
+  permissionPatterns?: PermissionPatternConfig[];
   /** Auto-compact context when usage exceeds threshold. */
   autoCompact?: boolean | {
     enabled?: boolean;
@@ -61,7 +76,13 @@ export function resolveDefaultMode(config: JackalProjectConfig): DevMode {
 }
 
 function isDevMode(value: string): value is DevMode {
-  return value === "normal" || value === "auto-accept" || value === "yolo" || value === "plan";
+  return (
+    value === "normal" ||
+    value === "auto-accept" ||
+    value === "yolo" ||
+    value === "plan" ||
+    value === "ask"
+  );
 }
 
 function findConfigPath(cwd: string): string | null {

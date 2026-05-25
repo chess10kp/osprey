@@ -27,16 +27,20 @@ import { loadProjectConfig } from "../config/project-config.js";
 import {
   type DevMode,
   cycleMode,
-  isToolBlockedInPlanMode,
-  planModeBlockReason,
+  isReadOnlyMode,
+  isToolBlockedInReadOnlyMode,
+  readOnlyModeBlockReason,
   systemPromptForMode,
 } from "../agent/dev-mode.js";
 import { ToolApprovalQueue } from "../agent/tool-approval.js";
 import { SubagentApprovalQueue } from "../agent/subagent-approval.js";
 import {
   loadAlwaysAllowTools,
+  loadPermissionPatterns,
   needsToolApproval,
   SessionPermissions,
+  type PermissionPattern,
+  extractResource,
 } from "../agent/session-permissions.js";
 import { createAgentTool } from "../agent/agent-tool.js";
 import {
@@ -106,6 +110,7 @@ export class JackalAgentSession {
   private _subagentApprovalQueue: SubagentApprovalQueue;
   private _sessionPermissions: SessionPermissions;
   private _alwaysAllow: Set<string>;
+  private _permissionPatterns: PermissionPattern[];
   private _baseSystemPrompt: string;
   private _systemPrompt: string;
   private _contextMaxOverride: number | null;
@@ -123,6 +128,7 @@ export class JackalAgentSession {
     this._sessionPermissions = new SessionPermissions();
     const projectConfig = loadProjectConfig(options.cwd);
     this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
+    this._permissionPatterns = loadPermissionPatterns(projectConfig);
     const { skills } = loadJackalSkills({ cwd: options.cwd });
     this._skills = skills;
     this._baseSystemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
@@ -180,10 +186,13 @@ export class JackalAgentSession {
             ? (args as Record<string, unknown>)
             : {};
 
-        if (this._mode === "plan" && isToolBlockedInPlanMode(toolName)) {
+        if (isReadOnlyMode(this._mode) && isToolBlockedInReadOnlyMode(toolName)) {
           return {
             block: true,
-            reason: planModeBlockReason(toolName),
+            reason: readOnlyModeBlockReason(
+              toolName,
+              this._mode === "ask" ? "ask" : "plan",
+            ),
           };
         }
 
@@ -196,6 +205,8 @@ export class JackalAgentSession {
           !needsToolApproval(this._mode, toolName, params, {
             sessionPermissions: this._sessionPermissions,
             alwaysAllow: this._alwaysAllow,
+            permissionPatterns: this._permissionPatterns,
+            resource: extractResource(toolName, params),
           })
         ) {
           return undefined;

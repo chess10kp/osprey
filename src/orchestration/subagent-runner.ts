@@ -2,7 +2,11 @@ import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-age
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { JackalAuth, JackalModels } from "../auth/auth.js";
 import type { DevMode } from "../agent/dev-mode.js";
-import { isToolBlockedInPlanMode, planModeBlockReason } from "../agent/dev-mode.js";
+import {
+  isReadOnlyMode,
+  isToolBlockedInReadOnlyMode,
+  readOnlyModeBlockReason,
+} from "../agent/dev-mode.js";
 import { needsToolApproval } from "../agent/session-permissions.js";
 import type { SessionPermissions } from "../agent/session-permissions.js";
 import { getChain, listChains, type ChainDefinition, type ChainStep } from "./chains.js";
@@ -207,10 +211,10 @@ export class SubagentRunner {
               ? (args as Record<string, unknown>)
               : {};
 
-          if (mode === "plan" && isToolBlockedInPlanMode(toolName)) {
+          if (isReadOnlyMode(mode) && isToolBlockedInReadOnlyMode(toolName)) {
             return {
               block: true,
-              reason: `${planModeBlockReason(toolName)} (subagent "${agent.name}")`,
+              reason: `${readOnlyModeBlockReason(toolName, mode === "ask" ? "ask" : "plan")} (subagent "${agent.name}")`,
             };
           }
 

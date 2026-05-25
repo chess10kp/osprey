@@ -25,6 +25,7 @@ def:pub HelpPanel() -> JsxElement {
                 <Text color={TEXT}>{"/clear,/new    new session"}</Text>
                 <Text color={TEXT}>{"/multiline     toggle multiline mode"}</Text>
                 <Text color={TEXT}>{"/compact       compact context"}</Text>
+                <Text color={TEXT}>{"/diff [scope]  git diff editor (j/k n/p a/r)"}</Text>
                 <Text color={TEXT}>{"/exit          quit"}</Text>
             </Box>
             <Text dimColor>

@@ -302,7 +302,7 @@ export function printRunUsage(): void {
   console.error(`Usage: jackal run [--plain] [--mode MODE] "prompt"
 
   --plain          Minimal stdout (final assistant text only)
-  --mode MODE      normal | auto-accept | yolo | plan (default: auto-accept)
+  --mode MODE      normal | auto-accept | yolo | plan | ask (default: auto-accept)
                    Also respects JACKAL_MODE when --mode is omitted
 
 Examples:

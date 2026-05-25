@@ -26,6 +26,7 @@ export const TUI_TEST = {
     "ToolMessage",
     "UserInput",
     "CompletionList",
+    "FileDiffEditor",
   ],
 };
 

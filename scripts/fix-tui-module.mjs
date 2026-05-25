@@ -10,6 +10,48 @@ if (!path) {
 }
 
 const importLineRe = /^import\s+\{([^}]+)\}\s+from\s+(["'])([^"']+)\2;\s*$/;
+const jacModuleRe = /^\/\/ Imported \.jac module: (.+)$/;
+
+/** Same file, different import paths from jac-ink. */
+const JAC_MODULE_ALIASES = {
+  "./diff_engine.cl.jac": "./components/diff_engine.cl.jac",
+};
+
+function normalizeJacModuleSpec(spec) {
+  const s = spec.trim();
+  return JAC_MODULE_ALIASES[s] ?? s;
+}
+
+/** Drop a second inline copy of the same .jac module (duplicate top-level defs). */
+function dedupeJacModules(text) {
+  const lines = text.split("\n");
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(jacModuleRe);
+    if (m) {
+      const norm = normalizeJacModuleSpec(m[1]);
+      if (seen.has(norm)) {
+        i += 1;
+        while (i < lines.length) {
+          const next = lines[i];
+          if (jacModuleRe.test(next) || next.startsWith("// Client module:")) {
+            i -= 1;
+            break;
+          }
+          i += 1;
+        }
+        continue;
+      }
+      seen.add(norm);
+      out.push(`// Imported .jac module: ${norm}`);
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
 
 let src = fs.readFileSync(path, "utf8");
 const lines = src.split("\n");
@@ -173,6 +215,8 @@ out = out.replace(
   /function ChatHistory\(props\) \{\n  let model = \(props\.model \? String\(props\.model\) : ""\);\n  let compact = \(\(props\.compact !== null\) \? _jac\.builtin\.bool\(props\.compact\) : false\);\n  let live = props\.live_component;\n  let live_tool = props\.live_tool_component;\n  return __jacJsx\(Box, \{"flexDirection": "column", "flexGrow": 1\},/,
   'function ChatHistory(props) {\n  let model = (props.model ? String(props.model) : "");\n  let compact = ((props.compact !== null) ? _jac.builtin.bool(props.compact) : false);\n  let live = props.live_component;\n  let live_tool = props.live_tool_component;\n  return __jacJsx(Box, {"flexDirection": "column", "flexGrow": 1, "minHeight": 0},',
 );
+
+out = dedupeJacModules(out);
 
 fs.writeFileSync(path, out);
 console.error(`fix-tui-module: merged ${importLines.length} import line(s) in ${path}`);

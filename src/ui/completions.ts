@@ -33,6 +33,7 @@ const COMMANDS: CommandEntry[] = [
   { slash: "/rename", description: "rename current session" },
   { slash: "/export", description: "export session to file" },
   { slash: "/checkpoint", description: "snapshot files + chat" },
+  { slash: "/diff", description: "terminal diff editor (git)" },
   { slash: "/tasks", description: "task list" },
   { slash: "/mcp", description: "MCP connection status" },
   { slash: "/osp", description: "OSP graph design" },

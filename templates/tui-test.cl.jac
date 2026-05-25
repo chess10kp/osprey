@@ -14,6 +14,7 @@ import from "./components/authflow.cl.jac" {
 }
 import from "./components/helppanel.cl.jac" { HelpPanel }
 import from "./components/userinput.cl.jac" { UserInput, CompletionList }
+import from "./components/filediff.cl.jac" { FileDiffEditor }
 
 
 def:pub app() -> JsxElement {

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   cycleMode,
   isDestructiveBash,
+  isReadOnlyMode,
   isToolAllowedInPlanMode,
+  isToolBlockedInReadOnlyMode,
   isToolBlockedInPlanMode,
   parseModeFlag,
   shouldAutoApprove,
@@ -59,6 +61,27 @@ describe("shouldAutoApprove", () => {
   it("blocks write tools in plan mode", () => {
     expect(shouldAutoApprove("plan", "write", {})).toBe(false);
   });
+
+  it("allows read tools in ask mode", () => {
+    expect(shouldAutoApprove("ask", "read", {})).toBe(true);
+  });
+
+  it("blocks write tools in ask mode", () => {
+    expect(shouldAutoApprove("ask", "write", {})).toBe(false);
+  });
+});
+
+describe("read-only mode tool filter", () => {
+  it("treats plan and ask as read-only modes", () => {
+    expect(isReadOnlyMode("plan")).toBe(true);
+    expect(isReadOnlyMode("ask")).toBe(true);
+    expect(isReadOnlyMode("normal")).toBe(false);
+  });
+
+  it("uses shared blocked tool set", () => {
+    expect(isToolBlockedInReadOnlyMode("write")).toBe(true);
+    expect(isToolBlockedInPlanMode("write")).toBe(true);
+  });
 });
 
 describe("plan mode tool filter", () => {
@@ -93,6 +116,7 @@ describe("systemPromptForMode", () => {
   it("appends plan instructions only in plan mode", () => {
     expect(systemPromptForMode("base", "normal")).toBe("base");
     expect(systemPromptForMode("base", "plan")).toContain("Plan mode (active)");
+    expect(systemPromptForMode("base", "ask")).toContain("Ask mode (active)");
   });
 });
 
@@ -100,6 +124,7 @@ describe("mode parsing", () => {
   it("parses --mode flag", () => {
     expect(parseModeFlag(["--mode", "yolo"])).toBe("yolo");
     expect(parseModeFlag(["--mode=plan"])).toBe("plan");
+    expect(parseModeFlag(["--mode=ask"])).toBe("ask");
   });
 
   it("returns error object for invalid mode", () => {
@@ -110,6 +135,7 @@ describe("mode parsing", () => {
     expect(cycleMode("normal")).toBe("auto-accept");
     expect(cycleMode("auto-accept")).toBe("yolo");
     expect(cycleMode("yolo")).toBe("plan");
-    expect(cycleMode("plan")).toBe("normal");
+    expect(cycleMode("plan")).toBe("ask");
+    expect(cycleMode("ask")).toBe("normal");
   });
 });

@@ -2,15 +2,21 @@
 
 import { loadProjectConfig, resolveDefaultMode } from "../config/project-config.js";
 
-export type DevMode = "normal" | "auto-accept" | "yolo" | "plan";
+export type DevMode = "normal" | "auto-accept" | "yolo" | "plan" | "ask";
 
-export const DEV_MODES: readonly DevMode[] = ["normal", "auto-accept", "yolo", "plan"];
+export const DEV_MODES: readonly DevMode[] = [
+  "normal",
+  "auto-accept",
+  "yolo",
+  "plan",
+  "ask",
+];
 
 /**
- * Tools that modify project files — blocked in plan mode.
+ * Tools that modify project files — blocked in plan and ask modes.
  * All other registered tools (read, bash, LSP, Jac MCP reads, subagents, etc.) stay available.
  */
-export const PLAN_MODE_BLOCKED_TOOLS = new Set([
+export const READ_ONLY_MODE_BLOCKED_TOOLS = new Set([
   "write",
   "edit",
   "jac_format",
@@ -24,6 +30,9 @@ export const PLAN_MODE_BLOCKED_TOOLS = new Set([
   "execute_command",
 ]);
 
+/** @deprecated Use READ_ONLY_MODE_BLOCKED_TOOLS */
+export const PLAN_MODE_BLOCKED_TOOLS = READ_ONLY_MODE_BLOCKED_TOOLS;
+
 export const PLAN_MODE_SYSTEM_APPENDIX = `
 
 ## Plan mode (active)
@@ -35,12 +44,42 @@ You are in **plan mode**: explore, analyze, and produce a clear implementation p
 - Output a numbered plan the user can approve; tell them to switch out of plan mode (Shift+Tab) to implement.
 `;
 
-export function planModeBlockReason(toolName: string): string {
+export const ASK_MODE_SYSTEM_APPENDIX = `
+
+## Ask mode (active)
+
+You are in **ask mode**: answer questions, explain code, and explore the codebase. You must **not** modify project source files.
+
+- Use read, web_search, web_fetch, diagnostics, \`jac check\`, tests, bash, LSP, and MCP read tools freely.
+- Do **not** call \`write\`, \`edit\`, format/fix/create tools, or task mutations — they are blocked.
+- Give clear, direct answers with code citations when helpful; tell the user to switch out of ask mode (Shift+Tab) to apply changes.
+`;
+
+export function isReadOnlyMode(mode: DevMode): boolean {
+  return mode === "plan" || mode === "ask";
+}
+
+export function readOnlyModeBlockReason(toolName: string, mode: "plan" | "ask"): string {
+  if (mode === "ask") {
+    return `Tool "${toolName}" cannot modify files in ask mode. Switch to normal mode (Shift+Tab) to make changes.`;
+  }
   return `Tool "${toolName}" cannot modify files in plan mode. Switch to normal mode (Shift+Tab) to implement changes.`;
 }
 
+export function planModeBlockReason(toolName: string): string {
+  return readOnlyModeBlockReason(toolName, "plan");
+}
+
+export function askModeBlockReason(toolName: string): string {
+  return readOnlyModeBlockReason(toolName, "ask");
+}
+
+export function isToolBlockedInReadOnlyMode(toolName: string): boolean {
+  return READ_ONLY_MODE_BLOCKED_TOOLS.has(toolName);
+}
+
 export function isToolBlockedInPlanMode(toolName: string): boolean {
-  return PLAN_MODE_BLOCKED_TOOLS.has(toolName);
+  return isToolBlockedInReadOnlyMode(toolName);
 }
 
 export function cycleMode(current: DevMode): DevMode {
@@ -77,9 +116,15 @@ export function isToolAllowedInPlanMode(toolName: string): boolean {
 }
 
 export function systemPromptForMode(basePrompt: string, mode: DevMode): string {
-  if (mode !== "plan") return basePrompt;
-  if (basePrompt.includes("## Plan mode (active)")) return basePrompt;
-  return basePrompt + PLAN_MODE_SYSTEM_APPENDIX;
+  if (mode === "plan") {
+    if (basePrompt.includes("## Plan mode (active)")) return basePrompt;
+    return basePrompt + PLAN_MODE_SYSTEM_APPENDIX;
+  }
+  if (mode === "ask") {
+    if (basePrompt.includes("## Ask mode (active)")) return basePrompt;
+    return basePrompt + ASK_MODE_SYSTEM_APPENDIX;
+  }
+  return basePrompt;
 }
 
 /**
@@ -135,8 +180,8 @@ export function shouldAutoApprove(
 ): boolean {
   if (mode === "yolo") return true;
 
-  if (mode === "plan") {
-    return !isToolBlockedInPlanMode(toolName);
+  if (mode === "plan" || mode === "ask") {
+    return !isToolBlockedInReadOnlyMode(toolName);
   }
 
   if (mode === "auto-accept") {

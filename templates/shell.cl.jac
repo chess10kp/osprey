@@ -4,6 +4,21 @@ Ported visual design from nanocoder."""
 import from "ink" { Box, Text, useInput, usePaste }
 import from "./components/transcript.cl.jac" { ChatHistory, LiveToolRow }
 import from "./components/streammsg.cl.jac" { StreamingMessage }
+import from "./components/filediff.cl.jac" { FileDiffEditor }
+import from "./components/diff_engine.cl.jac" {
+    new_diff_state,
+    diff_snapshot,
+    diff_open,
+    diff_close,
+    diff_move_line,
+    diff_next_hunk,
+    diff_next_file,
+    diff_accept_hunk,
+    diff_reject_hunk,
+    diff_write_files,
+    diff_edit_selection,
+    diff_scroll_page,
+}
 import from "./jac_pi_runtime_shim.mjs" {
     useJackalBoot,
     useJackalSession,
@@ -86,6 +101,7 @@ def phase_color(phase: str) -> str {
 def mode_color(mode: str) -> str {
     if mode == "yolo" { return "red"; }
     if mode == "plan" { return "yellow"; }
+    if mode == "ask" { return "blue"; }
     if mode == "auto-accept" { return "cyan"; }
     return "gray";
 }
@@ -899,8 +915,11 @@ def:pub app() -> JsxElement {
     has show_usage_detail: bool = False;
     has approval_menu_index: int = 0;
     has last_approval_id: str = "";
+    has diff_rev: int = 0;
+    has diff_state: dict = new_diff_state();
 
     completions: any = useCompletions(input_text, input_cursor);
+    diff_overlay: any = diff_snapshot(diff_state);
 
     # Derived from snap - plain locals, not has (would call setState during render)
     phase: any = "ready";
@@ -982,6 +1001,9 @@ def:pub app() -> JsxElement {
     }
 
     def submit_main(text: str) -> None {
+        if diff_overlay and bool(diff_overlay.get("active", False)) {
+            return;
+        }
         cmd: str = text.strip();
         if not cmd { return; }
 
@@ -1095,6 +1117,12 @@ def:pub app() -> JsxElement {
             } elif session and not rest_dm {
                 session.send("Usage: /jac diagram-to-model <description or @file>");
             }
+            return;
+        }
+        if cmd.startswith("/diff") {
+            dp: list = cmd.split(" ", 1);
+            scope: str = dp[1].strip() if len(dp) > 1 else "";
+            open_diff_overlay(scope);
             return;
         }
         if cmd.startswith("/checkpoint") {
@@ -1377,6 +1405,21 @@ def:pub app() -> JsxElement {
         submit_main(text);
     }
 
+    def bump_diff() -> None {
+        diff_rev = diff_rev + 1;
+        diff_overlay = diff_snapshot(diff_state);
+    }
+
+    def open_diff_overlay(scope: str) -> None {
+        cwd: str = session_entry_cwd(session) if session else "";
+        if not cwd {
+            import os;
+            cwd = os.getcwd();
+        }
+        diff_open(diff_state, cwd, scope);
+        bump_diff();
+    }
+
     def confirm_tool_approval(allow: bool) -> None {
         if not pending_approval or not session {
             return;
@@ -1415,6 +1458,10 @@ def:pub app() -> JsxElement {
             if resume_picker_active {
                 return;
             }
+            diff_paste: bool = diff_overlay and bool(diff_overlay.get("active", False));
+            if diff_paste {
+                return;
+            }
             explorer_paste: bool = explorer and bool(getattr(explorer, "active", False));
             if explorer_paste {
                 return;
@@ -1440,6 +1487,72 @@ def:pub app() -> JsxElement {
                 }
                 if key.return {
                     confirm_tool_approval(approval_menu_index == 0);
+                    return;
+                }
+                return;
+            }
+
+            diff_active: bool = diff_overlay and bool(diff_overlay.get("active", False));
+            if diff_active {
+                ch_d: str = ch.lower() if ch else "";
+                if key.escape or ch_d == "q" {
+                    diff_close(diff_state, False);
+                    bump_diff();
+                    return;
+                }
+                if key.return {
+                    diff_write_files(diff_state);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "j" or key.downArrow {
+                    diff_move_line(diff_state, 1);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "k" or key.upArrow {
+                    diff_move_line(diff_state, -1);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "n" {
+                    diff_next_hunk(diff_state, 1);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "p" {
+                    diff_next_hunk(diff_state, -1);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "a" {
+                    diff_accept_hunk(diff_state);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "r" {
+                    diff_reject_hunk(diff_state);
+                    bump_diff();
+                    return;
+                }
+                if ch_d == "e" {
+                    diff_edit_selection(diff_state);
+                    bump_diff();
+                    return;
+                }
+                if key.tab {
+                    diff_next_file(diff_state, 1);
+                    bump_diff();
+                    return;
+                }
+                if key.pageDown {
+                    diff_scroll_page(diff_state, 5);
+                    bump_diff();
+                    return;
+                }
+                if key.pageUp {
+                    diff_scroll_page(diff_state, -5);
+                    bump_diff();
                     return;
                 }
                 return;
@@ -1894,6 +2007,9 @@ def:pub app() -> JsxElement {
                 <ToolConfirmationOverlay pending={pending_approval} menu_index={approval_menu_index}/>
             )}
             {show_help and <HelpPanel/>}
+            {diff_overlay and bool(diff_overlay.get("active", False)) and (
+                <FileDiffEditor state={diff_overlay}/>
+            )}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
             {tasks_overlay and <TasksOverlay overlay={tasks_overlay}/>}
             {checkpoint_overlay and <CheckpointOverlay overlay={checkpoint_overlay}/>}

@@ -28,7 +28,6 @@ Features (implemented or planned in the Jackal runtime):
 | `/subagent-model ...` | List/set model pins for subagent roles |
 | `/commit [message]` | Review git changes and commit with a conventional message |
 | `/mermaid` | Render mermaid blocks in last assistant message as ASCII |
-
 ## CLI Flags
 
 | Flag | Description |

@@ -61,15 +61,21 @@ export type { CompletionContext, Suggestion } from "./ui/completions.js";
 export type { DevMode } from "./agent/dev-mode.js";
 export {
   DEV_MODES,
+  READ_ONLY_MODE_BLOCKED_TOOLS,
   PLAN_MODE_BLOCKED_TOOLS,
   PLAN_MODE_SYSTEM_APPENDIX,
+  ASK_MODE_SYSTEM_APPENDIX,
   cycleMode,
   parseModeFlag,
   isDestructiveBash,
   shouldAutoApprove,
+  isReadOnlyMode,
   isToolAllowedInPlanMode,
+  isToolBlockedInReadOnlyMode,
   isToolBlockedInPlanMode,
   planModeBlockReason,
+  askModeBlockReason,
+  readOnlyModeBlockReason,
   systemPromptForMode,
   resolveBootMode,
 } from "./agent/dev-mode.js";
