@@ -49,6 +49,7 @@ UI lives in `templates/shell.cl.jac`; hooks via `@jac/pi` (resolved by jac-ink a
 | Tool timeline UI | Running/done tool rows inline in chat transcript | Done |
 | Tool detail in UI | Name, status, truncated input/result, duration | Done |
 | Notifications | Extension `notify()` surfaced in shell | Done |
+| Message queue | Queue sends while agent is busy; drain after turn; status bar `queue=N` | Done |
 | Help panel | `/help` command reference | Done |
 | `/compact` | Context compaction with LLM summary (default) + mechanical fallback | Done |
 | `/usage` | Context utilization panel + status bar progress | Done |
@@ -138,6 +139,7 @@ Port into the Jackal runtime (`src/` + `templates/shell.cl.jac`).
 | `/jac-doctor` | Detect Jac install, project type, MCP, `.jac` files | Done |
 | `/jac-check` | Run `jac check`, display diagnostics | Done |
 | Autocheck on edit | Re-validate `.jac` after write/edit when `autocheck` enabled | Done |
+| Autoformat on edit | Run `jac format` on `.jac` after write/edit when `autoformat` enabled (before autocheck) | Done |
 | `/fix` | Check → patch → re-check loop (capped retries) | Done |
 | `/create` | Wrapper around `jac create` templates | Done |
 | Skills on demand | Load `pi/skills/*/SKILL.md` when task matches | Done (skill index in system prompt, agent reads via read tool) |

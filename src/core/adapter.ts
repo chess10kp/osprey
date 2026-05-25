@@ -398,7 +398,12 @@ export async function createNextAgent(
         try {
           const result = await session.sendUserMessage(outgoing);
           if (result === "queued") {
-            uiContext.notify("Message queued — will run after the current turn finishes.", "info");
+            const n = session.getQueuedMessages().length;
+            const suffix = n === 1 ? "1 message" : `${n} messages`;
+            uiContext.notify(
+              `Queued (${suffix}) — will run after the current turn finishes.`,
+              "info",
+            );
           }
         } catch (err) {
           uiContext.notify(String(err instanceof Error ? err.message : err), "error");

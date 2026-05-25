@@ -374,19 +374,144 @@ def _parse_one_file(chunk: str) -> any {
 }
 
 
+def _paths_in_patch(patch: str) -> any {
+    paths: any = {};
+    for line_raw in patch.split("\n") {
+        line: str = str(line_raw);
+        if line.startswith("+++ b/") {
+            p: str = line[6:].strip();
+            if p and p != "/dev/null" {
+                paths[p] = True;
+            }
+        }
+    }
+    return paths;
+}
+
+
+def list_untracked_files(cwd: str) -> list {
+    try {
+        result: any = spawnSync(
+            "git",
+            ["ls-files", "--others", "--exclude-standard"],
+            {"cwd": cwd, "encoding": "utf8"},
+        );
+        status: int = int(result.status) if result.status is not None else 0;
+        if status != 0 {
+            return [];
+        }
+        out: list = [];
+        if not result.stdout {
+            return out;
+        }
+        for line_raw in str(result.stdout).split("\n") {
+            line: str = str(line_raw).strip();
+            if line {
+                out.append(line);
+            }
+        }
+        return out;
+    } except Exception {
+        return [];
+    }
+}
+
+
+def _path_matches_scope(path: str, scope: str) -> bool {
+    if not scope {
+        return True;
+    }
+    if path == scope {
+        return True;
+    }
+    if scope.endswith("/") and path.startswith(scope) {
+        return True;
+    }
+    if path.startswith(scope + "/") {
+        return True;
+    }
+    return False;
+}
+
+
+def patch_for_untracked(cwd: str, rel_path: str) -> str {
+    try {
+        result: any = spawnSync(
+            "git",
+            ["diff", "--no-index", "/dev/null", rel_path],
+            {"cwd": cwd, "encoding": "utf8", "maxBuffer": 10 * 1024 * 1024},
+        );
+        status: int = int(result.status) if result.status is not None else 0;
+        if status not in [0, 1] {
+            return "";
+        }
+        if not result.stdout {
+            return "";
+        }
+        return str(result.stdout);
+    } except Exception {
+        return "";
+    }
+}
+
+
+def append_untracked_patches(cwd: str, patch: str, scope_filter: str) -> str {
+    existing: any = _paths_in_patch(patch);
+    for rel_path_raw in list_untracked_files(cwd) {
+        rel_path: str = str(rel_path_raw);
+        if rel_path in existing {
+            continue;
+        }
+        if not _path_matches_scope(rel_path, scope_filter) {
+            continue;
+        }
+        extra: str = patch_for_untracked(cwd, rel_path);
+        if not extra or not extra.strip() {
+            continue;
+        }
+        if patch and not patch.endswith("\n") {
+            patch += "\n";
+        }
+        if patch {
+            patch += "\n";
+        }
+        patch += extra;
+        existing[rel_path] = True;
+    }
+    return patch;
+}
+
+
+def _patch_file_count(patch: str) -> int {
+    fc: int = 0;
+    for line_raw in patch.split("\n") {
+        line: str = str(line_raw);
+        if line.startswith("diff --git ") {
+            fc += 1;
+        }
+    }
+    return fc;
+}
+
+
 def collect_git_patch(cwd: str, scope: str) -> any {
     if not cwd {
         cwd = os.getcwd();
     }
-    scope = scope.strip().lower();
+    raw_scope: str = scope.strip();
+    scope_key: str = raw_scope.lower();
     args: list = ["diff"];
     label: str = "working tree";
-    if scope == "staged" or scope == "--staged" or scope == "cached" {
+    is_staged: bool = False;
+    path_scope: str = "";
+    if scope_key == "staged" or scope_key == "--staged" or scope_key == "cached" {
         args = ["diff", "--staged"];
         label = "staged";
-    } elif scope and scope not in ["", "work", "working"] {
-        args = ["diff", "--", scope];
-        label = scope;
+        is_staged = True;
+    } elif raw_scope and scope_key not in ["", "work", "working"] {
+        args = ["diff", "--", raw_scope];
+        label = raw_scope;
+        path_scope = raw_scope;
     }
     try {
         result: any = spawnSync("git", args, {
@@ -412,13 +537,10 @@ def collect_git_patch(cwd: str, scope: str) -> any {
         if result.stdout {
             patch = str(result.stdout);
         }
-        fc: int = 0;
-        for line_raw in patch.split("\n") {
-            line: str = str(line_raw);
-            if line.startswith("diff --git ") {
-                fc += 1;
-            }
+        if not is_staged {
+            patch = append_untracked_patches(cwd, patch, path_scope);
         }
+        fc: int = _patch_file_count(patch);
         return {
             "ok": True,
             "patch": patch,
@@ -583,6 +705,20 @@ def apply_file_from_rows(
         old_start: int = int(h["old_start"]);
         old_count: int = int(h["old_count"]);
         if old_start < 1 {
+            key: str = hunk_key(file_path, int(h["index"]));
+            dec_new: str = "pending";
+            if key in decisions {
+                dec_new = str(decisions[key]);
+            }
+            if dec_new == "accepted" {
+                new_seg: list = _hunk_new_lines(
+                    rows, int(h["start_row"]), int(h["end_row"])
+                );
+                for ln in new_seg {
+                    result.append(ln);
+                }
+            }
+            cursor = len(orig_lines);
             continue;
         }
         idx0: int = old_start - 1;

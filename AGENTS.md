@@ -1,192 +1,345 @@
-# Jackal — Jac-native coding agent
+# Jackal — Agent onboarding (read this first)
 
-## Guidelines
+Jac-native terminal coding agent. **Ink TUI** (`templates/shell.cl.jac`) + **headless TypeScript runtime** (`src/` → `dist/`). Does **not** use the legacy Pi extension shell (`pi/extensions/` was removed).
 
-- Commit after each feature or bugfix
-- If there are bugs with jac-ink, let the human know. Tell them to fix the errors upstream and it will be done.
-- Do not write shim scripts. What we want to do instead is to fix the actual jac-tui plugin upstream.
+---
 
-## What
+## Rules for agents working in this repo
 
-A full-fledged coding agent for Jac/Jaseci development. Jackal runs as an Ink TUI with a headless TypeScript runtime — it does **not** use Pi as its shell.
+1. **Commit** after each feature or bugfix (unless the user says otherwise).
+2. **Do not modify** `jac-ink`, `jaclang`, or `jac-client`. Do **not** write or edit compile-pipeline shims in jac-tui.
+3. **Do not edit** `templates/jackal_agent_facade.mjs` as a long-term fix — it is copied into `.jac/tui/` by `jackal.sh`; real hook naming belongs in jac-ink upstream. Short-term Jackal-only facade tweaks in-repo are acceptable when the human agrees.
+4. **Framework/plugin gaps** → stop, document symptom + owning repo + minimal recommended fix for the **human** (see [Human handoff](#human-handoff-jac-ink--jaclang)).
+5. **Work here:** `src/`, `templates/shell.cl.jac` + `templates/components/`, `jackal.sh`, `scripts/*.mjs` (TUI postprocess only), `pi/skills/`, `pi/prompts/`, docs, tests.
 
-## Architecture
+---
 
-Jac-native agent project with:
-- `jackal/SYSTEM.md` — custom Jackal system prompt that emphasizes evidence-based decisions, spatial modeling, and OSP-first design
-- `jackal/mcp.json` — wires up the official **Jac MCP server** (`jac mcp`), which exposes the full Jac toolchain as 19 LLM-callable tools (`validate_jac`, `check_syntax`, `run_jac`, `format_jac`, `lint_jac`, `explain_error`, `list_examples`, `get_example`, `search_docs`, `get_resource`, `get_ast`, `py_to_jac`, `jac_to_py`, `jac_to_js`, `graph_visualize`, `list_commands`, `get_command`, `execute_command`, `understand_jac_and_jaseci`) plus 52 doc resources and 9 prompts.
-- `mermaid-renderer` — renders Mermaid diagrams as ASCII art in the TUI. Supports flowchart, sequence, class, ER, and state diagrams. Auto-renders mermaid blocks in chat or via a `/mermaid` command.
-- **`.jackal` project config** — per-project JSON file that controls Jackal behavior. Read at session_start, walks up from CWD to find it. Keys: `autocheck`, `autoformat`, `verbose`, `plan`, `maxFixAttempts`, `mermaid`, `notify`, `subagents`.
-- `subagents/` and `chains/` — local subagent workflows and saved chain files. Provides support for built-in agent roles (scout, planner, worker, reviewer, oracle, researcher), chain/parallel execution patterns, and model/workflow overrides via project settings.
-- `subagents/agents/` — Jac-specific subagent definitions. Each is a `.md` file with YAML frontmatter (`name`, `description`, `model`, `tools`) and a system prompt body:
-  - `scout` — Fast Jac codebase recon (Haiku, cheap/fast)
-  - `architect` — OSP graph design and planning (Sonnet, reasoning)
-  - `implementer` — Code implementation with full edit capabilities (Sonnet)
-
-- `chains/` — Saved `.chain.md` workflow files for subagent workflows:
-  - `pipeline` — scout → planner → worker (full pipeline)
-- `patches/` — `patch-package` diffs applied on `npm install` via `postinstall` script:
-  - `@unipi+notify+2.0.1.patch` — brands notifications as "Jackal".
-  - `scout-and-design` — scout → planner (investigate + design)
-
-- `skills/` — Agent Skills (SKILL.md files) the LLM reads on-demand for Jac-specific workflows.
-- `prompts/` — reusable prompt templates
-
-## Allowed Tools
-
-The canonical set of tools Jackal may use, organized by tier.
-
-### Tier 1 — Core edit-validate-run loop (constant use)
-
-| Tool | Purpose |
-|------|---------|
-| `read` | Read file contents (text or images) — understand before touching |
-| `write` | Create or overwrite files |
-| `edit` | Targeted text replacement in existing files |
-| `bash` | Run shell commands (`jac` CLI, `git`, `find`, etc.) |
-| `jac_validate_jac` | Full type-check validation of Jac code — primary correctness gate |
-| `jac_check_syntax` | Parse-only syntax check (faster, no type checking) |
-| `jac_run_jac` | Execute Jac code and return stdout/stderr — runtime verification |
-
-### Tier 2 — Orientation & lookup (frequent use)
-
-| Tool | Purpose |
-|------|---------|
-| `web_search` | Search the public web (Brave API; set `BRAVE_API_KEY`) |
-| `web_fetch` | Fetch a URL and return readable text |
-| `jac_search_docs` | Look up Jac syntax, APIs, and patterns by keyword |
-| `code_overview` | Summarize project structure (directory tree + top-level symbols) |
-| `ast_search` | Find code matching a structural pattern (walkers, nodes, etc.) |
-| `lsp_diagnostics` | Get compilation errors/warnings from LSP |
-| `lsp_hover` | Get type info and docs for a symbol |
-| `lsp_definition` | Go to definition of a symbol |
-| `lsp_references` | Find all references to a symbol |
-| `lsp_completions` | Get completion suggestions at a position |
-
-### Tier 3 — Transformation & visualization (situational)
-
-| Tool | Purpose |
-|------|---------|
-| `code_rewrite` | Batch structural code transformations via AST matching |
-| `lsp_rename` | Rename a symbol across the project |
-| `lsp_code_actions` | Get available quick fixes / refactorings |
-| `lsp_symbols` | List symbols in a file or search workspace |
-| `jac_graph_visualize` | Visualize Jac graph output as DOT or JSON |
-| `jac_get_ast` | Parse Jac code and return AST (tree or JSON) |
-
-### Tier 4 — MCP gateway & orchestration
-
-| Tool | Purpose |
-|------|---------|
-| `mcp` | Route to Jac MCP server (85 tools: format, lint, transpile, examples, etc.) or browsermcp |
-| `subagent` | Delegate to subagents: single, chain, parallel, async execution |
-
-### Skills (loaded on demand)
-
-30 skills covering Jac language patterns, OSP, auth, fullstack, components, scaffolding, refactoring, diagnosis. Read via `read` tool when task matches description.
-
-## Reference implementation
-
-`reference/pi-lsp-extension/` remains a **legacy reference** for older Pi-extension patterns (kept for historical context).
-
-For active development, treat `src/` + `templates/` as primary and keep architecture/runtime decisions aligned with:
-- `docs/FEATURES.md`
-- `docs/JAC-TUI.md`
-- `docs/PLAN.md`
-
-## Project structure
-
-```
-jackal/
-├── AGENTS.md                    # this file
-├── README.md
-├── ROADMAP.md
-├── jackal.sh                    # launcher script
-├── src/                         # headless agent runtime (canonical)
-│   ├── core/                    # adapter, store, bridge, ui-context
-│   ├── auth/                    # credentials + login flow
-│   ├── session/                 # session manager + agent loop
-│   ├── agent/                   # tools, MCP, dev-mode, approval
-│   ├── config/                  # .jackal project config
-│   ├── jac/                     # jac CLI, doctor, workflows, LSP
-│   ├── workflow/                # tasks, checkpoints, context
-│   ├── orchestration/           # subagents, chains
-│   ├── project/                 # init, explorer, skills
-│   ├── ui/                      # completions
-│   ├── render/                  # mermaid renderer
-│   └── cli/                     # headless run CLI
-├── templates/                   # Ink shell (shell.cl.jac + facade)
-├── pi/                          # package data (not a Pi extension runtime)
-│   ├── SYSTEM.md                # Jackal system prompt
-│   ├── settings.json            # model defaults, subagent overrides
-│   ├── mcp.json                 # registers `jac mcp` server
-│   ├── skills/                  # Jac SKILL.md files
-│   ├── prompts/                 # workflow prompt templates
-│   ├── .pi/agents/              # built-in subagent definitions
-│   └── chains/                  # saved subagent chain workflows
-├── docs/
-│   └── CONSOLIDATION_PLAN.md    # runtime consolidation roadmap
-└── reference/
-    └── pi-lsp-extension/        # legacy reference only
-```
-
-## Development
-
-Primary workflow:
+## Quick start (dev)
 
 ```bash
-npm run build:agent   # compile TS adapter → dist/
-./jackal.sh           # compile shell.cl.jac via jac-ink and run Ink app
+npm install              # applies patch-package
+npm run build:agent      # tsc → dist/
+./jackal.sh              # compile shell + run Ink (TTY required)
+
+# CI / headless (no jac-ink, no TTY)
+npm run check            # or ./jackal.sh --check
+./jackal.sh run "prompt" # headless one-shot
 ```
 
-## Status and roadmap
+| Command | What it does |
+|---------|----------------|
+| `npm run build:agent` | Compile `src/` → `dist/index.js` |
+| `./jackal.sh` | Build adapter if needed, `jac tui templates/shell.cl.jac`, postprocess, run `.jac/tui/runner.mjs` |
+| `./jackal.sh --check` | Smoke: boot session, send message, wait for `agent_end` |
+| `./jackal.sh run "…"` | Headless CLI (`src/cli/run.ts`) |
+| `./jackal.sh --mode plan` | Boot in plan mode (also `JACKAL_MODE`) |
+| `npm test` | Vitest: `tests/adapter/`, `tests/session/` |
+| `npm run test:tui` | Ink component tests (precompiled fixtures) |
 
-Jackal is a Jac-native terminal agent. All active development targets the Ink shell launched by `./jackal.sh`.
+**Requirements:** Node.js, `jac` CLI (+ `jac mcp` for MCP tools), **jac-ink** for TUI compile (`jac tui`). Install: `./scripts/setup-jac-ink.sh`. Non-interactive Ink fails without a TTY.
 
-Current priorities:
-- Fast, reliable TUI boot (defer heavy work like MCP until after first render)
-- Stabilize streaming/render behavior in the Ink shell
-- Harden adapter/bridge behavior in `src/`
-- Keep Jac MCP tooling as the primary validate/run/check surface
-- Port remaining workflows into the Jackal runtime (`src/` + `templates/shell.cl.jac`)
+---
 
-The legacy Pi extension under `pi/extensions/` was **removed** (see `docs/CONSOLIDATION_PLAN.md`). Launch only via `./jackal.sh`.
+## Architecture (one picture)
 
-## Runtime architecture notes
-
-### Compilation pipeline (jac-ink)
-
-The Jackal shell compiles `.cl.jac` → Ink via the **jac-ink** plugin in the separate **jac-tui** repo (`~/repos/jac-tui/jac-ink`). See `docs/JAC-TUI.md` for what belongs in jac-tui vs this repo.
-
-**Runtime:** headless adapter in `src/`; Ink UI in `templates/shell.cl.jac` talks to the adapter through jac-ink-provided hooks (`templates/jackal_agent_facade.mjs`).
-
-### Framework / plugin changes — human in the loop
-
-**Do not modify jac-ink, jaclang, or jac-client yourself.** Do not write or edit shim scripts (`jac_pi_runtime_shim.mjs`, `jackal_agent_facade.mjs`, emitted runtime shims, etc.). The human maintains the jac-ink plugin and will apply toolchain fixes there.
-
-When Jackal work requires a **framework or plugin change**, stop and **tell the human explicitly**:
-
-- What is broken or missing (symptom + file/line if known)
-- Which repo/layer owns the fix (`jac-tui/jac-ink`, `jaclang`, `jac_client`, upstream components)
-- The minimal change you would recommend (design note only — do not implement it in those repos)
-- Any workaround still needed in this repo until the plugin is updated
-
-Examples that belong in jac-tui/jac-ink (describe to human, do not patch):
-
-- Vite bypass / `ClientBundleBuilder` for Ink
-- `@jac/pi` import detection, rewrite, and `_ensure_pi_import()`
-- Adapter injection (`--adapter`, `JACKAL_AGENT_DIST`, etc.) instead of copying shims in `jackal.sh`
-- `.cl.jac` module stem or `@jac/pi` bundling behavior (may be jaclang/jac_client upstream)
-
-**Work in this repo only:** `src/` (adapter, store, bridge, auth), `templates/shell.cl.jac` (Ink UI), `jackal.sh` launch wiring, docs, and skills under `pi/skills/` — not jac-ink internals.
-
-### Running
-
-```bash
-npm run build:agent   # compile TS adapter
-./jackal.sh           # compile shell via jac-ink + run Ink app (interactive terminal required)
+```
+User terminal
+    │
+    ▼
+jackal.sh
+    ├─ build dist/index.js (tsc)
+    ├─ jac tui templates/shell.cl.jac → .jac/tui/
+    ├─ postprocess: facade, sed hook renames, fix-tui-module.mjs, …
+    └─ node .jac/tui/runner.mjs
+            │
+            │  @jac/pi hooks (jackal_agent_facade.mjs)
+            ▼
+        createNextAgent(cwd)  ← dist/index.js
+            │
+            ├─ JackalAgentSession  (pi-agent-core Agent loop)
+            ├─ bridgeEvents()      → AgentStore (immutable snapshots)
+            ├─ JackalUIContext     (dialogs, notify)
+            └─ AuthFlowStore + AuthActions
+            │
+            ▼
+        shell.cl.jac React/Ink UI subscribes to store + UI context
 ```
 
-Non-interactive runs fail on Ink raw mode (TTY required).
+**Single source of truth for UI state:** `AgentStore` (`src/core/store.ts`). Only `bridge.ts` mutates it after boot (plus approval callbacks). Ink reads snapshots via facade hooks (`useJackalSession`, `useTranscript`, …).
 
-Reference docs: `docs/FEATURES.md`, `docs/JAC-TUI.md`, `docs/PLAN.md`.
+**Agent brain:** `JackalAgentSession` (`src/session/agent-session.ts`) wraps `@earendil-works/pi-agent-core` `Agent` + `@earendil-works/pi-ai` models/auth. Not `pi-coding-agent` — embedded adapter only.
+
+---
+
+## Environment variables
+
+| Variable | Set by | Purpose |
+|----------|--------|---------|
+| `JACKAL_AGENT_DIST` | `jackal.sh` | Path to `dist/index.js` for facade dynamic import |
+| `JACKAL_AGENT_CWD` | `jackal.sh` (default `$PWD`) | User project root: sessions, `.jackal`, tools, LSP |
+| `JACKAL_AGENT_DIR` | `jackal.sh` → `$REPO/pi` | Package bundle: `SYSTEM.md`, skills, default subagents, auth path |
+| `JACKAL_MODE` | `--mode` flag | `normal` \| `auto-accept` \| `yolo` \| `plan` \| `ask` |
+| `JACKAL_HEAP_MB` | optional | Node heap (default 4096 in launcher) |
+| `JACKAL_SKIP_TUI_COMPILE` | optional | `1` = use cached `.jac/tui` |
+| `JACKAL_TUI_OUT` | optional | Override TUI output dir (default `.jac/tui`) |
+| `JACKAL_CONTEXT_MAX` | optional | Context window override for `/usage` / auto-compact |
+| `JAC_DISABLED_PLUGINS` | `jackal.sh` | Disables `jac-desktop` in CLI |
+
+**Auth:** `jackal.sh` symlinks `pi/auth.json` → `~/.pi/agent/auth.json` if missing. Runtime resolves auth via `JACKAL_AGENT_DIR/auth.json` or `~/.jackal/auth.json`.
+
+**Sessions:** `<JACKAL_AGENT_CWD>/.jackal/sessions/*.jsonl` (+ index). Legacy Pi sessions may exist under `pi/sessions/` in the Jackal repo (user data).
+
+---
+
+## `src/` module map (where to edit what)
+
+| Path | Responsibility |
+|------|----------------|
+| `core/adapter.ts` | **`createNextAgent()`** — wires store, session, bridge, auth, exposes `actions.*` for shell/facade |
+| `core/store.ts` | Immutable `AgentSnapshot`: phase, transcript, tools, MCP, queue, approvals |
+| `core/bridge.ts` | Session events → store mutations (`agent_start`, `tool_execution_*`, `mcp_ready`, `queue_changed`, …) |
+| `core/ui-context.ts` | Dialogs, notifications for Ink overlays |
+| `core/agent-busy.ts` | Busy detection for queue / abort UX |
+| `core/tool-summary.ts` | One-line tool labels in transcript |
+| `session/agent-session.ts` | Agent loop, tools, MCP lazy connect, LSP, autocheck, slash expansion, compaction |
+| `session/session.ts` | Disk persistence, 30s auto-save |
+| `session/session-index.ts` | Session list, resume, retention prune |
+| `session/outbound-queue.ts` | Queue user messages while agent busy |
+| `session/auto-compact.ts` / `llm-compact.ts` | Threshold compaction (LLM default, mechanical fallback) |
+| `agent/tools.ts` | Core tools: read, write, edit, bash, glob, jac_*, LSP, mermaid, … |
+| `agent/dev-mode.ts` | Modes + read-only tool blocks (plan/ask) |
+| `agent/tool-approval.ts` | Pending destructive tool approval |
+| `agent/mcp-client.ts` | Stdio MCP to `jac mcp` (reads `<cwd>/pi/mcp.json`) |
+| `agent/system-prompt.ts` | Loads `jackal/SYSTEM.md` or `pi/SYSTEM.md` + skill index |
+| `auth/*` | pi-ai OAuth/API keys, model picker state |
+| `config/project-config.ts` | Walk-up `.jackal` JSON loader |
+| `jac/jac-cli.ts` | Parse `jac check`, format, test, run |
+| `jac/lsp-*.ts` | Jac LSP client + tool wrappers |
+| `jac/jac-workflows.ts` | `/osp`, explain prompts, `/init`, diagram-to-model |
+| `orchestration/subagents.ts` | Load `pi/.pi/agents/*.md` + project `subagents/` |
+| `orchestration/chains.ts` | `.chain.md` workflows |
+| `workflow/*` | Checkpoints, tasks, custom commands, file mentions, context usage |
+| `project/skills.ts` | SKILL.md discovery (package + project) |
+| `cli/run.ts` | Headless `jackal run` |
+| `ui/completions.ts` | Slash + `@file` completions for facade |
+| `render/mermaid-render.ts` | Mermaid → ASCII |
+
+**Public API:** everything re-exported from `src/index.ts` (also `dist/index.js`).
+
+---
+
+## `templates/` (Ink UI — Jac, not TypeScript)
+
+| File | Role |
+|------|------|
+| `shell.cl.jac` | Main app: layout, slash routing, overlays (help, explorer, tasks, checkpoints, diff editor, auth) |
+| `components/*.cl.jac` | transcript, statusbar, userinput, authflow, toolline, filediff, helppanel, … |
+| `jackal_agent_facade.mjs` | React hooks bridging Ink ↔ `createNextAgent` (copied to `.jac/tui/jac_pi_runtime_shim.mjs`) |
+| `markdown.mjs`, `text-wrapping.mjs` | Rendered assistant markdown in TUI |
+| `diff_engine_node.mjs` | Node sidecar for interactive diff accept/reject |
+
+**Compile flow:** `jac tui shell.cl.jac --out .jac/tui --no_run` then `jackal.sh` **postprocess_tui**: rename `usePi*` → `useJackal*`, copy facade/markdown/diff, run `scripts/fix-tui-module.mjs`, `patch-tui-runner.mjs`, `dedupe-jac-runtime.mjs`.
+
+**UI imports hooks from** `./jac_pi_runtime_shim.mjs` (resolved at runtime in `.jac/tui/`).
+
+---
+
+## `pi/` — config bundle (not runtime code)
+
+Legacy name “pi”; this directory is **data**, not the Pi extension.
+
+| Path | Used for |
+|------|----------|
+| `pi/SYSTEM.md` | Default system prompt (also try `<cwd>/jackal/SYSTEM.md`) |
+| `pi/mcp.json` | MCP server config — read from **`<JACKAL_AGENT_CWD>/pi/mcp.json`** if present |
+| `pi/skills/*/SKILL.md` | On-demand skills (26); indexed into system prompt |
+| `pi/prompts/*.md` | Workflow templates (osp, explain-*, convert-python, review-idioms, diagram-to-model) |
+| `pi/.pi/agents/*.md` | Built-in subagents: scout, architect, implementer |
+| `pi/chains/*.chain.md` | scout-and-design, pipeline |
+| `pi/settings.json` | Default models / subagent overrides (reference; runtime uses auth + `.jackal`) |
+| `pi/auth.json` | Symlink to global provider credentials |
+| `patches/` | `patch-package` — e.g. notify branded “Jackal” |
+
+Project overrides: `<cwd>/.jackal/`, `<cwd>/subagents/`, `<cwd>/chains/`, `<cwd>/.jackal/commands/*.md`.
+
+---
+
+## Agent loop behavior (mental model)
+
+1. **Boot:** `createNextAgent` → `JackalAgentSession.initialize()` → `bridgeEvents` → store `phase: ready`.
+2. **Background:** `scheduleMcpConnect()` (lazy, after first frame), `scheduleLspConnect()` (unless `.jackal` `lsp: false`).
+3. **Send:** User text → optional slash/custom-command expansion → `Agent.prompt()` → streaming events → bridge updates `streamingText` + transcript.
+4. **Tools:** `tool_execution_start/end` → transcript tool rows + `toolExecutions` map; approval queue in normal mode.
+5. **Queue:** If busy, messages go to `OutboundMessageQueue`; drained on `agent_end` (`queue_changed` events).
+6. **Modes:** `dev-mode.ts` blocks write/edit/format/MCP mutators in `plan` and `ask`.
+7. **Dispose:** `actions.dispose()` on exit; session auto-save.
+
+**Store phases:** `booting` → `ready` | `streaming` | `compacting` | `retrying` | `error`.
+
+---
+
+## Dev modes
+
+| Mode | Behavior |
+|------|----------|
+| `normal` | Tool approval for destructive ops |
+| `auto-accept` | Auto-approve tools |
+| `yolo` | Auto-approve including risky bash |
+| `plan` | Read-only: blocks write/edit/format/create/task mutations |
+| `ask` | Same blocks as plan; Q&A oriented system appendix |
+
+Cycle in UI: **Shift+Tab**. CLI: `./jackal.sh --mode plan`. Config: `.jackal` `mode` or legacy `plan: true`.
+
+Blocked tool set: `READ_ONLY_MODE_BLOCKED_TOOLS` in `src/agent/dev-mode.ts`.
+
+---
+
+## Tools exposed to the LLM (runtime names)
+
+Registered in `createCoreTools()` (`src/agent/tools.ts`) + MCP dynamic tools + `agent` subagent tool.
+
+**Tier 1 — core loop:** `read`, `write`, `edit`, `bash`, `glob`, `jac_check`, `jac_format`, `jac_fix`, `jac_test`, `jac_run`, `jac_cli`, `jac_doctor`, `jac_create`, `jac_list_templates`
+
+**Tier 2 — LSP:** `diagnostics`, `hover`, `definition`, `references` (via `lsp-tools.ts`)
+
+**Tier 3 — tasks / viz:** `create_task`, `update_task`, `list_tasks`, `delete_task`, `mermaid`, `compact_context`, `web_search`, `web_fetch` (if configured)
+
+**Tier 4 — MCP:** All tools from `jac mcp` (validate_jac, check_syntax, run_jac, search_docs, get_resource, format_jac, …) — see `pi/mcp.json` `directTools` for eager subset
+
+**Tier 5 — orchestration:** `agent` (subagent delegate; uses `pi-subagents` patterns)
+
+**Post-write hooks:** After `write`/`edit` on `.jac` when enabled in `.jackal`: `autoformat` runs `jac format` first, then `autocheck` runs `jac check`.
+
+---
+
+## Slash commands (implemented in `shell.cl.jac`)
+
+Handled locally in the shell (not Pi SDK). Send via `submit_main("/command")`.
+
+| Command | Action |
+|---------|--------|
+| `/help` | Toggle help panel |
+| `/login`, `/logout`, `/model`, `/cancel` | Auth flows |
+| `/abort` | Cancel active run |
+| `/clear`, `/new` | New session (clears agent memory) |
+| `/compact` | Context compaction (`--preview`, `--restore`, `--llm`, `--mechanical`) |
+| `/usage`, `/context-max` | Context utilization |
+| `/resume`, `/rename`, `/export` | Session management |
+| `/explorer` | Multi-select `@file` injection |
+| `/checkpoint`, `/tasks` | Overlays |
+| `/init` | Generate AGENTS.md for project |
+| `/jac explain …`, `/jac diagram-to-model` | Prompt workflows |
+| `/jac-check`, `/jac-test`, `/jac-format`, `/jac-doctor`, `/jac …` | Tool-backed |
+| `/fix` | Check/fix loop |
+| `/plan`, `/osp` | Plan prompt / OSP workflow |
+| `/create` | `jac create` templates |
+| `/agents`, `/commands`, `/skills` | Catalogs |
+| `/diff` | Interactive diff engine overlay |
+| `/mcp` | MCP status |
+| `/exit` | Quit |
+
+Custom: `<cwd>/.jackal/commands/*.md`. Skills: `/skill:name` expansion in `skills.ts`.
+
+Full list also in `docs/QUICK_REFERENCE.md`.
+
+---
+
+## `.jackal` project config
+
+Walks up from `JACKAL_AGENT_CWD`. Keys (see `src/config/project-config.ts`):
+
+`autocheck`, `autoformat`, `verbose`, `mode`, `plan` (legacy), `maxFixAttempts`, `mermaid`, `notify`, `lsp`, `subagents`, `contextMax`, `sessions` (autoSave, maxCount, retentionDays), `alwaysAllow`, `permissionPatterns`, `autoCompact`, `compactStrategy`.
+
+---
+
+## Tests
+
+| Suite | Location | Run |
+|-------|----------|-----|
+| Adapter/runtime | `tests/adapter/*.test.ts` | `npm run test:adapter` |
+| Session | `tests/session/*.test.ts` | part of `npm test` |
+| TUI components | `tests/tui/*.test.mjs` | `npm run test:tui` (needs fixtures: `npm run test:tui:compile`) |
+
+Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boot, outbound queue, jac-cli parsing.
+
+---
+
+## Human handoff (jac-ink / jaclang)
+
+**Agents do not implement these.** Document and tell the human.
+
+| Symptom / need | Owner | Notes |
+|----------------|-------|-------|
+| `jac tui` missing | jac-ink install | `./scripts/setup-jac-ink.sh` |
+| `@jac/pi` bundling, `.cl.jac` stem, Vite bypass | jac-ink / jaclang / jac-client | See `docs/JAC-TUI.md` |
+| Formal `--adapter` flag instead of env + copy facade | jac-ink | |
+| Hook names (`useJackalBoot` vs `usePiBoot`) | jac-ink emit | `jackal.sh` sed workaround is temporary |
+| Compiler strips `@jac/pi` import | jac-ink `_ensure_pi_import()` | |
+
+**Workarounds in this repo (until upstream fixes):** `jackal.sh` `postprocess_tui`, `scripts/fix-tui-module.mjs`, copying `jackal_agent_facade.mjs` → `jac_pi_runtime_shim.mjs`.
+
+---
+
+## What was removed / do not restore
+
+- `pi/extensions/jackal/*` — deleted; logic lives in `src/`
+- `./jackal.sh --pi` / `JACKAL_CLASSIC_PI` — hard error
+- Pi extension as launch path — see `docs/CONSOLIDATION_PLAN.md`
+
+---
+
+## Docs index (deeper dives)
+
+| Doc | Contents |
+|-----|----------|
+| `docs/FEATURES.md` | Feature checklist + status |
+| `docs/JAC-TUI.md` | jac-ink vs jackal repo boundary |
+| `docs/CONSOLIDATION_PLAN.md` | Runtime consolidation phases |
+| `docs/PLAN.md` | Implementation phases |
+| `docs/QUICK_REFERENCE.md` | Slash commands, flags, config |
+| `docs/PLAN_MODE.md` | Plan mode UX |
+| `docs/NANOCODER-PARITY.md` | TUI parity gaps |
+| `ROADMAP.md` | Product direction |
+| `reference/pi-lsp-extension/` | Legacy reference only |
+
+---
+
+## Allowed tools (Jackal the product — for comparison)
+
+When **using** Jackal as an agent on Jac projects, prefer the tier list in the original product spec: Jac MCP validate/run/check, read/write/edit/bash, LSP, subagents. Full table remains in `docs/QUICK_REFERENCE.md` § Allowed Tools.
+
+For **developing Jackal itself**, use repo tools (read, grep, bash, edit `src/` + `templates/`), run `npm run build:agent` + tests, and hand off jac-ink issues to the human.
+
+---
+
+## Current priorities (from maintainers)
+
+1. Fast TUI boot — MCP/LSP deferred after first frame  
+2. Stable streaming / transcript / tool rows in Ink  
+3. Harden adapter + bridge + outbound queue  
+4. Jac MCP as primary validate/run surface  
+5. Port remaining polish per `docs/NANOCODER-PARITY.md`  
+
+---
+
+## Subagents (built-in)
+
+| Agent | Model tier | Role |
+|-------|------------|------|
+| `scout` | Fast (Haiku-class) | Codebase recon |
+| `architect` | Reasoning (Sonnet-class) | OSP / design |
+| `implementer` | Capable (Sonnet-class) | Edits |
+
+Chains: `pi/chains/pipeline.chain.md` (scout→planner→worker), `scout-and-design.chain.md`.
+
+Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
+
+---
+
+## Patches
+
+`patches/@unipi+notify+2.0.1.patch` — desktop notifications say “Jackal”. Applied on `npm install` via `postinstall`.
+
+---
+
+*Last expanded for agent onboarding — covers runtime split, file ownership, env vars, and edit boundaries so mapping the repo each session is unnecessary.*

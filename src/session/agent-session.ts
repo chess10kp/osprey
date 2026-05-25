@@ -53,6 +53,7 @@ import { expandSkillCommand, loadJackalSkills, type Skill } from "../project/ski
 import { listSubagents } from "../orchestration/subagents.js";
 import { listChains } from "../orchestration/chains.js";
 import { JacLspService, setActiveLspService } from "../jac/lsp-service.js";
+import { OutboundMessageQueue } from "./outbound-queue.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
 
@@ -117,6 +118,9 @@ export class JackalAgentSession {
   private _autoCompactConfig: AutoCompactConfig;
   private _customCommands: CustomCommand[] = [];
   private _skills: Skill[] = [];
+  private _outboundQueue = new OutboundMessageQueue();
+  private _compactInFlight = false;
+  private _drainInFlight = false;
 
   constructor(options: JackalAgentSessionOptions) {
     this._auth = options.auth;
@@ -237,6 +241,7 @@ export class JackalAgentSession {
       this._forwardEvent(event);
       if (event.type === "agent_end") {
         this._sessionManager.setMessages(this._agent.state.messages);
+        void this._scheduleOutboundDrain();
       }
     });
 
@@ -502,6 +507,62 @@ export class JackalAgentSession {
     return this._agent.signal !== undefined;
   }
 
+  /** True when outbound user input should be queued instead of starting a new prompt. */
+  isSendBusy(): boolean {
+    return this.isProcessing() || this._compactInFlight || this._drainInFlight;
+  }
+
+  getQueuedMessages(): readonly string[] {
+    return this._outboundQueue.peek();
+  }
+
+  clearOutboundQueue(): void {
+    this._outboundQueue.clear();
+    this._agent.clearFollowUpQueue();
+    this._emitQueueChanged();
+  }
+
+  private _emitQueueChanged(): void {
+    this._emit({
+      type: "queue_changed",
+      count: this._outboundQueue.length,
+      messages: this._outboundQueue.peek(),
+    });
+  }
+
+  private _scheduleOutboundDrain(): void {
+    void this._agent.waitForIdle().then(() => this._drainOutboundQueue());
+  }
+
+  private async _drainOutboundQueue(): Promise<void> {
+    if (this._disposed || this._drainInFlight || this._outboundQueue.length === 0) {
+      return;
+    }
+    if (this.isProcessing()) {
+      return;
+    }
+
+    this._drainInFlight = true;
+    try {
+      while (this._outboundQueue.length > 0 && !this.isProcessing()) {
+        const next = this._outboundQueue.dequeue();
+        if (!next) break;
+        this._emitQueueChanged();
+        await this._agent.prompt(next);
+        await this._maybeAutoCompact();
+      }
+    } finally {
+      this._drainInFlight = false;
+      this._emitQueueChanged();
+    }
+  }
+
+  private async _deliverUserMessage(outgoing: string): Promise<void> {
+    await this._agent.prompt(outgoing);
+    await this._maybeAutoCompact();
+    await this._drainOutboundQueue();
+  }
+
   async sendUserMessage(
     text: string,
     _opts?: { deliverAs?: string },
@@ -510,26 +571,20 @@ export class JackalAgentSession {
     let outgoing = tryExpandSlashCommand(text, cwd) ?? text;
     outgoing = expandSkillCommand(outgoing, this._skills);
 
-    if (this.isProcessing()) {
-      this._agent.followUp({
-        role: "user",
-        content: outgoing,
-        timestamp: Date.now(),
-      } as AgentMessage);
+    if (this.isSendBusy()) {
+      this._outboundQueue.enqueue(outgoing);
+      this._emitQueueChanged();
       return "queued";
     }
 
-    await this._agent.prompt(outgoing);
-
-    // Auto-compact check after each successful turn
-    await this._maybeAutoCompact();
-
+    await this._deliverUserMessage(outgoing);
     return "sent";
   }
 
   async abort(): Promise<void> {
     this._approvalQueue.cancel();
     this._subagentApprovalQueue.cancel();
+    this.clearOutboundQueue();
     this._agent.abort();
   }
 
@@ -742,6 +797,18 @@ export class JackalAgentSession {
   }
 
   async compactContext(options: CompactContextOptions = {}): Promise<CompactContextResult> {
+    this._compactInFlight = true;
+    try {
+      return await this._compactContextInner(options);
+    } finally {
+      this._compactInFlight = false;
+      void this._scheduleOutboundDrain();
+    }
+  }
+
+  private async _compactContextInner(
+    options: CompactContextOptions = {},
+  ): Promise<CompactContextResult> {
     if (options.restore) {
       const backup = this._sessionManager.loadCompactionBackup();
       if (!backup) {
@@ -844,6 +911,7 @@ export class JackalAgentSession {
   /** Start a fresh session: clear agent context and persist an empty transcript. */
   resetForNewSession(): void {
     this._sessionPermissions.clear();
+    this.clearOutboundQueue();
     this._sessionManager.newSession();
     this._agent.state.messages = [];
     this._emit({

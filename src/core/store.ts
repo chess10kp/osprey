@@ -89,6 +89,8 @@ export interface AgentSnapshot {
   tokens: { in: number; out: number } | null;
   cost: number | null;
   error: string | null;
+  /** User messages waiting to be sent after the current turn finishes. */
+  queuedMessages: string[];
 }
 
 const INITIAL_SNAPSHOT: AgentSnapshot = {
@@ -114,6 +116,7 @@ const INITIAL_SNAPSHOT: AgentSnapshot = {
   tokens: null,
   cost: null,
   error: null,
+  queuedMessages: [],
 };
 
 export type Listener = () => void;
@@ -302,6 +305,10 @@ export class AgentStore {
     this._patch({ phase: "ready" });
   }
 
+  setQueuedMessages(queuedMessages: string[]): void {
+    this._patch({ queuedMessages: [...queuedMessages] });
+  }
+
   /** Clear transcript and tool state but keep model/session metadata. */
   clearTranscript(): void {
     this._patch({
@@ -312,6 +319,7 @@ export class AgentStore {
       toolExecutions: {},
       phase: "ready",
       error: null,
+      queuedMessages: [],
       transcriptEpoch: this._snapshot.transcriptEpoch + 1,
     });
   }

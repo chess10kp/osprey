@@ -19,9 +19,14 @@ function snap(overrides: Partial<AgentSnapshot>): AgentSnapshot {
     error: null,
     pendingApproval: null,
     pendingSubagentApproval: null,
-    mcpStatus: "idle",
-    mcpError: null,
+    mcpConnected: false,
+    mcpConnecting: false,
+    mcpServer: "",
     mcpToolCount: 0,
+    mcpError: null,
+    tokens: null,
+    cost: null,
+    queuedMessages: [],
     ...overrides,
   };
 }

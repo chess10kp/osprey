@@ -194,6 +194,7 @@ def:pub StatusBar(props: any) -> JsxElement {
     mcp_connected: bool = bool(props.mcp_connected) if props.mcp_connected is not None else False;
     mcp_connecting: bool = bool(props.mcp_connecting) if props.mcp_connecting is not None else False;
     mcp_tools: int = int(props.mcp_tools) if props.mcp_tools is not None else 0;
+    queued_count: int = int(props.queued_count) if props.queued_count is not None else 0;
     context_percent: float = float(props.context_percent) if props.context_percent is not None else 0.0;
     context_used: int = int(props.context_used) if props.context_used is not None else 0;
     context_max: int = int(props.context_max) if props.context_max is not None else 0;
@@ -232,7 +233,12 @@ def:pub StatusBar(props: any) -> JsxElement {
                     <Text color={ctx_color}>{context_usage_hint(context_percent)}</Text>
                     <Text color="gray">{" " + token_summary}</Text>
                 </Box>
-                <Text color="gray">{"msgs=" + str(msg_count) + "  tools=" + str(tools_running) + "  mcp=" + mcp_label}</Text>
+                <Text color="gray">{
+                    "msgs=" + str(msg_count)
+                    + "  tools=" + str(tools_running)
+                    + "  mcp=" + mcp_label
+                    + ("  queue=" + str(queued_count) if queued_count > 0 else "")
+                }</Text>
             </Box>
         </Box>
     );
@@ -1938,6 +1944,10 @@ def:pub app() -> JsxElement {
     notifs: list = list(ui.notifications) if ui.notifications else [];
     last_notif: any = notifs[-1] if len(notifs) > 0 else None;
     mcp_error: str = to_str(getattr(snap, "mcpError", "")) if snap else "";
+    queued_count: int = 0;
+    if snap and hasattr(snap, "queuedMessages") and snap.queuedMessages {
+        queued_count = len(list(snap.queuedMessages));
+    }
 
     tools_list: list = list(tools) if tools else [];
     running_tools: list = [
@@ -2079,6 +2089,7 @@ def:pub app() -> JsxElement {
                 provider={provider_id}
                 msg_count={total}
                 tools_running={len(running_tools)}
+                queued_count={queued_count}
                 mcp_connected={bool(getattr(snap, "mcpConnected", False))}
                 mcp_connecting={bool(getattr(snap, "mcpConnecting", False))}
                 mcp_tools={int(getattr(snap, "mcpToolCount", 0))}

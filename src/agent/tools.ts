@@ -86,6 +86,26 @@ async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promi
   return { ...result, durationMs: Date.now() - startedAt };
 }
 
+async function maybeAutoFormat(cwd: string, path: string): Promise<string | null> {
+  const cfg = loadProjectConfig(cwd);
+  if (!cfg.autoformat || !path.endsWith(".jac")) return null;
+  try {
+    const result = await runJacFormat(cwd, [path]);
+    if (result.exitCode !== 0) {
+      const parts = [
+        `[autoformat] jac format failed for ${path}`,
+        result.rawOutput.trim() ? truncateToolOutput(result.rawOutput) : "",
+      ].filter(Boolean);
+      return parts.join("\n");
+    }
+    return result.changed
+      ? `[autoformat] formatted ${path}`
+      : `[autoformat] ${path} already formatted`;
+  } catch (error) {
+    return `[autoformat] jac format failed: ${String(error)}`;
+  }
+}
+
 async function maybeAutoCheck(cwd: string, path: string): Promise<string | null> {
   const cfg = loadProjectConfig(cwd);
   if (!cfg.autocheck || !path.endsWith(".jac")) return null;
@@ -105,6 +125,21 @@ async function maybeAutoCheck(cwd: string, path: string): Promise<string | null>
   } catch (error) {
     return `[autocheck] jac check failed: ${String(error)}`;
   }
+}
+
+/** Post-write hooks for `.jac` files: format (if enabled) then check (if enabled). */
+async function runPostWriteHooks(
+  cwd: string,
+  path: string,
+): Promise<{ notes: string[]; autoformat: string | null; autocheck: string | null }> {
+  const autoformat = await maybeAutoFormat(cwd, path);
+  const autocheck = await maybeAutoCheck(cwd, path);
+  const notes = [autoformat, autocheck].filter((n): n is string => Boolean(n));
+  return { notes, autoformat, autocheck };
+}
+
+function formatPostWriteMessage(action: "Wrote" | "Edited", path: string, notes: string[]): string {
+  return notes.length > 0 ? `${action} ${path}\n\n${notes.join("\n\n")}` : `${action} ${path}`;
 }
 
 export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] {
@@ -139,10 +174,15 @@ export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] 
       const abs = safeResolve(cwd, params.path);
       await mkdir(dirname(abs), { recursive: true });
       await writeFile(abs, params.content, "utf-8");
-      const autocheck = await maybeAutoCheck(cwd, params.path);
+      const hooks = await runPostWriteHooks(cwd, params.path);
       return {
-        content: [{ type: "text", text: autocheck ? `Wrote ${params.path}\n\n${autocheck}` : `Wrote ${params.path}` }],
-        details: { path: params.path, bytes: params.content.length, autocheck },
+        content: [{ type: "text", text: formatPostWriteMessage("Wrote", params.path, hooks.notes) }],
+        details: {
+          path: params.path,
+          bytes: params.content.length,
+          autoformat: hooks.autoformat,
+          autocheck: hooks.autocheck,
+        },
       };
     },
   };
@@ -179,10 +219,15 @@ export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] 
       }
 
       await writeFile(abs, updated, "utf-8");
-      const autocheck = await maybeAutoCheck(cwd, params.path);
+      const hooks = await runPostWriteHooks(cwd, params.path);
       return {
-        content: [{ type: "text", text: autocheck ? `Edited ${params.path}\n\n${autocheck}` : `Edited ${params.path}` }],
-        details: { path: params.path, edits: params.edits.length, autocheck },
+        content: [{ type: "text", text: formatPostWriteMessage("Edited", params.path, hooks.notes) }],
+        details: {
+          path: params.path,
+          edits: params.edits.length,
+          autoformat: hooks.autoformat,
+          autocheck: hooks.autocheck,
+        },
       };
     },
   };

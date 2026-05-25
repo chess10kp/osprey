@@ -291,6 +291,14 @@ export function bridgeEvents(
         }
         break;
 
+      case "queue_changed": {
+        const messages = Array.isArray(event.messages)
+          ? event.messages.map((m) => String(m))
+          : [];
+        store.setQueuedMessages(messages);
+        break;
+      }
+
       // ── Shutdown ──────────────────────────────────────────────────
       case "session_shutdown":
         store.setPhase("booting");
