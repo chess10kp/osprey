@@ -299,6 +299,7 @@ export async function createNextAgent(
     runJacTest: (files?: string[]) => Promise<Awaited<ReturnType<typeof runJacTest>>>;
     runJacRun: (file: string, args?: string[]) => Promise<Awaited<ReturnType<typeof runJacRun>>>;
     runOsp: (prompt: string) => Promise<void>;
+    runPlan: (prompt: string) => Promise<void>;
     runConvertPython: (path: string) => Promise<void>;
     runIdiomReview: (paths?: string[]) => Promise<void>;
     runExplain: (mode: ExplainMode, args: string) => Promise<void>;
@@ -575,6 +576,26 @@ export async function createNextAgent(
         }
         store.pushUserMessage(`/osp ${desc}`);
         await runOspWorkflow(session, desc);
+      },
+      runPlan: async (prompt: string) => {
+        const planDesc = prompt.trim();
+        if (!planDesc) {
+          throw new Error("Usage: /plan <task description>");
+        }
+        store.pushUserMessage(`/plan ${planDesc}`);
+        const planMsg = [
+          `Generate a detailed implementation plan for: ${planDesc}`,
+          "",
+          "Follow this structure:",
+          "1. **Understand current state** — read relevant files, identify archetypes (nodes, edges, walkers, abilities, components)",
+          "2. **Define scope** — what changes, which files affected, what stays the same",
+          "3. **Break into steps** — for each step: what, where, why, risk (low/medium/high), verification",
+          "4. **Identify dependencies** — ordering, parallelism, blocking unknowns",
+          "5. **Estimate effort** — files to touch, complexity assessment",
+          "",
+          "Output as markdown with checkboxed tasks. Do NOT start implementing until confirmed.",
+        ].join("\n");
+        await session.sendUserMessage(planMsg);
       },
       runConvertPython: async (path: string) => {
         const target = path.trim();

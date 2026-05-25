@@ -61,12 +61,16 @@ export type { CompletionContext, Suggestion } from "./ui/completions.js";
 export type { DevMode } from "./agent/dev-mode.js";
 export {
   DEV_MODES,
-  PLAN_MODE_TOOLS,
+  PLAN_MODE_BLOCKED_TOOLS,
+  PLAN_MODE_SYSTEM_APPENDIX,
   cycleMode,
   parseModeFlag,
   isDestructiveBash,
   shouldAutoApprove,
   isToolAllowedInPlanMode,
+  isToolBlockedInPlanMode,
+  planModeBlockReason,
+  systemPromptForMode,
   resolveBootMode,
 } from "./agent/dev-mode.js";
 export type { PendingApproval } from "./agent/tool-approval.js";

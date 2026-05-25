@@ -818,6 +818,7 @@ def:pub HelpPanel(_props: any) -> JsxElement {
                 <Text color="white">{"/jac-doctor    environment diagnostics"}</Text>
                 <Text color="white">{"/jac <args>    run jac cli via tool"}</Text>
                 <Text color="white">{"/fix           jac check/fix loop"}</Text>
+                <Text color="white">{"/plan <desc>    generate implementation plan"}</Text>
                 <Text color="white">{"/osp <desc>    OSP graph design"}</Text>
                 <Text color="white">{"/create        list jac templates"}</Text>
                 <Text color="white">{"/agents        list subagents"}</Text>
@@ -1138,6 +1139,29 @@ def:pub app() -> JsxElement {
             mcp_on: bool = bool(getattr(snap, "mcpConnected", False)) if snap else False;
             mcp_n: int = int(getattr(snap, "mcpToolCount", 0)) if snap else 0;
             session.send("[mcp] connected=" + str(mcp_on) + " tools=" + str(mcp_n));
+            return;
+        }
+        if cmd.startswith("/plan") {
+            plan_desc: str = cmd[5:].strip();
+            if session and plan_desc {
+                if hasattr(session, "runPlan") {
+                    session.runPlan(plan_desc);
+                } else {
+                    # Fallback: send as structured planning prompt to the LLM
+                    plan_msg: str = "[plan] Generate a detailed implementation plan for: " + plan_desc;
+                    plan_msg = plan_msg + "\n\n";
+                    plan_msg = plan_msg + "Follow this structure:\n";
+                    plan_msg = plan_msg + "1. **Understand current state** — read relevant files, identify archetypes (nodes, edges, walkers, abilities, components)\n";
+                    plan_msg = plan_msg + "2. **Define scope** — what changes, which files affected, what stays the same\n";
+                    plan_msg = plan_msg + "3. **Break into steps** — for each step: what, where, why, risk (low/medium/high), verification\n";
+                    plan_msg = plan_msg + "4. **Identify dependencies** — ordering, parallelism, blocking unknowns\n";
+                    plan_msg = plan_msg + "5. **Estimate effort** — files to touch, complexity assessment\n\n";
+                    plan_msg = plan_msg + "Output as markdown with checkboxed tasks. Do NOT start implementing until confirmed.";
+                    session.send(plan_msg);
+                }
+            } elif session and not plan_desc {
+                session.send("Usage: /plan <task description>");
+            }
             return;
         }
         if cmd.startswith("/osp") {

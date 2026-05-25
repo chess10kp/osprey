@@ -27,7 +27,9 @@ import { loadProjectConfig } from "../config/project-config.js";
 import {
   type DevMode,
   cycleMode,
-  isToolAllowedInPlanMode,
+  isToolBlockedInPlanMode,
+  planModeBlockReason,
+  systemPromptForMode,
 } from "../agent/dev-mode.js";
 import { ToolApprovalQueue } from "../agent/tool-approval.js";
 import { SubagentApprovalQueue } from "../agent/subagent-approval.js";
@@ -104,6 +106,7 @@ export class JackalAgentSession {
   private _subagentApprovalQueue: SubagentApprovalQueue;
   private _sessionPermissions: SessionPermissions;
   private _alwaysAllow: Set<string>;
+  private _baseSystemPrompt: string;
   private _systemPrompt: string;
   private _contextMaxOverride: number | null;
   private _autoCompactConfig: AutoCompactConfig;
@@ -122,7 +125,8 @@ export class JackalAgentSession {
     this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
     const { skills } = loadJackalSkills({ cwd: options.cwd });
     this._skills = skills;
-    this._systemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
+    this._baseSystemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
+    this._systemPrompt = systemPromptForMode(this._baseSystemPrompt, this._mode);
     this._contextMaxOverride =
       typeof options.contextMaxOverride === "number" && options.contextMaxOverride > 0
         ? options.contextMaxOverride
@@ -176,10 +180,10 @@ export class JackalAgentSession {
             ? (args as Record<string, unknown>)
             : {};
 
-        if (this._mode === "plan" && !isToolAllowedInPlanMode(toolName)) {
+        if (this._mode === "plan" && isToolBlockedInPlanMode(toolName)) {
           return {
             block: true,
-            reason: `Tool "${toolName}" is not available in plan mode.`,
+            reason: planModeBlockReason(toolName),
           };
         }
 
@@ -273,6 +277,8 @@ export class JackalAgentSession {
 
   setMode(mode: DevMode): void {
     this._mode = mode;
+    this._systemPrompt = systemPromptForMode(this._baseSystemPrompt, mode);
+    this._agent.state.systemPrompt = this._systemPrompt;
     this._emit({ type: "mode_change", mode });
   }
 

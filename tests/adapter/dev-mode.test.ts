@@ -3,8 +3,10 @@ import {
   cycleMode,
   isDestructiveBash,
   isToolAllowedInPlanMode,
+  isToolBlockedInPlanMode,
   parseModeFlag,
   shouldAutoApprove,
+  systemPromptForMode,
 } from "../../src/agent/dev-mode.js";
 
 describe("isDestructiveBash", () => {
@@ -60,14 +62,37 @@ describe("shouldAutoApprove", () => {
 });
 
 describe("plan mode tool filter", () => {
-  it("allows Jac MCP read tools", () => {
-    expect(isToolAllowedInPlanMode("search_docs")).toBe(true);
-    expect(isToolAllowedInPlanMode("validate_jac")).toBe(true);
+  it("blocks file-mutating tools", () => {
+    expect(isToolBlockedInPlanMode("write")).toBe(true);
+    expect(isToolBlockedInPlanMode("edit")).toBe(true);
+    expect(isToolBlockedInPlanMode("jac_format")).toBe(true);
+    expect(isToolBlockedInPlanMode("format_jac")).toBe(true);
+    expect(isToolAllowedInPlanMode("write")).toBe(false);
   });
 
-  it("rejects edit tools", () => {
-    expect(isToolAllowedInPlanMode("write")).toBe(false);
-    expect(isToolAllowedInPlanMode("bash")).toBe(false);
+  it("allows exploration and execution tools", () => {
+    expect(isToolAllowedInPlanMode("read")).toBe(true);
+    expect(isToolAllowedInPlanMode("bash")).toBe(true);
+    expect(isToolAllowedInPlanMode("glob")).toBe(true);
+    expect(isToolAllowedInPlanMode("jac_check")).toBe(true);
+    expect(isToolAllowedInPlanMode("jac_run")).toBe(true);
+    expect(isToolAllowedInPlanMode("diagnostics")).toBe(true);
+    expect(isToolAllowedInPlanMode("agent")).toBe(true);
+    expect(isToolAllowedInPlanMode("search_docs")).toBe(true);
+    expect(isToolAllowedInPlanMode("validate_jac")).toBe(true);
+    expect(isToolAllowedInPlanMode("list_tasks")).toBe(true);
+  });
+
+  it("auto-approves non-blocked tools in plan mode", () => {
+    expect(shouldAutoApprove("plan", "bash", { command: "git status" })).toBe(true);
+    expect(shouldAutoApprove("plan", "glob", { pattern: "**/*.jac" })).toBe(true);
+  });
+});
+
+describe("systemPromptForMode", () => {
+  it("appends plan instructions only in plan mode", () => {
+    expect(systemPromptForMode("base", "normal")).toBe("base");
+    expect(systemPromptForMode("base", "plan")).toContain("Plan mode (active)");
   });
 });
 

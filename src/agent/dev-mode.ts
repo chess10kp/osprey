@@ -6,24 +6,42 @@ export type DevMode = "normal" | "auto-accept" | "yolo" | "plan";
 
 export const DEV_MODES: readonly DevMode[] = ["normal", "auto-accept", "yolo", "plan"];
 
-/** Read-only core tool + Jac MCP read tools allowed in plan mode. */
-export const PLAN_MODE_TOOLS = new Set([
-  "read",
-  "agent",
-  "validate_jac",
-  "check_syntax",
-  "search_docs",
-  "get_ast",
-  "graph_visualize",
-  "explain_error",
-  "get_resource",
-  "list_examples",
-  "get_example",
+/**
+ * Tools that modify project files — blocked in plan mode.
+ * All other registered tools (read, bash, LSP, Jac MCP reads, subagents, etc.) stay available.
+ */
+export const PLAN_MODE_BLOCKED_TOOLS = new Set([
+  "write",
+  "edit",
+  "jac_format",
+  "jac_fix",
+  "jac_create",
   "create_task",
   "update_task",
-  "list_tasks",
   "delete_task",
+  // Jac MCP tools that write or run arbitrary mutating commands
+  "format_jac",
+  "execute_command",
 ]);
+
+export const PLAN_MODE_SYSTEM_APPENDIX = `
+
+## Plan mode (active)
+
+You are in **plan mode**: explore, analyze, and produce a clear implementation plan. You must **not** modify project source files.
+
+- Use read, search, diagnostics, \`jac check\`, tests, bash, LSP, and MCP read tools freely.
+- Do **not** call \`write\`, \`edit\`, format/fix/create tools, or task mutations — they are blocked.
+- Output a numbered plan the user can approve; tell them to switch out of plan mode (Shift+Tab) to implement.
+`;
+
+export function planModeBlockReason(toolName: string): string {
+  return `Tool "${toolName}" cannot modify files in plan mode. Switch to normal mode (Shift+Tab) to implement changes.`;
+}
+
+export function isToolBlockedInPlanMode(toolName: string): boolean {
+  return PLAN_MODE_BLOCKED_TOOLS.has(toolName);
+}
 
 export function cycleMode(current: DevMode): DevMode {
   const idx = DEV_MODES.indexOf(current);
@@ -55,7 +73,13 @@ export function parseModeFlag(
 }
 
 export function isToolAllowedInPlanMode(toolName: string): boolean {
-  return PLAN_MODE_TOOLS.has(toolName);
+  return !isToolBlockedInPlanMode(toolName);
+}
+
+export function systemPromptForMode(basePrompt: string, mode: DevMode): string {
+  if (mode !== "plan") return basePrompt;
+  if (basePrompt.includes("## Plan mode (active)")) return basePrompt;
+  return basePrompt + PLAN_MODE_SYSTEM_APPENDIX;
 }
 
 /**
@@ -112,7 +136,7 @@ export function shouldAutoApprove(
   if (mode === "yolo") return true;
 
   if (mode === "plan") {
-    return isToolAllowedInPlanMode(toolName);
+    return !isToolBlockedInPlanMode(toolName);
   }
 
   if (mode === "auto-accept") {

@@ -36,6 +36,7 @@ const COMMANDS: CommandEntry[] = [
   { slash: "/tasks", description: "task list" },
   { slash: "/mcp", description: "MCP connection status" },
   { slash: "/osp", description: "OSP graph design" },
+  { slash: "/plan", description: "generate implementation plan" },
   { slash: "/agents", description: "list subagents" },
   { slash: "/commands", description: "list custom commands" },
   { slash: "/skills", description: "list agent skills" },
