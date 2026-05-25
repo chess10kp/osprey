@@ -10,7 +10,9 @@ if (!path) {
 }
 
 const importLineRe = /^import\s+\{([^}]+)\}\s+from\s+(["'])([^"']+)\2;\s*$/;
+const pySideEffectImportRe = /^import\s+"(re|os|tempfile)";\s*$/;
 const jacModuleRe = /^\/\/ Imported \.jac module: (.+)$/;
+const DIFF_ENGINE_NODE = "./diff_engine_node.mjs";
 
 /** Same file, different import paths from jac-ink. */
 const JAC_MODULE_ALIASES = {
@@ -89,8 +91,15 @@ for (let i = 0; i < lines.length; i++) {
     continue;
   }
 
+  if (pySideEffectImportRe.test(line)) {
+    continue;
+  }
+
   if (importMatch) {
     let spec = importMatch[3];
+    if (spec === "pathlib") {
+      spec = DIFF_ENGINE_NODE;
+    }
     if (spec === "./theme.js") {
       continue;
     }
@@ -120,6 +129,26 @@ for (let i = 0; i < lines.length; i++) {
 }
 
 const code = [...preamble, ...body].join("\n");
+
+const needsDiffNode =
+  /\bPath\b/.test(code) ||
+  /\bos\.(get_terminal_size|getcwd|environ|remove)\b/.test(code) ||
+  /\btempfile\.NamedTemporaryFile\b/.test(code) ||
+  /\bre\.(sub|search|escape)\b/.test(code);
+if (needsDiffNode) {
+  if (!merged.has(DIFF_ENGINE_NODE)) merged.set(DIFF_ENGINE_NODE, new Set());
+  const names = merged.get(DIFF_ENGINE_NODE);
+  if (/\bPath\b/.test(code)) names.add("Path");
+  if (/\bos\./.test(code)) names.add("os");
+  if (/\btempfile\./.test(code)) names.add("tempfile");
+  if (/\bre\./.test(code)) names.add("re");
+}
+if (merged.has("pathlib")) {
+  const pathlibNames = merged.get("pathlib");
+  if (!merged.has(DIFF_ENGINE_NODE)) merged.set(DIFF_ENGINE_NODE, new Set());
+  for (const n of pathlibNames) merged.get(DIFF_ENGINE_NODE).add(n);
+  merged.delete("pathlib");
+}
 
 if (/\bStatic\b/.test(code)) {
   if (!merged.has("ink")) merged.set("ink", new Set());
@@ -156,6 +185,7 @@ const order = [
   "./jac_builtin_runtime.mjs",
   "./markdown.mjs",
   "./text-wrapping.mjs",
+  DIFF_ENGINE_NODE,
   "ink",
   "@inkjs/ui",
   "./jac_pi_runtime_shim.mjs",
@@ -180,8 +210,21 @@ let out = [
   ...importLines,
   ...themeLines,
   "",
-  ...body.filter((l) => !importLineRe.test(l)),
+  ...body.filter((l) => !importLineRe.test(l) && !pySideEffectImportRe.test(l)),
 ].join("\n");
+
+// pathlib Path `/` → Path.join (jac emits invalid JS `/` on objects).
+out = out.replace(/\(new Path\(([^)]+)\)\s*\/\s*([^)]+)\)/g, "Path.join($1, $2)");
+
+// jac2ink: raw-string regex literals emitted as quoted strings.
+out = out.replaceAll(
+  're.sub("r\\"\\\\x1b\\\\[[0-9;]*m\\"", "", text)',
+  're.sub(/\\x1b\\[[0-9;]*m/g, "", text)',
+);
+out = out.replaceAll(
+  're.search((re.escape(side) + "r\\"(\\\\d+)(?:,(\\\\d+))?\\""), header)',
+  're.search(new RegExp(re.escape(side) + "(\\\\d+)(?:,(\\\\d+))?"), header)',
+);
 
 // jac2ink: for-loops over enumerate sometimes omit closing brace before return.
 out = out.replace(

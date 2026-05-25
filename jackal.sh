@@ -185,6 +185,7 @@ postprocess_tui() {
   cp "$JACKAL_DIR/templates/jackal_agent_facade.mjs" "$TUI_OUT/jac_pi_runtime_shim.mjs"
   cp "$JACKAL_DIR/templates/markdown.mjs" "$TUI_OUT/markdown.mjs"
   cp "$JACKAL_DIR/templates/text-wrapping.mjs" "$TUI_OUT/text-wrapping.mjs"
+  cp "$JACKAL_DIR/templates/diff_engine_node.mjs" "$TUI_OUT/diff_engine_node.mjs"
   node "$JACKAL_DIR/scripts/dedupe-jac-runtime.mjs" "$TUI_OUT/module.mjs"
   node "$JACKAL_DIR/scripts/fix-tui-module.mjs" "$TUI_OUT/module.mjs"
   node "$JACKAL_DIR/scripts/patch-tui-runner.mjs" "$TUI_OUT/runner.mjs"

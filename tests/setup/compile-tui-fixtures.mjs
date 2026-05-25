@@ -48,6 +48,12 @@ function copyRuntimeAssets(outDir) {
     throw new Error("templates/text-wrapping.mjs missing");
   }
   fs.copyFileSync(wrapping, path.join(outDir, "text-wrapping.mjs"));
+
+  const diffNode = path.join(JACKAL_ROOT, "templates/diff_engine_node.mjs");
+  if (!fs.existsSync(diffNode)) {
+    throw new Error("templates/diff_engine_node.mjs missing");
+  }
+  fs.copyFileSync(diffNode, path.join(outDir, "diff_engine_node.mjs"));
 }
 
 function postprocessModule(outDir, modulePath) {

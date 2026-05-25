@@ -1,36 +1,7 @@
 """File diff editor UI — renders diff overlay from engine snapshot."""
 
-import re;
 import from "ink" { Box, Text }
-import from "../text-wrapping.mjs" { getTerminalWidth }
-
-
-def strip_ansi(text: str) -> str {
-    if not text {
-        return "";
-    }
-    return re.sub(r"\x1b\[[0-9;]*m", "", text);
-}
-
-
-def truncate_to_width(text: str, max_w: int) -> str {
-    if max_w <= 0 {
-        return "";
-    }
-    plain: str = strip_ansi(text);
-    if len(plain) <= max_w {
-        return text;
-    }
-    if max_w <= 1 {
-        return plain[0:max_w];
-    }
-    return plain[0 : max_w - 1] + "…";
-}
-
-
-def get_terminal_width() -> int {
-    return max(40, getTerminalWidth() - 2);
-}
+import from "./diff_engine.cl.jac" { get_terminal_width, truncate_to_width }
 
 
 def diff_row_color(kind: str) -> str {

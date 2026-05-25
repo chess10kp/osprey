@@ -3,7 +3,7 @@
 import re;
 import os;
 import tempfile;
-import from child_process { execSync, spawnSync }
+import from child_process { spawnSync }
 import from pathlib { Path }
 
 
@@ -379,24 +379,38 @@ def collect_git_patch(cwd: str, scope: str) -> any {
         cwd = os.getcwd();
     }
     scope = scope.strip().lower();
-    cmd: list = ["git", "diff"];
+    args: list = ["diff"];
     label: str = "working tree";
     if scope == "staged" or scope == "--staged" or scope == "cached" {
-        cmd = ["git", "diff", "--staged"];
+        args = ["diff", "--staged"];
         label = "staged";
     } elif scope and scope not in ["", "work", "working"] {
-        cmd = ["git", "diff", "--", scope];
+        args = ["diff", "--", scope];
         label = scope;
     }
     try {
-        out: any = execSync(cmd, {
+        result: any = spawnSync("git", args, {
             "cwd": cwd,
             "encoding": "utf8",
             "maxBuffer": 10 * 1024 * 1024,
         });
+        status: int = int(result.status) if result.status is not None else 0;
+        if status != 0 {
+            err_out: str = "";
+            if result.stderr {
+                err_out = str(result.stderr);
+            }
+            return {
+                "ok": False,
+                "patch": "",
+                "label": label,
+                "error": err_out if err_out else f"git diff exited with code {status}",
+                "file_count": 0,
+            };
+        }
         patch: str = "";
-        if out {
-            patch = str(out);
+        if result.stdout {
+            patch = str(result.stdout);
         }
         fc: int = 0;
         for line_raw in patch.split("\n") {

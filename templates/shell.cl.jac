@@ -1001,7 +1001,7 @@ def:pub app() -> JsxElement {
     }
 
     def submit_main(text: str) -> None {
-        if diff_overlay and bool(diff_overlay.get("active", False)) {
+        if diff_overlay and bool(getattr(diff_overlay, "active", False)) {
             return;
         }
         cmd: str = text.strip();
@@ -1458,7 +1458,7 @@ def:pub app() -> JsxElement {
             if resume_picker_active {
                 return;
             }
-            diff_paste: bool = diff_overlay and bool(diff_overlay.get("active", False));
+            diff_paste: bool = diff_overlay and bool(getattr(diff_overlay, "active", False));
             if diff_paste {
                 return;
             }
@@ -1492,7 +1492,7 @@ def:pub app() -> JsxElement {
                 return;
             }
 
-            diff_active: bool = diff_overlay and bool(diff_overlay.get("active", False));
+            diff_active: bool = diff_overlay and bool(getattr(diff_overlay, "active", False));
             if diff_active {
                 ch_d: str = ch.lower() if ch else "";
                 if key.escape or ch_d == "q" {
@@ -2007,7 +2007,7 @@ def:pub app() -> JsxElement {
                 <ToolConfirmationOverlay pending={pending_approval} menu_index={approval_menu_index}/>
             )}
             {show_help and <HelpPanel/>}
-            {diff_overlay and bool(diff_overlay.get("active", False)) and (
+            {diff_overlay and bool(getattr(diff_overlay, "active", False)) and (
                 <FileDiffEditor state={diff_overlay}/>
             )}
             {explorer and <ExplorerOverlay explorer={explorer}/>}
