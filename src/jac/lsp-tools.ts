@@ -58,8 +58,8 @@ export async function getFileDiagnostics(
     return [{ file: filePath, line: 0, severity: "error", message: `File not found: ${filePath}` }];
   }
 
-  const { findJacBinary } = await import("./jac-cli.js");
-  const jacBin = findJacBinary();
+  const { findJacBinarySync } = await import("./jac-cli.js");
+  const jacBin = findJacBinarySync();
   if (!jacBin) {
     return [{ file: filePath, line: 0, severity: "error", message: "jac binary not found" }];
   }
@@ -99,8 +99,8 @@ export async function getMultiFileDiagnostics(
   const uniqueFiles = [...new Set(filePaths)];
 
   // Run jac check once for all files
-  const { findJacBinary } = await import("./jac-cli.js");
-  const jacBin = findJacBinary();
+  const { findJacBinarySync } = await import("./jac-cli.js");
+  const jacBin = findJacBinarySync();
   if (!jacBin) {
     for (const f of uniqueFiles) {
       results.set(f, [{ file: f, line: 0, severity: "error", message: "jac binary not found" }]);

@@ -1,65 +1,40 @@
-// Jackal Jac differentiator workflows — OSP, Python→Jac, idiom review.
+// Jackal Jac differentiator workflows — delegates prompt building to lib/jac/jac/workflows.
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { JackalAgentSession } from "../session/agent-session.js";
-import { loadSkillByDir } from "../project/skills.js";
-
-function resolvePackageRoot(): string {
-  const fromModule = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-  if (existsSync(join(fromModule, "pi", "skills"))) {
-    return fromModule;
-  }
-  return fromModule;
-}
+import {
+  bridgeBuildConvertPythonPrompt,
+  bridgeBuildDiagramToModelPrompt,
+  bridgeBuildExplainPrompt,
+  bridgeBuildIdiomReviewPrompt,
+  bridgeBuildOspPrompt,
+  bridgeLoadSkillContent,
+  bridgeRenderPromptTemplate,
+} from "./jac-bridge.js";
 
 /** Read a skill's SKILL.md body (YAML frontmatter stripped). */
-export function loadSkillContent(skillDirName: string, packageRoot = resolvePackageRoot()): string {
-  return loadSkillByDir(skillDirName, packageRoot);
+export function loadSkillContent(skillDirName: string, packageRoot?: string): string {
+  return bridgeLoadSkillContent(skillDirName, packageRoot);
 }
 
 /** Load a prompt template from pi/prompts/ and substitute `{{key}}` placeholders. */
 export function renderPromptTemplate(
   name: string,
   vars: Record<string, string>,
-  packageRoot = resolvePackageRoot(),
+  packageRoot?: string,
 ): string {
-  const path = join(packageRoot, "pi", "prompts", `${name}.md`);
-  if (!existsSync(path)) {
-    throw new Error(`Prompt template not found: pi/prompts/${name}.md`);
-  }
-  let text = readFileSync(path, "utf-8");
-  for (const [key, value] of Object.entries(vars)) {
-    text = text.split(`{{${key}}}`).join(value);
-  }
-  return text.trim();
+  return bridgeRenderPromptTemplate(name, vars, packageRoot);
 }
 
-export function buildOspPrompt(description: string): string {
-  const ospSkill = loadSkillContent("osp-skill");
-  return renderPromptTemplate("osp", {
-    description: description.trim(),
-    osp_skill: ospSkill || "(osp-skill unavailable — use Jac MCP list_examples/get_example/search_docs)",
-  });
+export function buildOspPrompt(description: string, packageRoot?: string): string {
+  return bridgeBuildOspPrompt(description, packageRoot);
 }
 
-export function buildConvertPythonPrompt(pythonPath: string): string {
-  return renderPromptTemplate("convert-python", {
-    path: pythonPath.trim(),
-  });
+export function buildConvertPythonPrompt(pythonPath: string, packageRoot?: string): string {
+  return bridgeBuildConvertPythonPrompt(pythonPath, packageRoot);
 }
 
-export function buildIdiomReviewPrompt(paths: string[]): string {
-  const normalized = paths.map((p) => p.trim()).filter(Boolean);
-  const fileList =
-    normalized.length > 0
-      ? normalized.map((p) => `- \`${p}\``).join("\n")
-      : "- (scan all `.jac` files in the project)";
-  return renderPromptTemplate("review-idioms", {
-    paths: normalized.join(", ") || "(project-wide)",
-    file_list: fileList,
-  });
+export function buildIdiomReviewPrompt(paths: string[], packageRoot?: string): string {
+  return bridgeBuildIdiomReviewPrompt(paths, packageRoot);
 }
 
 /** Run the OSP graph-modeling workflow (/osp). */
@@ -104,35 +79,7 @@ export function buildExplainPrompt(
   args: string,
   packageRoot?: string,
 ): string {
-  const trimmed = args.trim();
-
-  switch (mode) {
-    case "walker":
-      return renderPromptTemplate("explain-walker", {
-        code: trimmed || "(provide walker code after the command)",
-      }, packageRoot);
-
-    case "error": {
-      const parts = trimmed.split("--ctx");
-      const errorText = (parts[0] ?? trimmed).trim();
-      const ctx = parts[1]?.trim();
-      return renderPromptTemplate("explain-error", {
-        error: errorText || "(paste the error after the command)",
-        context: ctx ? `Additional context:\n${ctx}` : "",
-      }, packageRoot);
-    }
-
-    case "graph":
-      return renderPromptTemplate("explain-graph", {
-        code: trimmed || "(provide Jac code after the command)",
-      }, packageRoot);
-
-    case "file":
-    default:
-      return renderPromptTemplate("explain", {
-        code: trimmed || "(provide Jac code after the command)",
-      }, packageRoot);
-  }
+  return bridgeBuildExplainPrompt(mode, args, packageRoot);
 }
 
 /** Run /jac explain <mode> <code_or_error>. */
@@ -159,11 +106,12 @@ export async function runInit(
   return result.content;
 }
 
-export function buildDiagramToModelPrompt(source: string, content: string): string {
-  return renderPromptTemplate("diagram-to-model", {
-    source: source.trim() || "user description",
-    content: content.trim() || "(no additional content — infer from source label)",
-  });
+export function buildDiagramToModelPrompt(
+  source: string,
+  content: string,
+  packageRoot?: string,
+): string {
+  return bridgeBuildDiagramToModelPrompt(source, content, packageRoot);
 }
 
 /** Run /jac diagram-to-model — multimodal/text diagram → OSP Jac model. */

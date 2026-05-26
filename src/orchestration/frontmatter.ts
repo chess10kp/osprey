@@ -1,4 +1,7 @@
 /** Parse YAML-like frontmatter from markdown (--- delimited). */
+// Source of truth: lib/jac/orchestration/_frontmatter_toolchain.py
+// Kept as local TS implementation for performance (hot path in skills loading).
+// Bridge batch op available via bridgeParseFrontmatterBatch for cross-language use.
 
 export interface ParsedFrontmatter {
   frontmatter: Record<string, string | string[]>;

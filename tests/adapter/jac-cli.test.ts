@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { parseJacCheckOutput, findJacBinary } from "../../src/jac/jac-cli.js";
+import {
+  parseJacCheckOutput,
+  findJacBinary,
+  findJacBinarySync,
+} from "../../src/jac/jac-cli.js";
 
 describe("parseJacCheckOutput", () => {
-  it("parses single-line error format", () => {
+  it("parses single-line error format", async () => {
     const stdout = "src/foo.jac:10:5: error: undefined name 'x'";
-    const diagnostics = parseJacCheckOutput(stdout, "");
+    const diagnostics = await parseJacCheckOutput(stdout, "");
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({
       file: "src/foo.jac",
@@ -15,12 +19,12 @@ describe("parseJacCheckOutput", () => {
     });
   });
 
-  it("parses multi-line error with location arrow", () => {
+  it("parses multi-line error with location arrow", async () => {
     const stderr = [
       "Error: type mismatch",
       " --> src/bar.jac:3:1",
     ].join("\n");
-    const diagnostics = parseJacCheckOutput("", stderr);
+    const diagnostics = await parseJacCheckOutput("", stderr);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({
       file: "src/bar.jac",
@@ -31,39 +35,49 @@ describe("parseJacCheckOutput", () => {
     });
   });
 
-  it("parses warning lines", () => {
+  it("parses warning lines", async () => {
     const stdout = "src/warn.jac:1:1: warning: unused import";
-    const diagnostics = parseJacCheckOutput(stdout, "");
+    const diagnostics = await parseJacCheckOutput(stdout, "");
     expect(diagnostics[0]?.severity).toBe("warning");
   });
 
-  it("strips ANSI color codes before parsing", () => {
+  it("strips ANSI color codes before parsing", async () => {
     const stdout = "\x1b[31msrc/a.jac:2:3: error: boom\x1b[0m";
-    const diagnostics = parseJacCheckOutput(stdout, "");
+    const diagnostics = await parseJacCheckOutput(stdout, "");
     expect(diagnostics[0]?.message).toBe("boom");
   });
 
-  it("returns empty array for clean output", () => {
-    expect(parseJacCheckOutput("All checks passed", "")).toEqual([]);
+  it("returns empty array for clean output", async () => {
+    expect(await parseJacCheckOutput("All checks passed", "")).toEqual([]);
   });
 });
 
 describe("findJacBinary", () => {
-  it("finds jac on PATH when present", () => {
+  it("finds jac on PATH when present (sync)", () => {
     const originalPath = process.env.PATH;
     process.env.PATH = "/home/jac/repos/jackal/.venv/bin:" + (originalPath ?? "");
     try {
-      expect(findJacBinary()).toBe("jac");
+      expect(findJacBinarySync()).toBe("jac");
     } finally {
       process.env.PATH = originalPath;
     }
   });
 
-  it("returns null when no candidate exists on PATH", () => {
+  it("returns null when no candidate exists on PATH (sync)", () => {
     const originalPath = process.env.PATH;
     process.env.PATH = "/nonexistent-empty-path";
     try {
-      expect(findJacBinary()).toBeNull();
+      expect(findJacBinarySync()).toBeNull();
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it("finds jac via toolchain bridge (async)", async () => {
+    const originalPath = process.env.PATH;
+    process.env.PATH = "/home/jac/repos/jackal/.venv/bin:" + (originalPath ?? "");
+    try {
+      expect(await findJacBinary()).toBe("jac");
     } finally {
       process.env.PATH = originalPath;
     }

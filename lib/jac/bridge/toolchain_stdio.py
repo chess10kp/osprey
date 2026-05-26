@@ -140,6 +140,43 @@ from _overlay_rows_toolchain import (  # noqa: E402
     format_task_overlay_row as _format_task_overlay_row,
     format_tasks_overlay_header as _format_tasks_overlay_header,
 )
+from _skills_toolchain import (  # noqa: E402
+    load_skills_from_dir as _load_skills_from_dir,
+    load_jackal_skills as _load_jackal_skills,
+    format_skills_for_prompt as _format_skills_for_prompt,
+    append_skills_to_prompt as _append_skills_to_prompt,
+    expand_skill_command as _expand_skill_command,
+    load_skill_by_dir as _load_skill_by_dir,
+    skill_read_allowlist as _skill_read_allowlist,
+)
+from _project_init_toolchain import (  # noqa: E402
+    analyze_project as _analyze_project,
+    generate_agents_md as _generate_agents_md,
+    run_project_init as _run_project_init,
+)
+from _mcp_schema_toolchain import (  # noqa: E402
+    mcp_input_schema_to_parameters as _mcp_input_schema_to_parameters,
+    coerce_by_schema as _coerce_by_schema,
+    validate_and_coerce_args as _validate_and_coerce_args,
+)
+from _task_tools_toolchain import (  # noqa: E402
+    validate_create_tasks as _validate_create_tasks,
+    validate_update_tasks as _validate_update_tasks,
+    validate_delete_tasks as _validate_delete_tasks,
+    build_create_result as _build_create_result,
+    build_update_result as _build_update_result,
+    build_list_result as _build_list_result,
+    build_delete_result as _build_delete_result,
+)
+from _web_tools_toolchain import (  # noqa: E402
+    brave_api_key as _brave_api_key,
+    assert_safe_fetch_url as _assert_safe_fetch_url,
+    html_to_readable_text as _html_to_readable_text,
+    format_web_search_results as _format_web_search_results,
+    parse_brave_search_response as _parse_brave_search_response,
+    search_web as _search_web,
+    fetch_web_page as _fetch_web_page,
+)
 from _checkpoints_toolchain import (  # noqa: E402
     checkpoints_dir as _checkpoints_dir,
     validate_checkpoint_name as _validate_checkpoint_name,
@@ -599,6 +636,167 @@ def _dispatch(req: dict) -> dict:
                 req.get("source", ""), req.get("content", ""), root
             )
         }
+
+    # --- skills ops ---
+
+    if op == "skills_load_from_dir":
+        result = _load_skills_from_dir(req["dir"], req.get("source", "path"))
+        return {"result": {
+            "skills": [
+                {"name": s.name, "description": s.description,
+                 "filePath": s.filePath, "baseDir": s.baseDir,
+                 "source": s.source, "disableModelInvocation": s.disableModelInvocation}
+                for s in result.skills
+            ],
+            "diagnostics": [
+                {"type": d.type, "message": d.message, "path": d.path,
+                 "collision": d.collision}
+                for d in result.diagnostics
+            ],
+        }}
+
+    if op == "skills_load_jackal":
+        result = _load_jackal_skills(
+            cwd=req.get("cwd"),
+            package_root=req.get("packageRoot"),
+            agent_dir=req.get("agentDir"),
+            skill_paths=req.get("skillPaths"),
+            include_defaults=req.get("includeDefaults", True),
+        )
+        return {"result": {
+            "skills": [
+                {"name": s.name, "description": s.description,
+                 "filePath": s.filePath, "baseDir": s.baseDir,
+                 "source": s.source, "disableModelInvocation": s.disableModelInvocation}
+                for s in result.skills
+            ],
+            "diagnostics": [
+                {"type": d.type, "message": d.message, "path": d.path,
+                 "collision": d.collision}
+                for d in result.diagnostics
+            ],
+        }}
+
+    if op == "skills_format_for_prompt":
+        skills = [
+            type('Skill', (), {
+                'name': s['name'], 'description': s['description'],
+                'filePath': s['filePath'], 'baseDir': s['baseDir'],
+                'source': s['source'], 'disableModelInvocation': s.get('disableModelInvocation', False),
+            })()
+            for s in (req.get("skills") or [])
+        ]
+        return {"result": _format_skills_for_prompt(skills)}
+
+    if op == "skills_append_to_prompt":
+        skills = [
+            type('Skill', (), {
+                'name': s['name'], 'description': s['description'],
+                'filePath': s['filePath'], 'baseDir': s['baseDir'],
+                'source': s['source'], 'disableModelInvocation': s.get('disableModelInvocation', False),
+            })()
+            for s in (req.get("skills") or [])
+        ]
+        return {"result": _append_skills_to_prompt(req.get("systemPrompt", ""), skills)}
+
+    if op == "skills_expand_command":
+        skills = [
+            type('Skill', (), {
+                'name': s['name'], 'description': s['description'],
+                'filePath': s['filePath'], 'baseDir': s['baseDir'],
+                'source': s['source'], 'disableModelInvocation': s.get('disableModelInvocation', False),
+            })()
+            for s in (req.get("skills") or [])
+        ]
+        return {"result": _expand_skill_command(req.get("text", ""), skills)}
+
+    if op == "skills_load_by_dir":
+        return {"result": _load_skill_by_dir(
+            req["dirName"], req.get("packageRoot"),
+        )}
+
+    if op == "skills_read_allowlist":
+        skills = [
+            type('Skill', (), {
+                'name': s['name'], 'description': s['description'],
+                'filePath': s['filePath'], 'baseDir': s['baseDir'],
+                'source': s['source'], 'disableModelInvocation': s.get('disableModelInvocation', False),
+            })()
+            for s in (req.get("skills") or [])
+        ]
+        return {"result": _skill_read_allowlist(skills)}
+
+    # --- project init ops ---
+
+    if op == "project_init_analyze":
+        return {"result": _analyze_project(req["cwd"])}
+
+    if op == "project_init_generate_agents_md":
+        return {"result": _generate_agents_md(req.get("info", {}))}
+
+    if op == "project_init_run":
+        return {"result": _run_project_init(
+            req["cwd"], force=req.get("force", False), lean=req.get("lean", False),
+        )}
+
+    # --- MCP schema ops ---
+
+    if op == "mcp_schema_to_parameters":
+        return {"result": _mcp_input_schema_to_parameters(req.get("schema"))}
+
+    if op == "mcp_coerce_by_schema":
+        return {"result": _coerce_by_schema(req.get("value"), req.get("schema", {}))}
+
+    if op == "mcp_validate_and_coerce":
+        return {"result": _validate_and_coerce_args(req.get("schema"), req.get("raw", {}))}
+
+    # --- task tools ops ---
+
+    if op == "task_tools_validate_create":
+        return {"result": _validate_create_tasks(req.get("params", {}))}
+
+    if op == "task_tools_validate_update":
+        return {"result": _validate_update_tasks(req.get("params", {}))}
+
+    if op == "task_tools_validate_delete":
+        return {"result": _validate_delete_tasks(req.get("params", {}))}
+
+    if op == "task_tools_build_create":
+        return {"result": _build_create_result(req["cwd"], req.get("inputs", []))}
+
+    if op == "task_tools_build_update":
+        return {"result": _build_update_result(req["cwd"], req.get("updates", []))}
+
+    if op == "task_tools_build_list":
+        return {"result": _build_list_result(
+            req["cwd"], req.get("status", "all"),
+        )}
+
+    if op == "task_tools_build_delete":
+        return {"result": _build_delete_result(req["cwd"], req.get("params", {}))}
+
+    # --- web tools ops ---
+
+    if op == "web_brave_api_key":
+        return {"result": _brave_api_key()}
+
+    if op == "web_assert_safe_url":
+        _assert_safe_fetch_url(req.get("url", ""))
+        return {"result": True}
+
+    if op == "web_html_to_text":
+        return {"result": _html_to_readable_text(req.get("html", ""))}
+
+    if op == "web_format_search_results":
+        return {"result": _format_web_search_results(req.get("results", []))}
+
+    if op == "web_search":
+        return {"result": _search_web(req["query"], req.get("count"))}
+
+    if op == "web_fetch":
+        return {"result": _fetch_web_page(
+            req["url"], req.get("timeout"),
+        )}
 
     raise ValueError(f"unknown op: {op}")
 

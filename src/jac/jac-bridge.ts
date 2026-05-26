@@ -1183,3 +1183,308 @@ function normalizeDiagnostic(d: JacDiagnostic): JacDiagnostic {
     raw: d.raw,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Skills bridge
+// ---------------------------------------------------------------------------
+
+export interface BridgeSkill {
+  name: string;
+  description: string;
+  filePath: string;
+  baseDir: string;
+  source: string;
+  disableModelInvocation: boolean;
+}
+
+export interface BridgeSkillDiagnostic {
+  type: "warning" | "collision";
+  message: string;
+  path: string;
+  collision?: {
+    name: string;
+    winnerPath: string;
+    loserPath: string;
+  };
+}
+
+export interface BridgeLoadSkillsResult {
+  skills: BridgeSkill[];
+  diagnostics: BridgeSkillDiagnostic[];
+}
+
+export function bridgeLoadSkillsFromDir(
+  dir: string,
+  source: string,
+): BridgeLoadSkillsResult {
+  return invokeBridgeSync<BridgeLoadSkillsResult>({
+    op: "skills_load_from_dir",
+    dir,
+    source,
+  });
+}
+
+export function bridgeLoadJackalSkills(options?: {
+  cwd?: string;
+  packageRoot?: string;
+  agentDir?: string;
+  skillPaths?: string[];
+  includeDefaults?: boolean;
+}): BridgeLoadSkillsResult {
+  return invokeBridgeSync<BridgeLoadSkillsResult>({
+    op: "skills_load_jackal",
+    cwd: options?.cwd,
+    packageRoot: options?.packageRoot,
+    agentDir: options?.agentDir,
+    skillPaths: options?.skillPaths,
+    includeDefaults: options?.includeDefaults,
+  });
+}
+
+export function bridgeFormatSkillsForPrompt(skills: BridgeSkill[]): string {
+  return invokeBridgeSync<string>({
+    op: "skills_format_for_prompt",
+    skills,
+  });
+}
+
+export function bridgeAppendSkillsToPrompt(
+  systemPrompt: string,
+  skills: BridgeSkill[],
+): string {
+  return invokeBridgeSync<string>({
+    op: "skills_append_to_prompt",
+    systemPrompt,
+    skills,
+  });
+}
+
+export function bridgeExpandSkillCommand(
+  text: string,
+  skills: BridgeSkill[],
+): string {
+  return invokeBridgeSync<string>({
+    op: "skills_expand_command",
+    text,
+    skills,
+  });
+}
+
+export function bridgeLoadSkillByDir(
+  dirName: string,
+  packageRoot?: string,
+): string {
+  return invokeBridgeSync<string>({
+    op: "skills_load_by_dir",
+    dirName,
+    packageRoot,
+  });
+}
+
+export function bridgeSkillReadAllowlist(
+  skills: BridgeSkill[],
+): { files: string[]; roots: string[] } {
+  return invokeBridgeSync<{ files: string[]; roots: string[] }>({
+    op: "skills_read_allowlist",
+    skills,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Project init bridge
+// ---------------------------------------------------------------------------
+
+export interface BridgeProjectInfo {
+  projectName: string;
+  description: string;
+  hasJacToml: boolean;
+  jacTomlEntry: string | null;
+  jacVersion: string | null;
+  pythonVersion: string | null;
+  jacFiles: string[];
+  pythonFiles: string[];
+  hasVenv: boolean;
+  hasGit: boolean;
+  hasTests: boolean;
+  hasReadme: boolean;
+  hasAgentsMd: boolean;
+  hasJackalConfig: boolean;
+  npmDeps: string[];
+  projectType: string;
+}
+
+export function bridgeAnalyzeProject(cwd: string): BridgeProjectInfo {
+  return invokeBridgeSync<BridgeProjectInfo>({
+    op: "project_init_analyze",
+    cwd,
+  });
+}
+
+export function bridgeGenerateAgentsMd(info: BridgeProjectInfo): string {
+  return invokeBridgeSync<string>({
+    op: "project_init_generate_agents_md",
+    info,
+  });
+}
+
+export function bridgeRunProjectInit(
+  cwd: string,
+  options?: { force?: boolean; lean?: boolean },
+): { written: boolean; path: string; content: string } {
+  return invokeBridgeSync<{ written: boolean; path: string; content: string }>({
+    op: "project_init_run",
+    cwd,
+    force: options?.force,
+    lean: options?.lean,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// MCP schema bridge
+// ---------------------------------------------------------------------------
+
+export function bridgeMcpSchemaToParameters(
+  schema?: Record<string, unknown>,
+): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({
+    op: "mcp_schema_to_parameters",
+    schema,
+  });
+}
+
+export function bridgeMcpCoerceBySchema(
+  value: unknown,
+  schema: Record<string, unknown>,
+): unknown {
+  return invokeBridgeSync<unknown>({
+    op: "mcp_coerce_by_schema",
+    value,
+    schema,
+  });
+}
+
+export function bridgeMcpValidateAndCoerce(
+  schema: Record<string, unknown> | undefined,
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({
+    op: "mcp_validate_and_coerce",
+    schema,
+    raw,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Task tools bridge
+// ---------------------------------------------------------------------------
+
+export function bridgeTaskToolsBuildCreate(
+  cwd: string,
+  inputs: Array<{ title: string; description?: string }>,
+): { text: string; created: BridgeTask[]; all: BridgeTask[] } {
+  return invokeBridgeSync<{ text: string; created: BridgeTask[]; all: BridgeTask[] }>({
+    op: "task_tools_build_create",
+    cwd,
+    inputs,
+  });
+}
+
+export function bridgeTaskToolsBuildUpdate(
+  cwd: string,
+  updates: Array<Record<string, unknown>>,
+): { text: string; all: BridgeTask[] } {
+  return invokeBridgeSync<{ text: string; all: BridgeTask[] }>({
+    op: "task_tools_build_update",
+    cwd,
+    updates,
+  });
+}
+
+export function bridgeTaskToolsBuildList(
+  cwd: string,
+  status?: string,
+): { text: string; tasks: BridgeTask[]; all: BridgeTask[] } {
+  return invokeBridgeSync<{ text: string; tasks: BridgeTask[]; all: BridgeTask[] }>({
+    op: "task_tools_build_list",
+    cwd,
+    status,
+  });
+}
+
+export function bridgeTaskToolsBuildDelete(
+  cwd: string,
+  params: Record<string, unknown>,
+): { text: string; deleted?: string[]; remaining: BridgeTask[]; cleared?: number } {
+  return invokeBridgeSync<{ text: string; deleted?: string[]; remaining: BridgeTask[]; cleared?: number }>({
+    op: "task_tools_build_delete",
+    cwd,
+    params,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Web tools bridge
+// ---------------------------------------------------------------------------
+
+export function bridgeWebBraveApiKey(): string | undefined {
+  return invokeBridgeSync<string | undefined>({
+    op: "web_brave_api_key",
+  });
+}
+
+export function bridgeWebAssertSafeUrl(url: string): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "web_assert_safe_url",
+    url,
+  });
+}
+
+export function bridgeWebHtmlToText(html: string): string {
+  return invokeBridgeSync<string>({
+    op: "web_html_to_text",
+    html,
+  });
+}
+
+export function bridgeWebFormatSearchResults(
+  results: Array<{ title: string; url: string; description: string }>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "web_format_search_results",
+    results,
+  });
+}
+
+export interface BridgeWebSearchResult {
+  title: string;
+  url: string;
+  description: string;
+}
+
+export function bridgeWebSearch(
+  query: string,
+  count?: number,
+): { results: BridgeWebSearchResult[]; raw?: unknown } {
+  return invokeBridgeSync<{ results: BridgeWebSearchResult[]; raw?: unknown }>({
+    op: "web_search",
+    query,
+    count,
+  });
+}
+
+export interface BridgeWebFetchResult {
+  url: string;
+  contentType: string;
+  text: string;
+}
+
+export function bridgeWebFetch(
+  url: string,
+  timeout?: number,
+): BridgeWebFetchResult {
+  return invokeBridgeSync<BridgeWebFetchResult>({
+    op: "web_fetch",
+    url,
+    timeout,
+  });
+}

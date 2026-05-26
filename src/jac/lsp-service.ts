@@ -1,6 +1,6 @@
 // Jac LSP service — starts `jac lsp` on session boot and exposes LSP-backed helpers.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -12,24 +12,18 @@ import {
   type LocationLink,
 } from "vscode-languageserver-protocol";
 import { LspClient } from "./lsp-client.js";
-import { findJacBinary } from "./jac-cli.js";
+import { bridgeResolveLspConfig, type ResolvedLspConfig } from "./jac-bridge.js";
 import type { JackalProjectConfig } from "../config/project-config.js";
 import type { LspDiagnostic, LspHoverInfo, LspLocation } from "./lsp-tools.js";
 
-const DEFAULT_AUTO_START = ["jac"];
-const DEFAULT_JAC_SERVER = { command: "jac", args: ["lsp"] };
 const DIAGNOSTIC_SETTLE_MS = 250;
+
+export type { ResolvedLspConfig };
 
 export interface PiLspConfig {
   enabled?: boolean;
   autoStart?: string[];
   servers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
-}
-
-export interface ResolvedLspConfig {
-  enabled: boolean;
-  autoStart: string[];
-  servers: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
 }
 
 let activeService: JacLspService | null = null;
@@ -42,51 +36,12 @@ export function getActiveLspService(): JacLspService | null {
   return activeService;
 }
 
-function findPiLspConfigPath(cwd: string): string | null {
-  let cur = resolve(cwd);
-  while (true) {
-    const candidate = join(cur, ".pi-lsp.json");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(cur);
-    if (parent === cur) return null;
-    cur = parent;
-  }
-}
-
-export function loadPiLspConfig(cwd: string): PiLspConfig | null {
-  const path = findPiLspConfigPath(cwd);
-  if (!path) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
-    return parsed && typeof parsed === "object" ? (parsed as PiLspConfig) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function resolveLspConfig(cwd: string, projectConfig: JackalProjectConfig = {}): ResolvedLspConfig {
-  const piLsp = loadPiLspConfig(cwd);
-  const enabled = projectConfig.lsp !== false && piLsp?.enabled !== false;
-  const autoStart = piLsp?.autoStart !== undefined ? piLsp.autoStart : DEFAULT_AUTO_START;
-
-  const servers: ResolvedLspConfig["servers"] = {
-    jac: {
-      command: findJacBinary() ?? DEFAULT_JAC_SERVER.command,
-      args: [...DEFAULT_JAC_SERVER.args],
-    },
-  };
-
-  if (piLsp?.servers) {
-    for (const [lang, conf] of Object.entries(piLsp.servers)) {
-      servers[lang] = {
-        command: conf.command === "jac" ? (findJacBinary() ?? "jac") : conf.command,
-        args: conf.args ?? [],
-        env: conf.env,
-      };
-    }
-  }
-
-  return { enabled, autoStart, servers };
+/** Resolve LSP config from lib/jac/jac/lsp_config (single source of truth). */
+export function resolveLspConfig(
+  cwd: string,
+  projectConfig: JackalProjectConfig = {},
+): ResolvedLspConfig {
+  return bridgeResolveLspConfig(cwd, projectConfig as Record<string, unknown>);
 }
 
 function severityToString(severity: number | undefined): LspDiagnostic["severity"] {

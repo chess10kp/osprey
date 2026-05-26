@@ -1,3 +1,8 @@
+import {
+  bridgeFingerprintErrors,
+  bridgeFormatDiagnostics,
+} from "./jac-bridge.js";
+
 export interface JacDiagnostic {
   file: string;
   line: number;
@@ -10,8 +15,10 @@ export interface JacDiagnostic {
 
 /** Deterministic fingerprint for no-progress detection in fix loops. */
 export function fingerprintErrors(errors: JacDiagnostic[]): string {
-  return errors
-    .map((d) => `${d.file}:${d.line}:${d.column ?? 0}:${d.code ?? ""}:${d.message}`)
-    .sort()
-    .join("\n");
+  return bridgeFingerprintErrors(errors);
+}
+
+/** Format diagnostics for display. */
+export function formatDiagnostics(diagnostics: JacDiagnostic[]): string {
+  return bridgeFormatDiagnostics(diagnostics);
 }
