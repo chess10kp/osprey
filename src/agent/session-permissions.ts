@@ -1,10 +1,18 @@
 // Session-scoped tool permissions — remember user grants for the current session.
 // Extended with pattern-based allowlists (glob, regex, exact, prefix).
+//
+// Pattern matching and evaluation delegated to
+// lib/jac/agent/_session_permissions_toolchain.py via bridge.
+// SessionPermissions class and approval helpers remain local (hot path, stateful).
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { JackalProjectConfig } from "../config/project-config.js";
 import { shouldAutoApprove, type DevMode } from "./dev-mode.js";
+import {
+  bridgeMatchPattern,
+  bridgeEvaluatePermissionPatterns,
+  bridgeLoadAlwaysAllowTools,
+  bridgeLoadPermissionPatterns,
+} from "../jac/jac-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Pattern types
@@ -50,69 +58,10 @@ export interface PendingApproval {
  * - `prefix` — resource starts with pattern
  */
 export function matchPattern(resource: string, pattern: string, type: PatternType = "glob"): boolean {
-  if (pattern === "*") return true;
-  if (!resource) return false;
-
-  switch (type) {
-    case "exact":
-      return resource === pattern;
-    case "prefix":
-      return resource.startsWith(pattern);
-    case "regex": {
-      try {
-        return new RegExp(pattern).test(resource);
-      } catch {
-        return false;
-      }
-    }
-    case "glob":
-    default: {
-      // Convert glob to regex: * → .*, ? → ., escape everything else
-      const re = globToRegex(pattern);
-      try {
-        return re.test(resource);
-      } catch {
-        return false;
-      }
-    }
-  }
+  return bridgeMatchPattern(resource, pattern, type);
 }
 
-/** Convert a glob pattern to a RegExp (fnmatch-compatible). */
-function globToRegex(glob: string): RegExp {
-  let re = "^";
-  for (let i = 0; i < glob.length; i++) {
-    const ch = glob[i]!;
-    if (ch === "*") {
-      re += ".*";
-    } else if (ch === "?") {
-      re += ".";
-    } else if (ch === "[") {
-      // Pass through character classes
-      let j = i + 1;
-      let bracket = "[";
-      if (j < glob.length && glob[j] === "!") {
-        bracket += "^";
-        j++;
-      }
-      while (j < glob.length && glob[j] !== "]") {
-        bracket += glob[j];
-        j++;
-      }
-      bracket += "]";
-      re += bracket;
-      i = j;
-    } else {
-      re += escapeRegex(ch);
-    }
-  }
-  re += "$";
-  return new RegExp(re, "i");
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+// globToRegex / escapeRegex moved to Python toolchain — kept locally only if needed for SessionPermissions class
 
 // ---------------------------------------------------------------------------
 // Session permissions (in-memory grants)
@@ -194,27 +143,9 @@ export interface PermissionPatternConfig {
 export function loadPermissionPatterns(
   projectConfig: JackalProjectConfig = {},
 ): PermissionPattern[] {
-  const patterns: PermissionPattern[] = [];
-
-  if (Array.isArray(projectConfig.permissionPatterns)) {
-    for (const entry of projectConfig.permissionPatterns) {
-      if (
-        entry &&
-        typeof entry === "object" &&
-        typeof entry.tool === "string" &&
-        typeof entry.pattern === "string"
-      ) {
-        patterns.push({
-          tool: entry.tool,
-          pattern: entry.pattern,
-          type: entry.type ?? "glob",
-          action: entry.action ?? "allow",
-        });
-      }
-    }
-  }
-
-  return patterns;
+  return bridgeLoadPermissionPatterns(
+    projectConfig as Record<string, unknown>,
+  ) as unknown as PermissionPattern[];
 }
 
 /** Load persistent always-allow tool names from `.jackal` and `pi/mcp.json`. */
@@ -222,32 +153,7 @@ export function loadAlwaysAllowTools(
   cwd: string,
   projectConfig: JackalProjectConfig = {},
 ): Set<string> {
-  const allowed = new Set<string>();
-
-  if (Array.isArray(projectConfig.alwaysAllow)) {
-    for (const name of projectConfig.alwaysAllow) {
-      if (typeof name === "string" && name.trim()) allowed.add(name.trim());
-    }
-  }
-
-  const mcpPath = join(cwd, "pi", "mcp.json");
-  if (existsSync(mcpPath)) {
-    try {
-      const cfg = JSON.parse(readFileSync(mcpPath, "utf-8")) as {
-        mcpServers?: Record<string, { alwaysAllow?: string[] }>;
-      };
-      for (const server of Object.values(cfg.mcpServers ?? {})) {
-        if (!Array.isArray(server.alwaysAllow)) continue;
-        for (const name of server.alwaysAllow) {
-          if (typeof name === "string" && name.trim()) allowed.add(name.trim());
-        }
-      }
-    } catch {
-      // ignore invalid mcp.json
-    }
-  }
-
-  return allowed;
+  return new Set(bridgeLoadAlwaysAllowTools(cwd, projectConfig as Record<string, unknown>));
 }
 
 export function isAlwaysAllowedTool(toolName: string, alwaysAllow: ReadonlySet<string>): boolean {
@@ -302,22 +208,11 @@ export function evaluatePermissionPatterns(
   toolName: string,
   resource: string,
 ): "allow" | "deny" | null {
-  let allowMatch = false;
-
-  for (const p of patterns) {
-    // Tool must match
-    if (p.tool !== "*" && p.tool !== toolName) continue;
-    // Pattern must match
-    if (!matchPattern(resource, p.pattern, p.type)) continue;
-
-    if (p.action === "deny") {
-      // Deny takes immediate precedence
-      return "deny";
-    }
-    allowMatch = true;
-  }
-
-  return allowMatch ? "allow" : null;
+  return bridgeEvaluatePermissionPatterns(
+    patterns as unknown as Array<Record<string, unknown>>,
+    toolName,
+    resource,
+  ) as "allow" | "deny" | null;
 }
 
 /**

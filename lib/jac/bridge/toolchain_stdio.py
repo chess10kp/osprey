@@ -117,6 +117,19 @@ from _tool_output_limit_toolchain import (  # noqa: E402
 from _skill_commands_toolchain import (  # noqa: E402
     format_skill_command_catalog as _format_skill_command_catalog,
 )
+from _session_permissions_toolchain import (  # noqa: E402
+    match_pattern as _match_pattern,
+    evaluate_permission_patterns as _evaluate_permission_patterns,
+    load_always_allow_tools as _load_always_allow_tools,
+    load_permission_patterns as _load_permission_patterns,
+    needs_tool_approval as _needs_tool_approval,
+)
+from _context_input_toolchain import (  # noqa: E402
+    load_file_slice as _load_file_slice,
+    run_inline_command as _run_inline_command,
+    expand_context_input_sync as _expand_context_input_sync,
+)
+from _approval_display_toolchain import format_approval_display as _format_approval_display  # noqa: E402
 from _overlay_rows_toolchain import (  # noqa: E402
     task_status_icon as _task_status_icon,
     format_task_overlay_row as _format_task_overlay_row,
@@ -416,6 +429,48 @@ def _dispatch(req: dict) -> dict:
 
     if op == "tool_output_truncate_payload":
         return {"result": _truncate_tool_payload(req.get("value"))}
+
+    # --- session permissions ops ---
+
+    if op == "permissions_match_pattern":
+        return {"result": _match_pattern(req.get("resource", ""), req.get("pattern", ""), req.get("type", "glob"))}
+
+    if op == "permissions_evaluate":
+        return {"result": _evaluate_permission_patterns(req.get("patterns", []), req.get("toolName", ""), req.get("resource", ""))}
+
+    if op == "permissions_load_always_allow":
+        return {"result": _load_always_allow_tools(req["cwd"], req.get("projectConfig"))}
+
+    if op == "permissions_load_patterns":
+        return {"result": _load_permission_patterns(req.get("projectConfig"))}
+
+    if op == "permissions_needs_approval":
+        return {"result": _needs_tool_approval(
+            req["mode"], req["toolName"], req.get("params", {}),
+            session_granted=req.get("sessionGranted"),
+            session_pattern_grants=req.get("sessionPatternGrants"),
+            always_allow=req.get("alwaysAllow"),
+            permission_patterns=req.get("permissionPatterns"),
+            resource=req.get("resource"),
+        )}
+
+    # --- context input ops ---
+
+    if op == "context_expand_input":
+        return _expand_context_input_sync(req["cwd"], req.get("text", ""))
+
+    if op == "context_load_file_slice":
+        return _load_file_slice(req["cwd"], req.get("mention", ""), req.get("lineRange"))
+
+    if op == "context_run_inline_command":
+        return {"result": _run_inline_command(req["cwd"], req.get("command", ""))}
+
+    # --- approval display ops ---
+
+    if op == "approval_display_format":
+        return {"result": _format_approval_display(
+            req["toolName"], req.get("params", {}), req.get("subagentName"),
+        )}
 
     # --- overlay rows ops ---
 

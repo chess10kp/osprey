@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from pathlib import Path
 
 import sys
 
@@ -62,6 +63,17 @@ from _tool_output_limit_toolchain import (
     truncate_tool_payload,
 )
 from _skill_commands_toolchain import format_skill_command_catalog
+from _session_permissions_toolchain import (
+    match_pattern as _match_pattern,
+    evaluate_permission_patterns as _eval_patterns,
+    load_permission_patterns as _load_patterns,
+    needs_tool_approval as _needs_approval,
+)
+from _approval_display_toolchain import format_approval_display as _format_approval
+from _context_input_toolchain import (
+    _safe_resolve,
+    expand_context_input_sync,
+)
 from _overlay_rows_toolchain import (
     task_status_icon,
     format_task_overlay_row,
@@ -312,6 +324,122 @@ def test_tool_output_truncate_payload_error_field():
 def test_format_skill_command_catalog_empty():
     text = format_skill_command_catalog([])
     assert "No skills found." in text
+
+
+# --- Session permissions tests ---
+
+
+def test_match_pattern_glob():
+    assert _match_pattern("src/main.ts", "*.ts")
+    assert not _match_pattern("src/main.ts", "*.py")
+
+
+def test_match_pattern_exact():
+    assert _match_pattern("hello", "hello", "exact")
+    assert not _match_pattern("hello", "hell", "exact")
+
+
+def test_match_pattern_prefix():
+    assert _match_pattern("src/main.ts", "src/", "prefix")
+    assert not _match_pattern("src/main.ts", "lib/", "prefix")
+
+
+def test_match_pattern_regex():
+    assert _match_pattern("src/main.ts", r"\.ts$", "regex")
+    assert not _match_pattern("src/main.py", r"\.ts$", "regex")
+
+
+def test_evaluate_permission_patterns_deny():
+    patterns = [{"tool": "bash", "pattern": "rm -rf /", "type": "exact", "action": "deny"}]
+    assert _eval_patterns(patterns, "bash", "rm -rf /") == "deny"
+
+
+def test_evaluate_permission_patterns_allow():
+    patterns = [{"tool": "read", "pattern": "*", "type": "glob", "action": "allow"}]
+    assert _eval_patterns(patterns, "read", "anything") == "allow"
+
+
+def test_load_permission_patterns():
+    cfg = {"permissionPatterns": [{"tool": "bash", "pattern": "echo *"}]}
+    result = _load_patterns(cfg)
+    assert len(result) == 1
+    assert result[0]["type"] == "glob"  # default
+
+
+def test_needs_tool_approval_normal():
+    assert _needs_approval("normal", "bash", {"command": "ls"})
+
+
+def test_needs_tool_approval_auto_accept():
+    assert not _needs_approval("auto-accept", "bash", {"command": "ls"})
+
+
+def test_needs_tool_approval_yolo():
+    assert not _needs_approval("yolo", "bash", {"command": "rm -rf /tmp/x"})
+
+
+# --- Approval display tests ---
+
+
+def test_format_approval_bash():
+    result = _format_approval("bash", {"command": "echo hello"})
+    assert result["headline"] == "bash — shell command"
+    assert "echo hello" in " ".join(l["text"] for l in result["previewLines"])
+
+
+def test_format_approval_edit():
+    result = _format_approval("edit", {
+        "path": "src/main.ts",
+        "edits": [{"oldText": "old", "newText": "new"}],
+    })
+    assert result["headline"] == "edit — src/main.ts"
+    tones = [l["tone"] for l in result["previewLines"]]
+    assert "removed" in tones
+    assert "added" in tones
+
+
+def test_format_approval_subagent():
+    result = _format_approval("bash", {"command": "ls"}, subagent_name="scout")
+    assert "scout" in result["headline"] or "scout" in " ".join(result["detailLines"])
+
+
+# --- Context input tests ---
+
+
+def test_safe_resolve_normal():
+    with tempfile.TemporaryDirectory() as tmp:
+        resolved = _safe_resolve(tmp, "foo.txt")
+        assert resolved.endswith("foo.txt")
+
+
+def test_safe_resolve_escape():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            _safe_resolve(tmp, "../../etc/passwd")
+            assert False, "Should have raised"
+        except ValueError:
+            pass
+
+
+def test_expand_context_plain():
+    with tempfile.TemporaryDirectory() as tmp:
+        result = expand_context_input_sync(tmp, "hello world")
+        assert result["result"] == "hello world"
+
+
+def test_expand_context_command():
+    with tempfile.TemporaryDirectory() as tmp:
+        result = expand_context_input_sync(tmp, "!echo hello")
+        assert "hello" in result["result"]
+
+
+def test_expand_context_file_mention():
+    with tempfile.TemporaryDirectory() as tmp:
+        # Create a file to mention
+        Path(os.path.join(tmp, "test.txt")).write_text("hello from file")
+        result = expand_context_input_sync(tmp, "@test.txt what do you think?")
+        assert "hello from file" in result["result"]
+        assert "<file" in result["result"]
 
 
 # --- Overlay rows tests ---

@@ -846,6 +846,107 @@ export function bridgeTruncateToolPayload(value: unknown): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Session permissions
+// ---------------------------------------------------------------------------
+
+export function bridgeMatchPattern(resource: string, pattern: string, type?: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "permissions_match_pattern", resource, pattern, type });
+}
+
+export function bridgeEvaluatePermissionPatterns(
+  patterns: Array<Record<string, unknown>>,
+  toolName: string,
+  resource: string,
+): string | null {
+  return invokeBridgeSync<string | null>({
+    op: "permissions_evaluate",
+    patterns,
+    toolName,
+    resource,
+  });
+}
+
+export function bridgeLoadAlwaysAllowTools(
+  cwd: string,
+  projectConfig?: Record<string, unknown>,
+): string[] {
+  return invokeBridgeSync<string[]>({
+    op: "permissions_load_always_allow",
+    cwd,
+    projectConfig,
+  });
+}
+
+export function bridgeLoadPermissionPatterns(
+  projectConfig?: Record<string, unknown>,
+): Array<Record<string, unknown>> {
+  return invokeBridgeSync<Array<Record<string, unknown>>>({
+    op: "permissions_load_patterns",
+    projectConfig,
+  });
+}
+
+export function bridgeNeedsToolApproval(opts: {
+  mode: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  sessionGranted?: string[];
+  sessionPatternGrants?: Array<Record<string, unknown>>;
+  alwaysAllow?: string[];
+  permissionPatterns?: Array<Record<string, unknown>>;
+  resource?: string;
+}): boolean {
+  return invokeBridgeSync<boolean>({ op: "permissions_needs_approval", ...opts });
+}
+
+// ---------------------------------------------------------------------------
+// Context input
+// ---------------------------------------------------------------------------
+
+export function bridgeExpandContextInput(cwd: string, text: string): string {
+  return invokeBridgeSync<string>({ op: "context_expand_input", cwd, text });
+}
+
+export function bridgeLoadFileSlice(
+  cwd: string,
+  mention: string,
+  lineRange?: { start: number; end?: number },
+): { block: string; chars: number } {
+  return invokeBridgeSync<{ block: string; chars: number }>({
+    op: "context_load_file_slice",
+    cwd,
+    mention,
+    lineRange,
+  });
+}
+
+export function bridgeRunInlineCommand(cwd: string, command: string): string {
+  return invokeBridgeSync<string>({ op: "context_run_inline_command", cwd, command });
+}
+
+// ---------------------------------------------------------------------------
+// Approval display
+// ---------------------------------------------------------------------------
+
+export function bridgeFormatApprovalDisplay(
+  toolName: string,
+  params: Record<string, unknown>,
+  subagentName?: string,
+): {
+  headline: string;
+  question: string;
+  detailLines: string[];
+  previewLines: Array<{ text: string; tone?: string }>;
+} {
+  return invokeBridgeSync({
+    op: "approval_display_format",
+    toolName,
+    params,
+    subagentName,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Overlay rows
 // ---------------------------------------------------------------------------
 
