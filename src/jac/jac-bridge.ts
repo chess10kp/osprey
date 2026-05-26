@@ -2004,3 +2004,165 @@ export function bridgeCliLastAssistantText(messages: { role: string; text: strin
 export function bridgeCliApprovalMessage(toolName: string, subagentName?: string): string {
   return invokeBridgeSync<string>({ op: "cli_approval_message", toolName, subagentName });
 }
+
+// ── Agent: path resolve ──────────────────────────────────────────
+
+export function bridgeSafeResolve(cwd: string, inputPath: string): string {
+  return invokeBridgeSync<string>({ op: "path_safe_resolve", cwd, inputPath });
+}
+
+export function bridgeResolveReadPath(
+  cwd: string,
+  inputPath: string,
+  allowFiles?: string[],
+  allowRoots?: string[],
+): string {
+  return invokeBridgeSync<string>({ op: "path_resolve_read", cwd, inputPath, allowFiles, allowRoots });
+}
+
+export function bridgeFormatPostWriteMessage(action: string, path: string, notes?: string[]): string {
+  return invokeBridgeSync<string>({ op: "path_format_post_write", action, path, notes });
+}
+
+// ── Core: adapter helpers ────────────────────────────────────────
+
+export function bridgeResolveContextMax(
+  cwd: string,
+  options?: { contextMax?: number },
+  envValue?: string,
+  projectConfig?: Record<string, unknown>,
+): number | null {
+  return invokeBridgeSync<number | null>({ op: "adapter_resolve_context_max", cwd, options, envValue, projectConfig });
+}
+
+export function bridgeSessionStorageDir(cwd: string, override?: string): string {
+  return invokeBridgeSync<string>({ op: "adapter_session_storage_dir", cwd, override });
+}
+
+// ── Core: agent busy ──────────────────────────────────────────────
+
+export function bridgeIsAgentBusy(snapshot: Record<string, unknown>): boolean {
+  return invokeBridgeSync<boolean>({ op: "core_is_agent_busy", snapshot });
+}
+
+// ── Core: store types / bridge helpers ────────────────────────────
+
+export function bridgeStoreAgentPhases(): string[] {
+  return invokeBridgeSync<string[]>({ op: "store_agent_phases" });
+}
+
+export function bridgeStoreMaxToolExecutions(): number {
+  return invokeBridgeSync<number>({ op: "store_max_tool_executions" });
+}
+
+export function bridgeStoreStreamEmitMs(): number {
+  return invokeBridgeSync<number>({ op: "store_stream_emit_ms" });
+}
+
+export function bridgeStoreInitialSnapshot(): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({ op: "store_initial_snapshot" });
+}
+
+export function bridgeStoreMessagesToTranscript(messages: { role: string; text: string }[]): { kind: string; text: string }[] {
+  return invokeBridgeSync<{ kind: string; text: string }[]>({ op: "store_messages_to_transcript", messages });
+}
+
+export function bridgeStoreToolResultDisplayText(value: unknown): string | null {
+  return invokeBridgeSync<string | null>({ op: "store_tool_result_display_text", value });
+}
+
+export function bridgeStoreFormatToolPayload(value: unknown): string | null {
+  return invokeBridgeSync<string | null>({ op: "store_format_tool_payload", value });
+}
+
+export function bridgeStoreToolResultStatus(value: unknown, isError?: boolean): "done" | "error" {
+  return invokeBridgeSync<"done" | "error">({ op: "store_tool_result_status", value, isError });
+}
+
+export function bridgeStoreAgentMessageToStore(message: Record<string, unknown>): { role: string; text: string } | null {
+  return invokeBridgeSync<{ role: string; text: string } | null>({ op: "store_agent_message_to_store", message });
+}
+
+export function bridgeStoreAgentMessagesToStore(messages: unknown[]): { role: string; text: string }[] {
+  return invokeBridgeSync<{ role: string; text: string }[]>({ op: "store_agent_messages_to_store", messages });
+}
+
+export function bridgeStoreBuildSeedData(
+  mode: string,
+  provider: string,
+  model: string,
+  sessionId: string,
+  sessionName: string,
+  messages?: unknown[],
+): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({ op: "store_build_seed_data", mode, provider, model, sessionId, sessionName, messages });
+}
+
+// ── Session: LLM compact ─────────────────────────────────────────
+
+export function bridgeWrapCompactionSummary(text: string): string {
+  return invokeBridgeSync<string>({ op: "session_wrap_compaction_summary", text });
+}
+
+// ── Session: outbound queue ──────────────────────────────────────
+
+export interface OutboundQueueData {
+  items: string[];
+  length: number;
+}
+
+export function bridgeQueueNew(): OutboundQueueData {
+  return invokeBridgeSync<OutboundQueueData>({ op: "queue_new" });
+}
+
+export function bridgeQueueEnqueue(data: OutboundQueueData, text: string): OutboundQueueData {
+  return invokeBridgeSync<OutboundQueueData>({ op: "queue_enqueue", data, text });
+}
+
+export function bridgeQueueDequeue(data: OutboundQueueData): { item: string | null; queue: OutboundQueueData } {
+  return invokeBridgeSync<{ item: string | null; queue: OutboundQueueData }>({ op: "queue_dequeue", data });
+}
+
+export function bridgeQueueClear(data: OutboundQueueData): OutboundQueueData {
+  return invokeBridgeSync<OutboundQueueData>({ op: "queue_clear", data });
+}
+
+export function bridgeQueueLength(data: OutboundQueueData): number {
+  return invokeBridgeSync<number>({ op: "queue_length", data });
+}
+
+// ── LSP helpers ───────────────────────────────────────────────────
+
+export interface LspDiagnosticResult {
+  file: string;
+  line: number;
+  column?: number;
+  severity: string;
+  message: string;
+  code?: string | number;
+  source?: string;
+}
+
+export function bridgeLspParseCheckOutput(output: string, defaultFile?: string): LspDiagnosticResult[] {
+  return invokeBridgeSync<LspDiagnosticResult[]>({ op: "lsp_parse_check_output", output, defaultFile });
+}
+
+export function bridgeLspExtractSymbol(line: string, character: number): string {
+  return invokeBridgeSync<string>({ op: "lsp_extract_symbol", line, character });
+}
+
+export function bridgeLspEscapeRegex(str: string): string {
+  return invokeBridgeSync<string>({ op: "lsp_escape_regex", str });
+}
+
+export function bridgeLspFormatDiagnostics(diagnostics: LspDiagnosticResult[]): string {
+  return invokeBridgeSync<string>({ op: "lsp_format_diagnostics", diagnostics });
+}
+
+export function bridgeLspFormatHoverInfo(info: Record<string, unknown>): string {
+  return invokeBridgeSync<string>({ op: "lsp_format_hover_info", info });
+}
+
+export function bridgeLspFormatLocations(locations: Record<string, unknown>[], label?: string): string {
+  return invokeBridgeSync<string>({ op: "lsp_format_locations", locations, label });
+}

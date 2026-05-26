@@ -275,6 +275,40 @@ from _auth_flow_toolchain import (  # noqa: E402
     initial_auth_flow_state as _initial_auth_flow_state,
     transition_auth_flow as _transition_auth_flow,
 )
+from _path_resolve_toolchain import (  # noqa: E402
+    safe_resolve as _safe_resolve,
+    resolve_read_path as _resolve_read_path,
+    format_post_write_message as _format_post_write_message,
+)
+
+from _adapter_helpers_toolchain import (  # noqa: E402
+    resolve_context_max as _resolve_context_max,
+    session_storage_dir as _session_storage_dir,
+)
+from _agent_busy_toolchain import is_agent_busy as _is_agent_busy  # noqa: E402
+from _store_types_toolchain import (  # noqa: E402
+    AGENT_PHASES as _AGENT_PHASES,
+    MAX_TOOL_EXECUTIONS as _MAX_TOOL_EXECUTIONS,
+    STREAM_EMIT_MS as _STREAM_EMIT_MS,
+    INITIAL_SNAPSHOT as _INITIAL_SNAPSHOT,
+    agent_messages_to_transcript as _agent_messages_to_transcript,
+    tool_result_display_text as _tool_result_display_text,
+    format_tool_payload as _format_tool_payload_store,
+    tool_result_status as _tool_result_status_store,
+    agent_message_to_store as _agent_message_to_store,
+    agent_messages_to_store as _agent_messages_to_store,
+    build_seed_data as _build_seed_data,
+)
+from _llm_compact_toolchain import wrap_compaction_summary as _wrap_compaction_summary  # noqa: E402
+from _outbound_queue_toolchain import OutboundMessageQueue as _OutboundMessageQueue  # noqa: E402
+from _lsp_helpers_toolchain import (  # noqa: E402
+    parse_check_output as _parse_check_output_lsp,
+    extract_symbol as _extract_symbol,
+    escape_regex as _escape_regex,
+    format_lsp_diagnostics as _format_lsp_diagnostics,
+    format_hover_info as _format_hover_info,
+    format_locations as _format_locations,
+)
 
 
 def _dispatch(req: dict) -> dict:
@@ -1048,6 +1082,105 @@ def _dispatch(req: dict) -> dict:
     if op == "cli_approval_message":
         from _run_toolchain import approval_message
         return {"result": approval_message(req.get("toolName", ""), req.get("subagentName"))}
+
+    # ── Agent: path resolve ──────────────────────────────────────────
+    if op == "path_safe_resolve":
+        return {"result": _safe_resolve(req["cwd"], req["inputPath"])}
+    if op == "path_resolve_read":
+        return {"result": _resolve_read_path(
+            req["cwd"], req["inputPath"],
+            allow_files=set(req.get("allowFiles", [])) or None,
+            allow_roots=set(req.get("allowRoots", [])) or None,
+        )}
+    if op == "path_format_post_write":
+        return {"result": _format_post_write_message(
+            req.get("action", "Wrote"), req.get("path", ""), req.get("notes"),
+        )}
+
+    # ── Core: adapter helpers ────────────────────────────────────────
+    if op == "adapter_resolve_context_max":
+        return {"result": _resolve_context_max(
+            req["cwd"], req.get("options"), req.get("envValue"), req.get("projectConfig"),
+        )}
+    if op == "adapter_session_storage_dir":
+        return {"result": _session_storage_dir(req["cwd"], req.get("override"))}
+
+    # ── Core: agent busy ────────────────────────────────────────────
+    if op == "core_is_agent_busy":
+        return {"result": _is_agent_busy(req.get("snapshot", {}))}
+
+    # ── Core: store types / bridge helpers ──────────────────────────
+    if op == "store_agent_phases":
+        return {"result": list(_AGENT_PHASES)}
+    if op == "store_max_tool_executions":
+        return {"result": _MAX_TOOL_EXECUTIONS}
+    if op == "store_stream_emit_ms":
+        return {"result": _STREAM_EMIT_MS}
+    if op == "store_initial_snapshot":
+        return {"result": dict(_INITIAL_SNAPSHOT)}
+    if op == "store_messages_to_transcript":
+        return {"result": _agent_messages_to_transcript(req.get("messages", []))}
+    if op == "store_tool_result_display_text":
+        return {"result": _tool_result_display_text(req.get("value"))}
+    if op == "store_format_tool_payload":
+        return {"result": _format_tool_payload_store(req.get("value"))}
+    if op == "store_tool_result_status":
+        return {"result": _tool_result_status_store(req.get("value"), req.get("isError"))}
+    if op == "store_agent_message_to_store":
+        return {"result": _agent_message_to_store(req.get("message", {}))}
+    if op == "store_agent_messages_to_store":
+        return {"result": _agent_messages_to_store(req.get("messages", []))}
+    if op == "store_build_seed_data":
+        return {"result": _build_seed_data(
+            req.get("mode", "normal"), req.get("provider", ""),
+            req.get("model", ""), req.get("sessionId", ""),
+            req.get("sessionName", ""), req.get("messages"),
+        )}
+
+    # ── Session: LLM compact ────────────────────────────────────────
+    if op == "session_wrap_compaction_summary":
+        return {"result": _wrap_compaction_summary(req.get("text", ""))}
+
+    # ── Session: outbound queue ──────────────────────────────────────
+    if op == "queue_new":
+        q = _OutboundMessageQueue()
+        return {"result": q.to_dict()}
+    if op == "queue_peek":
+        q = _OutboundMessageQueue.from_dict(req.get("data", {}))
+        return {"result": q.peek()}
+    if op == "queue_enqueue":
+        q = _OutboundMessageQueue.from_dict(req.get("data", {}))
+        q.enqueue(req.get("text", ""))
+        return {"result": q.to_dict()}
+    if op == "queue_dequeue":
+        q = _OutboundMessageQueue.from_dict(req.get("data", {}))
+        item = q.dequeue()
+        return {"result": {"item": item, "queue": q.to_dict()}}
+    if op == "queue_clear":
+        q = _OutboundMessageQueue.from_dict(req.get("data", {}))
+        q.clear()
+        return {"result": q.to_dict()}
+    if op == "queue_length":
+        q = _OutboundMessageQueue.from_dict(req.get("data", {}))
+        return {"result": q.length}
+
+    # ── LSP helpers ──────────────────────────────────────────────────
+    if op == "lsp_parse_check_output":
+        return {"result": _parse_check_output_lsp(
+            req.get("output", ""), req.get("defaultFile"),
+        )}
+    if op == "lsp_extract_symbol":
+        return {"result": _extract_symbol(req.get("line", ""), req.get("character", 0))}
+    if op == "lsp_escape_regex":
+        return {"result": _escape_regex(req.get("str", ""))}
+    if op == "lsp_format_diagnostics":
+        return {"result": _format_lsp_diagnostics(req.get("diagnostics", []))}
+    if op == "lsp_format_hover_info":
+        return {"result": _format_hover_info(req.get("info", {}))}
+    if op == "lsp_format_locations":
+        return {"result": _format_locations(
+            req.get("locations", []), req.get("label", "Results"),
+        )}
 
     raise ValueError(f"unknown op: {op}")
 
