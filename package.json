@@ -27,6 +27,8 @@
     "postinstall": "patch-package",
     "build:agent": "tsc -p tsconfig.json",
     "check": "npm run build:agent && node dist/index.js --check",
+    "check:jac": "./scripts/jac-toolchain-check.sh",
+    "test:jac": "./scripts/jac-test-harness.sh",
     "run:agent": "node dist/index.js run",
     "start:agent-shell": "./jackal.sh",
     "test": "vitest run",
