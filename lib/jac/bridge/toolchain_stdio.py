@@ -20,6 +20,7 @@ for _subdir in (
     "render",
     "core",
     "session",
+    "auth",
 ):
     _pkg = os.path.join(_LIB_JAC_ROOT, _subdir)
     if os.path.isdir(_pkg) and _pkg not in sys.path:
@@ -227,6 +228,16 @@ from _session_persistence_toolchain import (  # noqa: E402
     load_compaction_backup as _load_compaction_backup,
     clear_compaction_backup as _clear_compaction_backup,
     flush_session_record as _flush_session_record,
+)
+from _auth_flow_toolchain import (  # noqa: E402
+    validate_provider_entry as _validate_provider_entry,
+    validate_model_entry as _validate_model_entry,
+    filter_providers_by_query as _filter_providers_by_query,
+    filter_models_by_query as _filter_models_by_query,
+    format_auth_provider_label as _format_auth_provider_label,
+    format_model_label as _format_model_label,
+    initial_auth_flow_state as _initial_auth_flow_state,
+    transition_auth_flow as _transition_auth_flow,
 )
 
 
@@ -911,6 +922,27 @@ def _dispatch(req: dict) -> dict:
             req.get("modelRef"),
         )
         return {"result": True}
+
+    if op == "auth_validate_provider":
+        return {"result": _validate_provider_entry(req.get("entry"))}
+    if op == "auth_validate_model":
+        return {"result": _validate_model_entry(req.get("entry"))}
+    if op == "auth_filter_providers":
+        return {"result": _filter_providers_by_query(req.get("providers", []), req.get("query", ""))}
+    if op == "auth_filter_models":
+        return {"result": _filter_models_by_query(
+            req.get("models", []), req.get("query", ""), req.get("providerFilter"),
+        )}
+    if op == "auth_format_provider_label":
+        return {"result": _format_auth_provider_label(req.get("entry", {}))}
+    if op == "auth_format_model_label":
+        return {"result": _format_model_label(req.get("entry", {}))}
+    if op == "auth_initial_state":
+        return {"result": _initial_auth_flow_state()}
+    if op == "auth_transition":
+        return {"result": _transition_auth_flow(
+            req.get("state", {}), req.get("action", ""), req.get("payload"),
+        )}
 
     raise ValueError(f"unknown op: {op}")
 

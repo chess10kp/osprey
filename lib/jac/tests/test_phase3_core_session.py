@@ -911,3 +911,246 @@ class TestFlushSessionRecord:
 
     def test_flush_empty_dir_skips(self, tmp_path):
         flush_session_record("", "sess_1", "test", "/tmp", "2026-01-01T00:00:00Z", [], None)
+
+
+# =====================================================================
+# 5. _auth_flow_toolchain
+# =====================================================================
+
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "auth")))
+
+from _auth_flow_toolchain import (
+    validate_provider_entry,
+    validate_model_entry,
+    filter_providers_by_query,
+    filter_models_by_query,
+    format_auth_provider_label,
+    format_model_label,
+    initial_auth_flow_state,
+    transition_auth_flow,
+)
+
+
+class TestValidateProviderEntry:
+    def test_valid_entry(self):
+        e = {"id": "openai", "displayName": "OpenAI", "authType": "api_key", "configured": True, "modelCount": 5}
+        result = validate_provider_entry(e)
+        assert result is not None
+        assert result["id"] == "openai"
+
+    def test_missing_id(self):
+        e = {"displayName": "X", "authType": "oauth"}
+        assert validate_provider_entry(e) is None
+
+    def test_invalid_auth_type(self):
+        e = {"id": "x", "displayName": "X", "authType": "invalid"}
+        assert validate_provider_entry(e) is None
+
+    def test_not_dict(self):
+        assert validate_provider_entry("string") is None
+        assert validate_provider_entry(None) is None
+
+
+class TestValidateModelEntry:
+    def test_valid_entry(self):
+        e = {"provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4"}
+        result = validate_model_entry(e)
+        assert result is not None
+        assert result["modelId"] == "gpt-4"
+
+    def test_missing_provider(self):
+        e = {"modelId": "gpt-4", "displayName": "GPT-4"}
+        assert validate_model_entry(e) is None
+
+    def test_not_dict(self):
+        assert validate_model_entry(42) is None
+
+
+class TestFilterProviders:
+    def test_no_query_returns_all(self):
+        providers = [
+            {"id": "openai", "displayName": "OpenAI"},
+            {"id": "anthropic", "displayName": "Anthropic"},
+        ]
+        assert len(filter_providers_by_query(providers, "")) == 2
+
+    def test_filter_by_id(self):
+        providers = [
+            {"id": "openai", "displayName": "OpenAI"},
+            {"id": "anthropic", "displayName": "Anthropic"},
+        ]
+        result = filter_providers_by_query(providers, "open")
+        assert len(result) == 1
+        assert result[0]["id"] == "openai"
+
+    def test_filter_by_display_name(self):
+        providers = [
+            {"id": "openai", "displayName": "OpenAI"},
+            {"id": "anthropic", "displayName": "Anthropic"},
+        ]
+        result = filter_providers_by_query(providers, "anthr")
+        assert len(result) == 1
+
+    def test_case_insensitive(self):
+        providers = [{"id": "OpenAI", "displayName": "OpenAI"}]
+        assert len(filter_providers_by_query(providers, "openai")) == 1
+
+
+class TestFilterModels:
+    def test_no_filter_returns_all(self):
+        models = [
+            {"provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4"},
+            {"provider": "anthropic", "modelId": "claude", "displayName": "Claude"},
+        ]
+        assert len(filter_models_by_query(models, "")) == 2
+
+    def test_filter_by_provider(self):
+        models = [
+            {"provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4"},
+            {"provider": "anthropic", "modelId": "claude", "displayName": "Claude"},
+        ]
+        result = filter_models_by_query(models, "", "openai")
+        assert len(result) == 1
+        assert result[0]["provider"] == "openai"
+
+    def test_filter_by_query(self):
+        models = [
+            {"provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4"},
+            {"provider": "anthropic", "modelId": "claude", "displayName": "Claude"},
+        ]
+        result = filter_models_by_query(models, "gpt")
+        assert len(result) == 1
+
+
+class TestFormatLabels:
+    def test_provider_label_configured(self):
+        label = format_auth_provider_label({
+            "id": "openai", "displayName": "OpenAI",
+            "authType": "api_key", "configured": True, "modelCount": 5,
+        })
+        assert "✓" in label
+        assert "OpenAI" in label
+        assert "API Key" in label
+        assert "5 models" in label
+
+    def test_provider_label_not_configured(self):
+        label = format_auth_provider_label({
+            "id": "openai", "displayName": "OpenAI",
+            "authType": "oauth", "configured": False, "modelCount": 0,
+        })
+        assert "OpenAI" in label
+        assert "OAuth" in label
+
+    def test_model_label_with_provider(self):
+        label = format_model_label({
+            "provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4",
+        })
+        assert "GPT-4" in label
+        assert "openai/gpt-4" in label
+
+    def test_model_label_without_provider(self):
+        label = format_model_label({"modelId": "gpt-4", "displayName": "GPT-4"})
+        assert "GPT-4" in label
+
+
+class TestAuthFlowStateMachine:
+    def test_initial_state(self):
+        state = initial_auth_flow_state()
+        assert state["step"]["kind"] == "idle"
+
+    def test_open_provider_picker(self):
+        state = initial_auth_flow_state()
+        next_state = transition_auth_flow(state, "open_provider_picker", {
+            "providers": [{"id": "x", "displayName": "X", "authType": "api_key", "configured": False, "modelCount": 0}],
+        })
+        assert next_state["step"]["kind"] == "provider_picker"
+        assert len(next_state["step"]["providers"]) == 1
+
+    def test_set_logging_in(self):
+        state = transition_auth_flow({"step": {"kind": "idle"}}, "set_logging_in", {
+            "providerId": "openai", "status": "connecting...",
+        })
+        assert state["step"]["kind"] == "logging_in"
+        assert state["step"]["providerId"] == "openai"
+
+    def test_set_browser_auth(self):
+        state = transition_auth_flow({"step": {"kind": "idle"}}, "set_browser_auth", {
+            "providerId": "openai", "url": "https://auth.example.com",
+        })
+        assert state["step"]["kind"] == "browser_auth"
+        assert state["step"]["url"] == "https://auth.example.com"
+
+    def test_set_logged_in(self):
+        state = transition_auth_flow({"step": {"kind": "idle"}}, "set_logged_in", {
+            "providerId": "openai", "nextStep": "model_picker",
+        })
+        assert state["step"]["kind"] == "logged_in"
+        assert state["step"]["nextStep"] == "model_picker"
+
+    def test_set_error(self):
+        state = transition_auth_flow({"step": {"kind": "idle"}}, "set_error", {
+            "message": "Auth failed", "providerId": "openai",
+        })
+        assert state["step"]["kind"] == "error"
+        assert state["step"]["message"] == "Auth failed"
+
+    def test_set_idle(self):
+        state = transition_auth_flow({"step": {"kind": "error", "message": "x"}}, "set_idle")
+        assert state["step"]["kind"] == "idle"
+
+    def test_update_query_on_provider_picker(self):
+        state = {"step": {"kind": "provider_picker", "providers": [], "query": ""}}
+        next_state = transition_auth_flow(state, "update_query", {"query": "open"})
+        assert next_state["step"]["query"] == "open"
+
+    def test_update_query_on_idle_noop(self):
+        state = {"step": {"kind": "idle"}}
+        next_state = transition_auth_flow(state, "update_query", {"query": "test"})
+        assert next_state["step"]["kind"] == "idle"
+
+    def test_update_provider_filter(self):
+        state = {"step": {"kind": "model_picker", "models": [], "query": "", "providerFilter": None}}
+        next_state = transition_auth_flow(state, "update_provider_filter", {"providerFilter": "openai"})
+        assert next_state["step"]["providerFilter"] == "openai"
+
+    def test_cancel(self):
+        state = transition_auth_flow({"step": {"kind": "logging_in", "providerId": "x"}}, "cancel")
+        assert state["step"]["kind"] == "idle"
+
+    def test_reset(self):
+        state = transition_auth_flow({"step": {"kind": "error", "message": "x"}}, "reset")
+        assert state["step"]["kind"] == "idle"
+
+    def test_unknown_action_returns_copy(self):
+        original = {"step": {"kind": "idle"}}
+        result = transition_auth_flow(original, "nonexistent_action")
+        assert result["step"]["kind"] == "idle"
+
+    def test_does_not_mutate_original(self):
+        original = {"step": {"kind": "provider_picker", "providers": [], "query": ""}}
+        _ = transition_auth_flow(original, "update_query", {"query": "test"})
+        assert original["step"]["query"] == ""
+
+    def test_full_flow(self):
+        """Simulate a complete auth flow: idle → provider_picker → logging_in → logged_in → model_picker → idle."""
+        state = initial_auth_flow_state()
+        assert state["step"]["kind"] == "idle"
+
+        state = transition_auth_flow(state, "open_provider_picker", {
+            "providers": [{"id": "openai", "displayName": "OpenAI", "authType": "api_key", "configured": False, "modelCount": 5}],
+        })
+        assert state["step"]["kind"] == "provider_picker"
+
+        state = transition_auth_flow(state, "set_logging_in", {"providerId": "openai", "status": "Connecting..."})
+        assert state["step"]["kind"] == "logging_in"
+
+        state = transition_auth_flow(state, "set_logged_in", {"providerId": "openai", "nextStep": "model_picker"})
+        assert state["step"]["kind"] == "logged_in"
+
+        state = transition_auth_flow(state, "open_model_picker", {
+            "models": [{"provider": "openai", "modelId": "gpt-4", "displayName": "GPT-4"}],
+        })
+        assert state["step"]["kind"] == "model_picker"
+
+        state = transition_auth_flow(state, "set_idle")
+        assert state["step"]["kind"] == "idle"

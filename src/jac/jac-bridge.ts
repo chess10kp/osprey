@@ -1794,3 +1794,88 @@ export function bridgeSessionFlushRecord(opts: {
     modelRef: opts.modelRef ?? null,
   });
 }
+
+// ── Auth: flow state machine ───────────────────────────────────────
+
+export interface AuthProviderEntry {
+  id: string;
+  displayName: string;
+  authType: "oauth" | "api_key" | "env";
+  configured: boolean;
+  modelCount: number;
+}
+
+export interface AuthModelEntry {
+  provider: string;
+  modelId: string;
+  displayName: string;
+}
+
+export interface AuthFlowState {
+  step: Record<string, unknown>;
+}
+
+export function bridgeAuthValidateProvider(
+  entry: unknown,
+): AuthProviderEntry | null {
+  return invokeBridgeSync<AuthProviderEntry | null>({
+    op: "auth_validate_provider", entry,
+  });
+}
+
+export function bridgeAuthValidateModel(
+  entry: unknown,
+): AuthModelEntry | null {
+  return invokeBridgeSync<AuthModelEntry | null>({
+    op: "auth_validate_model", entry,
+  });
+}
+
+export function bridgeAuthFilterProviders(
+  providers: AuthProviderEntry[],
+  query: string,
+): AuthProviderEntry[] {
+  return invokeBridgeSync<AuthProviderEntry[]>({
+    op: "auth_filter_providers", providers, query,
+  });
+}
+
+export function bridgeAuthFilterModels(
+  models: AuthModelEntry[],
+  query: string,
+  providerFilter?: string,
+): AuthModelEntry[] {
+  return invokeBridgeSync<AuthModelEntry[]>({
+    op: "auth_filter_models", models, query, providerFilter,
+  });
+}
+
+export function bridgeAuthFormatProviderLabel(
+  entry: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "auth_format_provider_label", entry,
+  });
+}
+
+export function bridgeAuthFormatModelLabel(
+  entry: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "auth_format_model_label", entry,
+  });
+}
+
+export function bridgeAuthInitialState(): AuthFlowState {
+  return invokeBridgeSync<AuthFlowState>({ op: "auth_initial_state" });
+}
+
+export function bridgeAuthTransition(
+  state: AuthFlowState,
+  action: string,
+  payload?: Record<string, unknown>,
+): AuthFlowState {
+  return invokeBridgeSync<AuthFlowState>({
+    op: "auth_transition", state, action, payload,
+  });
+}
