@@ -70,6 +70,7 @@ from _session_permissions_toolchain import (
     needs_tool_approval as _needs_approval,
 )
 from _approval_display_toolchain import format_approval_display as _format_approval
+from _completions_toolchain import get_suggestions as _get_suggestions
 from _context_input_toolchain import (
     _safe_resolve,
     expand_context_input_sync,
@@ -401,6 +402,40 @@ def test_format_approval_edit():
 def test_format_approval_subagent():
     result = _format_approval("bash", {"command": "ls"}, subagent_name="scout")
     assert "scout" in result["headline"] or "scout" in " ".join(result["detailLines"])
+
+
+# --- Completions tests ---
+
+
+def test_completions_slash_help():
+    results = _get_suggestions("/he")
+    assert any(r["value"] == "/help" for r in results)
+
+
+def test_completions_empty():
+    results = _get_suggestions("hello")
+    assert results == []
+
+
+def test_completions_auth_step():
+    results = _get_suggestions("a", auth_step_kind="provider_picker", providers=["anthropic", "openai"])
+    assert len(results) > 0
+    assert any("anthropic" in r["value"] for r in results)
+
+
+def test_completions_file_suggestions():
+    results = _get_suggestions("@src/", file_paths=["src/main.ts", "src/util.ts", "lib/helper.py"])
+    assert any("main.ts" in r["label"] for r in results)
+
+
+def test_completions_login_subcommand():
+    results = _get_suggestions("/login an", providers=["anthropic", "openai"])
+    assert any("anthropic" in r["value"] for r in results)
+
+
+def test_completions_custom_commands():
+    results = _get_suggestions("/my-cmd", custom_commands=["/my-cmd", "/other"])
+    assert any(r["value"] == "/my-cmd" for r in results)
 
 
 # --- Context input tests ---

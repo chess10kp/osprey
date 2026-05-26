@@ -947,6 +947,26 @@ export function bridgeFormatApprovalDisplay(
 }
 
 // ---------------------------------------------------------------------------
+// Completions
+// ---------------------------------------------------------------------------
+
+export function bridgeGetSuggestions(opts: {
+  inputText: string;
+  authStepKind?: string;
+  providers?: string[];
+  models?: string[];
+  authOptions?: string[];
+  filePaths?: string[];
+  customCommands?: string[];
+  cursorPosition?: number;
+}): Array<{ label: string; value: string }> {
+  return invokeBridgeSync<Array<{ label: string; value: string }>>({
+    op: "completions_get_suggestions",
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Overlay rows
 // ---------------------------------------------------------------------------
 

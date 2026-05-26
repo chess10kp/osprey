@@ -130,6 +130,7 @@ from _context_input_toolchain import (  # noqa: E402
     expand_context_input_sync as _expand_context_input_sync,
 )
 from _approval_display_toolchain import format_approval_display as _format_approval_display  # noqa: E402
+from _completions_toolchain import get_suggestions as _get_suggestions  # noqa: E402
 from _overlay_rows_toolchain import (  # noqa: E402
     task_status_icon as _task_status_icon,
     format_task_overlay_row as _format_task_overlay_row,
@@ -470,6 +471,20 @@ def _dispatch(req: dict) -> dict:
     if op == "approval_display_format":
         return {"result": _format_approval_display(
             req["toolName"], req.get("params", {}), req.get("subagentName"),
+        )}
+
+    # --- completions ops ---
+
+    if op == "completions_get_suggestions":
+        return {"result": _get_suggestions(
+            req.get("inputText", ""),
+            auth_step_kind=req.get("authStepKind", ""),
+            providers=req.get("providers"),
+            models=req.get("models"),
+            auth_options=req.get("authOptions"),
+            file_paths=req.get("filePaths"),
+            custom_commands=req.get("customCommands"),
+            cursor_position=req.get("cursorPosition"),
         )}
 
     # --- overlay rows ops ---
