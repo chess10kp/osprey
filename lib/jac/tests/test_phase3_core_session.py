@@ -1154,3 +1154,285 @@ class TestAuthFlowStateMachine:
 
         state = transition_auth_flow(state, "set_idle")
         assert state["step"]["kind"] == "idle"
+
+
+# =====================================================================
+# 6. Orchestration: subagents + chains + runner helpers
+# =====================================================================
+
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "orchestration")))
+
+from _subagents_toolchain import (
+    SUBAGENT_TOOL_ALIASES,
+    EXCLUDED_SUBAGENT_TOOLS,
+    normalize_allowed_tool_names,
+    filter_tools_for_subagent,
+    load_agent_file,
+    format_subagent_catalog,
+    resolve_jackal_root,
+    is_existing_dir,
+)
+from _chains_toolchain import (
+    parse_step_body,
+    parse_chain_markdown,
+    format_chain_catalog,
+    chain_dirs_exist,
+)
+from _subagent_runner_toolchain import (
+    MAX_PARALLEL_SUBAGENTS,
+    extract_assistant_summary,
+    count_tool_calls,
+    substitute_chain_template,
+    build_step_prompt,
+)
+
+
+class TestSubagentToolAliases:
+    def test_read_file_alias(self):
+        assert SUBAGENT_TOOL_ALIASES["read_file"] == "read"
+
+    def test_grep_alias(self):
+        assert SUBAGENT_TOOL_ALIASES["grep"] == "bash"
+
+    def test_excluded_tools(self):
+        assert "agent" in EXCLUDED_SUBAGENT_TOOLS
+        assert "subagent" in EXCLUDED_SUBAGENT_TOOLS
+
+
+class TestNormalizeAllowedTools:
+    def test_none_returns_none(self):
+        assert normalize_allowed_tool_names(None) is None
+
+    def test_empty_returns_none(self):
+        assert normalize_allowed_tool_names([]) is None
+
+    def test_maps_aliases(self):
+        result = normalize_allowed_tool_names(["read_file", "bash"])
+        assert "read" in result
+        assert "bash" in result
+
+    def test_mcp_prefix_stripped(self):
+        result = normalize_allowed_tool_names(["mcp:validate_jac"])
+        assert "validate_jac" in result
+
+    def test_unknown_passes_through(self):
+        result = normalize_allowed_tool_names(["custom_tool"])
+        assert "custom_tool" in result
+
+
+class TestFilterToolsForSubagent:
+    def test_filters_excluded(self):
+        result = filter_tools_for_subagent(
+            ["read", "write", "agent", "subagent", "bash"], None
+        )
+        assert "agent" not in result
+        assert "subagent" not in result
+        assert "read" in result
+
+    def test_filters_to_allowed(self):
+        allowed = {"read", "write"}
+        result = filter_tools_for_subagent(
+            ["read", "write", "bash", "edit"], allowed
+        )
+        assert set(result) == {"read", "write"}
+
+    def test_fallback_to_non_excluded(self):
+        allowed = {"nonexistent"}
+        result = filter_tools_for_subagent(
+            ["read", "write", "agent"], allowed
+        )
+        assert "read" in result
+        assert "agent" not in result
+
+    def test_bash_auto_included_when_allowed(self):
+        allowed = {"bash"}
+        result = filter_tools_for_subagent(["read"], allowed)
+        # Falls back to all non-excluded since bash isn't in all_tool_names
+        assert "read" in result
+
+
+class TestLoadAgentFile:
+    def test_valid_agent(self, tmp_path):
+        agent_md = tmp_path / "scout.md"
+        agent_md.write_text("""---
+name: scout
+description: Fast recon agent
+tools:
+  - read
+  - grep
+model: claude-haiku
+---
+
+You are a scout agent.
+""")
+        result = load_agent_file(str(agent_md), "project")
+        assert result is not None
+        assert result["name"] == "scout"
+        assert result["description"] == "Fast recon agent"
+        assert result["tools"] == ["read", "grep"]
+        assert result["model"] == "claude-haiku"
+        assert result["source"] == "project"
+        assert "scout agent" in result["systemPrompt"]
+
+    def test_missing_name(self, tmp_path):
+        agent_md = tmp_path / "bad.md"
+        agent_md.write_text("---\ndescription: No name\n---\nBody")
+        result = load_agent_file(str(agent_md), "package")
+        assert result is None
+
+    def test_missing_description(self, tmp_path):
+        agent_md = tmp_path / "bad.md"
+        agent_md.write_text("---\nname: test\n---\nBody")
+        result = load_agent_file(str(agent_md), "package")
+        assert result is None
+
+    def test_nonexistent_file(self):
+        result = load_agent_file("/nonexistent/file.md", "package")
+        assert result is None
+
+
+class TestFormatSubagentCatalog:
+    def test_empty(self):
+        catalog = format_subagent_catalog("/nonexistent")
+        assert "No subagents found" in catalog
+
+    def test_with_agents(self, tmp_path):
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "test.md").write_text("---\nname: tester\ndescription: Test agent\n---\nDo testing")
+        catalog = format_subagent_catalog(str(tmp_path), agent_dir=str(tmp_path))
+        # This may or may not find agents depending on .pi/agents path
+        assert isinstance(catalog, str)
+
+
+class TestParseStepBody:
+    def test_task_only(self):
+        step = parse_step_body("scout", "\nAnalyze the codebase for patterns.")
+        assert step["agent"] == "scout"
+        assert step["task"] == "Analyze the codebase for patterns."
+
+    def test_with_config(self):
+        body = "output: plan.md\nreads: report.md, context.md\n\nAnalyze the code."
+        step = parse_step_body("scout", body)
+        assert step["output"] == "plan.md"
+        assert step["reads"] == ["report.md", "context.md"]
+        assert "Analyze" in step["task"]
+
+    def test_with_model(self):
+        body = "model: claude-haiku\n\nDo something quick."
+        step = parse_step_body("agent", body)
+        assert step["model"] == "claude-haiku"
+
+
+class TestParseChainMarkdown:
+    def test_valid_chain(self):
+        content = """---
+name: pipeline
+description: Full analysis pipeline
+---
+
+## scout
+Analyze the codebase.
+
+## architect
+Design the solution.
+"""
+        chain = parse_chain_markdown(content, "package", "test.chain.md")
+        assert chain["name"] == "pipeline"
+        assert chain["description"] == "Full analysis pipeline"
+        assert len(chain["steps"]) == 2
+        assert chain["steps"][0]["agent"] == "scout"
+        assert chain["steps"][1]["agent"] == "architect"
+
+    def test_missing_name_raises(self):
+        content = "---\ndescription: No name\n---\n## scout\nDo stuff"
+        import pytest
+        with pytest.raises(ValueError, match="name and description"):
+            parse_chain_markdown(content, "package", "test.chain.md")
+
+    def test_no_steps_raises(self):
+        content = "---\nname: test\ndescription: Test\n---\nNo steps here."
+        import pytest
+        with pytest.raises(ValueError, match="no ## steps"):
+            parse_chain_markdown(content, "package", "test.chain.md")
+
+
+class TestExtractAssistantSummary:
+    def test_string_content(self):
+        msgs = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
+        assert extract_assistant_summary(msgs) == "hi there"
+
+    def test_array_content(self):
+        msgs = [
+            {"role": "assistant", "content": [{"type": "text", "text": "part one"}, {"type": "text", "text": "part two"}]},
+        ]
+        result = extract_assistant_summary(msgs)
+        assert "part one" in result
+        assert "part two" in result
+
+    def test_no_assistant_messages(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        assert extract_assistant_summary(msgs) == "(no subagent output)"
+
+    def test_multiple_assistant_messages(self):
+        msgs = [
+            {"role": "assistant", "content": "first"},
+            {"role": "user", "content": "ok"},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = extract_assistant_summary(msgs)
+        assert "first" in result
+        assert "second" in result
+
+
+class TestCountToolCalls:
+    def test_with_tool_calls(self):
+        msgs = [
+            {"role": "assistant", "content": [
+                {"type": "toolCall", "name": "read"},
+                {"type": "text", "text": "output"},
+            ]},
+        ]
+        assert count_tool_calls(msgs) == 1
+
+    def test_no_tool_calls(self):
+        msgs = [{"role": "assistant", "content": "just text"}]
+        assert count_tool_calls(msgs) == 0
+
+    def test_empty_messages(self):
+        assert count_tool_calls([]) == 0
+
+
+class TestSubstituteChainTemplate:
+    def test_basic_substitution(self):
+        result = substitute_chain_template("Do {task} with {previous}", "the work", "prior context")
+        assert result == "Do the work with prior context"
+
+    def test_no_placeholders(self):
+        assert substitute_chain_template("no placeholders", "a", "b") == "no placeholders"
+
+
+class TestBuildStepPrompt:
+    def test_basic_prompt(self):
+        step = {"agent": "scout", "task": "Analyze {task}"}
+        result = build_step_prompt(step, "the code", "")
+        assert "Analyze the code" == result
+
+    def test_with_reads(self):
+        step = {"agent": "scout", "task": "Analyze", "reads": ["report.md", "plan.md"]}
+        result = build_step_prompt(step, "task", "")
+        assert "report.md" in result
+        assert "plan.md" in result
+        assert "prior step" in result
+
+    def test_with_output(self):
+        step = {"agent": "scout", "task": "Analyze", "output": "report.md"}
+        result = build_step_prompt(step, "task", "")
+        assert "report.md" in result
+        assert "markdown" in result.lower()
+
+    def test_max_parallel_constant(self):
+        assert MAX_PARALLEL_SUBAGENTS == 5

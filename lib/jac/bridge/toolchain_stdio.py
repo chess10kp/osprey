@@ -63,6 +63,41 @@ from _frontmatter_toolchain import (  # noqa: E402
     frontmatter_string as _frontmatter_string,
     frontmatter_string_list as _frontmatter_string_list,
 )
+from _subagents_toolchain import (  # noqa: E402
+    resolve_jackal_root as _resolve_jackal_root,
+    is_existing_dir as _is_existing_dir,
+    load_agent_file as _load_agent_file,
+    load_agents_from_dir as _load_agents_from_dir,
+    discover_subagent_dirs as _discover_subagent_dirs,
+    load_subagents as _load_subagents,
+    list_subagents as _list_subagents,
+    get_subagent as _get_subagent,
+    load_settings_model_overrides as _load_settings_model_overrides,
+    load_project_model_overrides as _load_project_model_overrides,
+    normalize_allowed_tool_names as _normalize_allowed_tool_names,
+    filter_tools_for_subagent as _filter_tools_for_subagent,
+    format_subagent_catalog as _format_subagent_catalog,
+    SUBAGENT_TOOL_ALIASES as _SUBAGENT_TOOL_ALIASES,
+    EXCLUDED_SUBAGENT_TOOLS as _EXCLUDED_SUBAGENT_TOOLS,
+)
+from _chains_toolchain import (  # noqa: E402
+    parse_chain_markdown as _parse_chain_markdown,
+    list_chain_files as _list_chain_files,
+    discover_chain_dirs as _discover_chain_dirs,
+    load_chains as _load_chains,
+    list_chains as _list_chains,
+    get_chain as _get_chain,
+    format_chain_catalog as _format_chain_catalog,
+    chain_dirs_exist as _chain_dirs_exist,
+)
+from _subagent_runner_toolchain import (  # noqa: E402
+    extract_assistant_summary as _extract_assistant_summary,
+    count_tool_calls as _count_tool_calls,
+    substitute_chain_template as _substitute_chain_template,
+    build_step_prompt as _build_step_prompt,
+    build_subagent_tool_description as _build_subagent_tool_description,
+    MAX_PARALLEL_SUBAGENTS as _MAX_PARALLEL_SUBAGENTS,
+)
 from _file_mention_parser_toolchain import (  # noqa: E402
     parse_file_mentions as _parse_file_mentions,
     parse_line_range as _parse_line_range,
@@ -943,6 +978,58 @@ def _dispatch(req: dict) -> dict:
         return {"result": _transition_auth_flow(
             req.get("state", {}), req.get("action", ""), req.get("payload"),
         )}
+
+    # ── Orchestration: subagents ──────────────────────────────────
+    if op == "subagent_resolve_root":
+        return {"result": _resolve_jackal_root(req.get("agentDir"))}
+    if op == "subagent_discover_dirs":
+        return {"result": _discover_subagent_dirs(req["cwd"], req.get("agentDir"))}
+    if op == "subagent_list":
+        return {"result": _list_subagents(req["cwd"], req.get("agentDir"))}
+    if op == "subagent_get":
+        return {"result": _get_subagent(req["cwd"], req["name"], req.get("agentDir"))}
+    if op == "subagent_load":
+        return {"result": dict(_load_subagents(req["cwd"], req.get("agentDir")))}
+    if op == "subagent_settings_overrides":
+        return {"result": _load_settings_model_overrides(req.get("agentDir"))}
+    if op == "subagent_project_overrides":
+        return {"result": _load_project_model_overrides(req["cwd"])}
+    if op == "subagent_normalize_tools":
+        return {"result": sorted(_normalize_allowed_tool_names(req.get("tools"))) if _normalize_allowed_tool_names(req.get("tools")) else None}
+    if op == "subagent_filter_tools":
+        return {"result": _filter_tools_for_subagent(req.get("allToolNames", []), req.get("allowedNames"))}
+    if op == "subagent_format_catalog":
+        return {"result": _format_subagent_catalog(req["cwd"], req.get("agentDir"))}
+    if op == "subagent_load_agent_file":
+        return {"result": _load_agent_file(req["filePath"], req.get("source", "package"))}
+
+    # ── Orchestration: chains ──────────────────────────────────────
+    if op == "chain_parse_markdown":
+        return {"result": _parse_chain_markdown(req["content"], req.get("source", "package"), req.get("filePath", ""))}
+    if op == "chain_discover_dirs":
+        return {"result": _discover_chain_dirs(req["cwd"], req.get("agentDir"))}
+    if op == "chain_list":
+        return {"result": _list_chains(req["cwd"], req.get("agentDir"))}
+    if op == "chain_get":
+        return {"result": _get_chain(req["cwd"], req["name"], req.get("agentDir"))}
+    if op == "chain_load":
+        return {"result": dict(_load_chains(req["cwd"], req.get("agentDir")))}
+    if op == "chain_format_catalog":
+        return {"result": _format_chain_catalog(req["cwd"], req.get("agentDir"))}
+    if op == "chain_dirs_exist":
+        return {"result": _chain_dirs_exist(req["cwd"], req.get("agentDir"))}
+
+    # ── Orchestration: runner helpers ──────────────────────────────
+    if op == "runner_extract_summary":
+        return {"result": _extract_assistant_summary(req.get("messages", []))}
+    if op == "runner_count_tool_calls":
+        return {"result": _count_tool_calls(req.get("messages", []))}
+    if op == "runner_substitute_template":
+        return {"result": _substitute_chain_template(req["template"], req.get("task", ""), req.get("previous", ""))}
+    if op == "runner_build_step_prompt":
+        return {"result": _build_step_prompt(req["step"], req.get("task", ""), req.get("previous", ""))}
+    if op == "runner_build_tool_description":
+        return {"result": _build_subagent_tool_description(req["cwd"], req.get("agentDir"))}
 
     raise ValueError(f"unknown op: {op}")
 

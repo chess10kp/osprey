@@ -1879,3 +1879,106 @@ export function bridgeAuthTransition(
     op: "auth_transition", state, action, payload,
   });
 }
+
+// ── Orchestration: subagents ──────────────────────────────────────
+
+export interface SubagentDefinition {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  tools?: string[];
+  model?: string;
+  source: "package" | "project";
+  filePath: string;
+}
+
+export function bridgeSubagentList(cwd: string): SubagentDefinition[] {
+  return invokeBridgeSync<SubagentDefinition[]>({ op: "subagent_list", cwd });
+}
+
+export function bridgeSubagentGet(cwd: string, name: string): SubagentDefinition | null {
+  return invokeBridgeSync<SubagentDefinition | null>({ op: "subagent_get", cwd, name });
+}
+
+export function bridgeSubagentFormatCatalog(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "subagent_format_catalog", cwd });
+}
+
+export function bridgeSubagentSettingsOverrides(): Record<string, string> {
+  return invokeBridgeSync<Record<string, string>>({ op: "subagent_settings_overrides" });
+}
+
+export function bridgeSubagentProjectOverrides(cwd: string): Record<string, string> {
+  return invokeBridgeSync<Record<string, string>>({ op: "subagent_project_overrides", cwd });
+}
+
+export function bridgeSubagentNormalizeTools(tools?: string[]): string[] | null {
+  return invokeBridgeSync<string[] | null>({ op: "subagent_normalize_tools", tools });
+}
+
+export function bridgeSubagentFilterTools(
+  allToolNames: string[],
+  allowedNames?: Set<string> | null,
+): string[] {
+  return invokeBridgeSync<string[]>({
+    op: "subagent_filter_tools",
+    allToolNames,
+    allowedNames: allowedNames ? [...allowedNames] : null,
+  });
+}
+
+// ── Orchestration: chains ─────────────────────────────────────────
+
+export interface ChainStep {
+  agent: string;
+  task: string;
+  output?: string;
+  reads?: string[];
+  model?: string;
+}
+
+export interface ChainDefinition {
+  name: string;
+  description: string;
+  steps: ChainStep[];
+  source: "package" | "project";
+  filePath: string;
+}
+
+export function bridgeChainList(cwd: string): ChainDefinition[] {
+  return invokeBridgeSync<ChainDefinition[]>({ op: "chain_list", cwd });
+}
+
+export function bridgeChainGet(cwd: string, name: string): ChainDefinition | null {
+  return invokeBridgeSync<ChainDefinition | null>({ op: "chain_get", cwd, name });
+}
+
+export function bridgeChainFormatCatalog(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "chain_format_catalog", cwd });
+}
+
+export function bridgeChainDirsExist(cwd: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "chain_dirs_exist", cwd });
+}
+
+// ── Orchestration: runner helpers ─────────────────────────────────
+
+export function bridgeRunnerExtractSummary(messages: Record<string, unknown>[]): string {
+  return invokeBridgeSync<string>({ op: "runner_extract_summary", messages });
+}
+
+export function bridgeRunnerCountToolCalls(messages: Record<string, unknown>[]): number {
+  return invokeBridgeSync<number>({ op: "runner_count_tool_calls", messages });
+}
+
+export function bridgeRunnerBuildStepPrompt(
+  step: ChainStep,
+  task: string,
+  previous: string,
+): string {
+  return invokeBridgeSync<string>({ op: "runner_build_step_prompt", step, task, previous });
+}
+
+export function bridgeRunnerBuildToolDescription(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "runner_build_tool_description", cwd });
+}
