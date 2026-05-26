@@ -1436,3 +1436,120 @@ class TestBuildStepPrompt:
 
     def test_max_parallel_constant(self):
         assert MAX_PARALLEL_SUBAGENTS == 5
+
+
+# =====================================================================
+# 7. CLI: run helpers
+# =====================================================================
+
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "cli")))
+
+from _run_toolchain import (
+    resolve_run_mode,
+    parse_run_args,
+    format_tool_line,
+    last_assistant_text,
+    approval_message,
+)
+
+
+class TestResolveRunMode:
+    def test_cli_mode_takes_precedence(self):
+        assert resolve_run_mode("/tmp", "yolo") == "yolo"
+
+    def test_env_mode(self, monkeypatch):
+        monkeypatch.setenv("JACKAL_MODE", "plan")
+        assert resolve_run_mode("/tmp") == "plan"
+
+    def test_default_auto_accept(self):
+        assert resolve_run_mode("/tmp") == "auto-accept"
+
+
+class TestParseRunArgs:
+    def test_basic_prompt(self):
+        result = parse_run_args(["run", "hello world"])
+        assert result["ok"] is True
+        assert result["options"]["prompt"] == "hello world"
+
+    def test_plain_flag(self):
+        result = parse_run_args(["run", "--plain", "test"])
+        assert result["ok"] is True
+        assert result["options"]["plain"] is True
+
+    def test_mode_flag(self):
+        result = parse_run_args(["run", "--mode", "plan", "test"])
+        assert result["ok"] is True
+        assert result["options"]["mode"] == "plan"
+
+    def test_mode_equals(self):
+        result = parse_run_args(["run", "--mode=yolo", "test"])
+        assert result["ok"] is True
+        assert result["options"]["mode"] == "yolo"
+
+    def test_unknown_flag(self):
+        result = parse_run_args(["run", "--unknown", "test"])
+        assert result["ok"] is False
+        assert "unknown flag" in result["error"]
+
+    def test_missing_prompt(self):
+        result = parse_run_args(["run"])
+        assert result["ok"] is False
+        assert "missing prompt" in result["error"]
+
+    def test_without_run_prefix(self):
+        result = parse_run_args(["just", "a", "prompt"])
+        assert result["ok"] is True
+        assert result["options"]["prompt"] == "just a prompt"
+
+
+class TestFormatToolLine:
+    def test_read_with_path(self):
+        assert "Read" in format_tool_line("read", {"path": "foo.jac"})
+        assert "foo.jac" in format_tool_line("read", {"path": "foo.jac"})
+
+    def test_write_with_path(self):
+        assert "Write" in format_tool_line("write", {"path": "out.jac"})
+
+    def test_edit_with_path(self):
+        assert "Edit" in format_tool_line("edit", {"path": "main.jac"})
+
+    def test_bash_with_command(self):
+        result = format_tool_line("bash", {"command": "ls -la"})
+        assert "Bash" in result
+        assert "ls -la" in result
+
+    def test_web_search(self):
+        result = format_tool_line("web_search", {"search_term": "python"})
+        assert "Search" in result
+
+    def test_unknown_tool(self):
+        result = format_tool_line("custom_tool")
+        assert "custom_tool" in result
+
+
+class TestLastAssistantText:
+    def test_returns_last(self):
+        msgs = [
+            {"role": "user", "text": "hi"},
+            {"role": "assistant", "text": "first"},
+            {"role": "assistant", "text": "second"},
+        ]
+        assert last_assistant_text(msgs) == "second"
+
+    def test_no_assistant(self):
+        assert last_assistant_text([{"role": "user", "text": "hi"}]) == ""
+
+    def test_empty_list(self):
+        assert last_assistant_text([]) == ""
+
+
+class TestApprovalMessage:
+    def test_without_subagent(self):
+        msg = approval_message("bash")
+        assert "bash" in msg
+        assert "Tool approval required" in msg
+
+    def test_with_subagent(self):
+        msg = approval_message("write", "scout")
+        assert "scout" in msg
+        assert "subagent" in msg

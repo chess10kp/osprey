@@ -21,6 +21,7 @@ for _subdir in (
     "core",
     "session",
     "auth",
+    "cli",
 ):
     _pkg = os.path.join(_LIB_JAC_ROOT, _subdir)
     if os.path.isdir(_pkg) and _pkg not in sys.path:
@@ -1030,6 +1031,23 @@ def _dispatch(req: dict) -> dict:
         return {"result": _build_step_prompt(req["step"], req.get("task", ""), req.get("previous", ""))}
     if op == "runner_build_tool_description":
         return {"result": _build_subagent_tool_description(req["cwd"], req.get("agentDir"))}
+
+    # ── CLI: run helpers ─────────────────────────────────────────
+    if op == "cli_resolve_run_mode":
+        from _run_toolchain import resolve_run_mode
+        return {"result": resolve_run_mode(req.get("cwd", ""), req.get("cliMode"))}
+    if op == "cli_parse_run_args":
+        from _run_toolchain import parse_run_args
+        return {"result": parse_run_args(req.get("argv", []))}
+    if op == "cli_format_tool_line":
+        from _run_toolchain import format_tool_line
+        return {"result": format_tool_line(req.get("toolName", ""), req.get("input"))}
+    if op == "cli_last_assistant_text":
+        from _run_toolchain import last_assistant_text
+        return {"result": last_assistant_text(req.get("messages", []))}
+    if op == "cli_approval_message":
+        from _run_toolchain import approval_message
+        return {"result": approval_message(req.get("toolName", ""), req.get("subagentName"))}
 
     raise ValueError(f"unknown op: {op}")
 

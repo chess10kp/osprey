@@ -1982,3 +1982,25 @@ export function bridgeRunnerBuildStepPrompt(
 export function bridgeRunnerBuildToolDescription(cwd: string): string {
   return invokeBridgeSync<string>({ op: "runner_build_tool_description", cwd });
 }
+
+// ── CLI: run helpers ──────────────────────────────────────────────
+
+export function bridgeCliResolveRunMode(cwd: string, cliMode?: string): string {
+  return invokeBridgeSync<string>({ op: "cli_resolve_run_mode", cwd, cliMode });
+}
+
+export function bridgeCliParseRunArgs(argv: string[]): { ok: true; options: { prompt: string; plain?: boolean; mode?: string } } | { ok: false; error: string } {
+  return invokeBridgeSync<{ ok: true; options: { prompt: string; plain?: boolean; mode?: string } } | { ok: false; error: string }>({ op: "cli_parse_run_args", argv });
+}
+
+export function bridgeCliFormatToolLine(toolName: string, input?: Record<string, unknown>): string {
+  return invokeBridgeSync<string>({ op: "cli_format_tool_line", toolName, input });
+}
+
+export function bridgeCliLastAssistantText(messages: { role: string; text: string }[]): string {
+  return invokeBridgeSync<string>({ op: "cli_last_assistant_text", messages });
+}
+
+export function bridgeCliApprovalMessage(toolName: string, subagentName?: string): string {
+  return invokeBridgeSync<string>({ op: "cli_approval_message", toolName, subagentName });
+}
