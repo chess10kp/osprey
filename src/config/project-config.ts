@@ -1,6 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import type { DevMode } from "../agent/dev-mode.js";
+import {
+  bridgeLoadProjectConfigSync,
+  bridgeResolveDefaultModeSync,
+} from "../jac/jac-bridge.js";
 
 export interface JackalSubagentsConfig {
   model?: string;
@@ -66,43 +68,15 @@ export interface JackalProjectConfig {
 
 /** Resolve boot mode from `.jackal` (`mode` key, legacy `plan: true`). */
 export function resolveDefaultMode(config: JackalProjectConfig): DevMode {
-  if (config.mode && isDevMode(config.mode)) {
-    return config.mode;
-  }
-  if (config.plan) {
-    return "plan";
-  }
-  return "normal";
-}
-
-function isDevMode(value: string): value is DevMode {
-  return (
-    value === "normal" ||
-    value === "auto-accept" ||
-    value === "yolo" ||
-    value === "plan" ||
-    value === "ask"
+  // Delegate to Python toolchain via bridge (sync)
+  const mode = bridgeResolveDefaultModeSync(
+    config as Record<string, unknown>,
   );
-}
-
-function findConfigPath(cwd: string): string | null {
-  let cur = resolve(cwd);
-  while (true) {
-    const cand = join(cur, ".jackal");
-    if (existsSync(cand)) return cand;
-    const parent = dirname(cur);
-    if (parent === cur) return null;
-    cur = parent;
-  }
+  return mode as DevMode;
 }
 
 export function loadProjectConfig(cwd: string): JackalProjectConfig {
-  const path = findConfigPath(cwd);
-  if (!path) return {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
-    return parsed && typeof parsed === "object" ? (parsed as JackalProjectConfig) : {};
-  } catch {
-    return {};
-  }
+  // Delegate walk-up + JSON parse to Python toolchain via bridge (sync)
+  const raw = bridgeLoadProjectConfigSync(cwd);
+  return raw as JackalProjectConfig;
 }

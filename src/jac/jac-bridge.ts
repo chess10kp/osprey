@@ -366,6 +366,65 @@ export async function bridgeEstimateSelectionChars(
   });
 }
 
+export interface BridgeProjectConfig {
+  [key: string]: unknown;
+}
+
+export async function bridgeLoadProjectConfig(
+  cwd: string,
+): Promise<BridgeProjectConfig> {
+  return invokeBridge<BridgeProjectConfig>({
+    op: "project_load_config",
+    cwd,
+  });
+}
+
+export async function bridgeFindConfigPath(
+  cwd: string,
+): Promise<string | null> {
+  return invokeBridge<string | null>({
+    op: "project_find_config_path",
+    cwd,
+  });
+}
+
+export async function bridgeResolveDefaultMode(
+  config: BridgeProjectConfig,
+): Promise<string> {
+  return invokeBridge<string>({
+    op: "project_resolve_default_mode",
+    config,
+  });
+}
+
+/** Sync variant — used by project-config.ts which must stay synchronous. */
+export function bridgeLoadProjectConfigSync(
+  cwd: string,
+): BridgeProjectConfig {
+  return invokeBridgeSync<BridgeProjectConfig>({
+    op: "project_load_config",
+    cwd,
+  });
+}
+
+export function bridgeFindConfigPathSync(
+  cwd: string,
+): string | null {
+  return invokeBridgeSync<string | null>({
+    op: "project_find_config_path",
+    cwd,
+  });
+}
+
+export function bridgeResolveDefaultModeSync(
+  config: BridgeProjectConfig,
+): string {
+  return invokeBridgeSync<string>({
+    op: "project_resolve_default_mode",
+    config,
+  });
+}
+
 function workflowRoot(packageRoot?: string): Record<string, unknown> {
   return packageRoot ? { packageRoot } : {};
 }

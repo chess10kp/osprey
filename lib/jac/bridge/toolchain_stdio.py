@@ -50,6 +50,11 @@ from _workflows_toolchain import (  # noqa: E402
     render_prompt_template,
     resolve_package_root,
 )
+from _project_config_toolchain import (  # noqa: E402
+    find_config_path as _find_config_path,
+    load_project_config as _load_project_config,
+    resolve_default_mode as _resolve_default_mode,
+)
 
 
 def _dispatch(req: dict) -> dict:
@@ -129,6 +134,17 @@ def _dispatch(req: dict) -> dict:
                 req.get("paths", []),
             )
         }
+
+    # --- config ops (Phase 2A.1) ---
+
+    if op == "project_load_config":
+        return {"result": _load_project_config(req["cwd"])}
+
+    if op == "project_find_config_path":
+        return {"result": _find_config_path(req["cwd"])}
+
+    if op == "project_resolve_default_mode":
+        return {"result": _resolve_default_mode(req.get("config", {}))}
 
     root = req.get("packageRoot")
 
