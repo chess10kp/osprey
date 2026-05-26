@@ -1,7 +1,7 @@
 # Jackal: TypeScript → Jac Core Migration Plan
 
-**Status:** Phase 0 complete; Phase 1 in progress (toolchain + workflows + LSP config in `lib/jac/`), Phase 2 started (`lib/jac/project` file explorer + gitignore)  
-**Last updated:** 2026-05-25  
+**Status:** Phase 0–2 complete; Phase 3 in progress (core + session modules ported); Phase 4–5 future
+**Last updated:** 2026-05-26  
 **Decision (2026-05-24):** Hold full migration until feature-complete. Phase 0 spike + Phase 1 toolchain modules may proceed in parallel with TypeScript work.
 
 **Related:** [PLAN.md](./PLAN.md) · [FEATURES.md](./FEATURES.md) · [NANOCODER-PARITY.md](./NANOCODER-PARITY.md) · [JAC-AI-PARITY.md](./JAC-AI-PARITY.md) · [JAC-TUI.md](./JAC-TUI.md)
@@ -236,9 +236,10 @@ Port only after Gate 3 (API stable). Longest phase.
 
 ### Gate 2 → Phase 3
 
-- [ ] Leaf modules ported (config, tasks, checkpoints, orchestration metadata)
-- [ ] Group 2A progress: `lib/jac/project/{gitignore,file_explorer}.jac` + TS bridge delegation
-- [ ] Store snapshot shape documented and frozen
+- [x] Leaf modules ported (config, tasks, checkpoints, orchestration metadata) — 28 Python toolchain modules total
+- [x] Group 2A progress: `lib/jac/project/{gitignore,file_explorer}.jac` + TS bridge delegation
+- [x] Store snapshot shape documented and frozen (see `AgentSnapshot` interface in `src/core/store.ts`)
+- [x] Phase 3 core + session modules ported: `lib/jac/{core,session}/` — tool_summary, auto_compact, session_index
 
 ### Gate 3 → Phase 4
 

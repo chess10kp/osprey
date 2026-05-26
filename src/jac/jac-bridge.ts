@@ -1488,3 +1488,230 @@ export function bridgeWebFetch(
     timeout,
   });
 }
+
+// ── Core: tool summary ──────────────────────────────────────────────
+
+export function bridgeToolSummaryNormalizeInput(
+  raw: unknown,
+): Record<string, unknown> | undefined {
+  return invokeBridgeSync<Record<string, unknown> | undefined>({
+    op: "tool_summary_normalize_input",
+    raw,
+  });
+}
+
+export function bridgeToolSummaryFormat(
+  toolName: string,
+  input?: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "tool_summary_format",
+    toolName,
+    input,
+  });
+}
+
+export function bridgeToolSummaryFilePath(
+  input?: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({ op: "tool_summary_file_path", input });
+}
+
+export function bridgeToolSummaryBashCommand(
+  input?: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({ op: "tool_summary_bash_command", input });
+}
+
+export function bridgeToolSummaryEnrich(
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  result: unknown,
+): Record<string, unknown> | undefined {
+  return invokeBridgeSync<Record<string, unknown> | undefined>({
+    op: "tool_summary_enrich",
+    toolName,
+    input,
+    result,
+  });
+}
+
+export function bridgeToolSummaryEventInput(
+  event: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return invokeBridgeSync<Record<string, unknown> | undefined>({
+    op: "tool_summary_event_input",
+    event,
+  });
+}
+
+// ── Session: auto-compact ──────────────────────────────────────────
+
+export interface AutoCompactConfig {
+  enabled: boolean;
+  thresholdPercent: number;
+  keepTail: number;
+  notify: boolean;
+  strategy: "llm" | "mechanical";
+}
+
+export function bridgeAutoCompactResolveConfig(raw: {
+  autoCompact?: boolean | Partial<AutoCompactConfig>;
+  compactStrategy?: "llm" | "mechanical";
+}): AutoCompactConfig {
+  return invokeBridgeSync<AutoCompactConfig>({
+    op: "auto_compact_resolve_config",
+    raw,
+  });
+}
+
+export function bridgeAutoCompactShouldTrigger(
+  usagePercent: number,
+  config: AutoCompactConfig,
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "auto_compact_should_trigger",
+    usagePercent,
+    config,
+  });
+}
+
+export function bridgeAutoCompactBuildMechanicalSummary(
+  messages: Record<string, unknown>[],
+): string {
+  return invokeBridgeSync<string>({
+    op: "auto_compact_build_mechanical_summary",
+    messages,
+  });
+}
+
+export function bridgeAutoCompactBuildLlmPrompt(
+  messages: Record<string, unknown>[],
+): string {
+  return invokeBridgeSync<string>({
+    op: "auto_compact_build_llm_prompt",
+    messages,
+  });
+}
+
+// ── Session: index / persistence ───────────────────────────────────
+
+export interface SessionIndexEntry {
+  id: string;
+  name: string;
+  cwd: string;
+  updatedAt: string;
+  messageCount: number;
+  model?: { provider: string; id: string };
+}
+
+export interface SessionRecord {
+  sessionId: string;
+  sessionName: string;
+  cwd: string;
+  createdAt: string;
+  updatedAt: string;
+  model?: { provider: string; id: string };
+  messages: unknown[];
+}
+
+export function bridgeSessionList(
+  sessionDir: string,
+  options?: { cwd?: string },
+): SessionIndexEntry[] {
+  return invokeBridgeSync<SessionIndexEntry[]>({
+    op: "session_list",
+    sessionDir,
+    options,
+  });
+}
+
+export function bridgeSessionLoad(
+  sessionDir: string,
+  id: string,
+): SessionRecord | null {
+  return invokeBridgeSync<SessionRecord | null>({
+    op: "session_load",
+    sessionDir,
+    id,
+  });
+}
+
+export function bridgeSessionSave(
+  sessionDir: string,
+  record: SessionRecord,
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "session_save",
+    sessionDir,
+    record,
+  });
+}
+
+export function bridgeSessionDelete(
+  sessionDir: string,
+  id: string,
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "session_delete",
+    sessionDir,
+    id,
+  });
+}
+
+export function bridgeSessionLast(
+  sessionDir: string,
+  options?: { cwd?: string },
+): SessionIndexEntry | null {
+  return invokeBridgeSync<SessionIndexEntry | null>({
+    op: "session_last",
+    sessionDir,
+    options,
+  });
+}
+
+export function bridgeSessionResolveTarget(
+  sessionDir: string,
+  target: string,
+  options?: { cwd?: string },
+): SessionRecord | null {
+  return invokeBridgeSync<SessionRecord | null>({
+    op: "session_resolve_target",
+    sessionDir,
+    target,
+    options,
+  });
+}
+
+export function bridgeSessionPrune(
+  sessionDir: string,
+  options?: { maxCount?: number; retentionDays?: number },
+): string[] {
+  return invokeBridgeSync<string[]>({
+    op: "session_prune",
+    sessionDir,
+    options,
+  });
+}
+
+export function bridgeSessionMigrateLegacy(
+  sessionDir: string,
+  cwd: string,
+): SessionRecord | null {
+  return invokeBridgeSync<SessionRecord | null>({
+    op: "session_migrate_legacy",
+    sessionDir,
+    cwd,
+  });
+}
+
+export function bridgeSessionRebuildIndex(sessionDir: string): SessionIndexEntry[] {
+  return invokeBridgeSync<SessionIndexEntry[]>({
+    op: "session_rebuild_index",
+    sessionDir,
+  });
+}
+
+export function bridgeSessionIsValidId(id: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "session_is_valid_id", id });
+}

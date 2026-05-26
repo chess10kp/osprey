@@ -18,6 +18,8 @@ for _subdir in (
     "agent",
     "ui",
     "render",
+    "core",
+    "session",
 ):
     _pkg = os.path.join(_LIB_JAC_ROOT, _subdir)
     if os.path.isdir(_pkg) and _pkg not in sys.path:
@@ -189,6 +191,34 @@ from _checkpoints_toolchain import (  # noqa: E402
     format_relative_time as _format_relative_time,
     format_checkpoint_overlay_row as _format_checkpoint_overlay_row,
     format_checkpoint_list as _format_checkpoint_list,
+)
+from _tool_summary_toolchain import (  # noqa: E402
+    normalize_tool_input as _normalize_tool_input,
+    tool_input_field as _tool_input_field,
+    tool_bash_command as _tool_bash_command,
+    tool_file_path as _tool_file_path,
+    format_tool_summary as _format_tool_summary,
+    enrich_tool_input_from_result as _enrich_tool_input_from_result,
+    tool_event_input as _tool_event_input,
+)
+from _auto_compact_toolchain import (  # noqa: E402
+    resolve_auto_compact_config as _resolve_auto_compact_config,
+    build_mechanical_summary as _build_mechanical_summary,
+    should_auto_compact as _should_auto_compact,
+    build_llm_summary_prompt as _build_llm_summary_prompt,
+    DEFAULT_AUTO_COMPACT as _DEFAULT_AUTO_COMPACT,
+)
+from _session_index_toolchain import (  # noqa: E402
+    is_valid_session_id as _is_valid_session_id,
+    migrate_legacy_latest as _migrate_legacy_latest,
+    save_session_record as _save_session_record,
+    list_sessions as _list_sessions,
+    load_session_by_id as _load_session_by_id,
+    resolve_session_target as _resolve_session_target,
+    get_last_session as _get_last_session,
+    delete_session as _delete_session,
+    prune_sessions as _prune_sessions,
+    rebuild_index as _rebuild_index,
 )
 
 
@@ -797,6 +827,58 @@ def _dispatch(req: dict) -> dict:
         return {"result": _fetch_web_page(
             req["url"], req.get("timeout"),
         )}
+
+    # ── Core: tool summary ──────────────────────────────────────────
+    if op == "tool_summary_normalize_input":
+        return {"result": _normalize_tool_input(req.get("raw"))}
+    if op == "tool_summary_format":
+        return {"result": _format_tool_summary(req.get("toolName", ""), req.get("input"))}
+    if op == "tool_summary_file_path":
+        return {"result": _tool_file_path(req.get("input"))}
+    if op == "tool_summary_bash_command":
+        return {"result": _tool_bash_command(req.get("input"))}
+    if op == "tool_summary_enrich":
+        return {"result": _enrich_tool_input_from_result(
+            req.get("toolName", ""), req.get("input"), req.get("result"),
+        )}
+    if op == "tool_summary_event_input":
+        return {"result": _tool_event_input(req.get("event", {}))}
+
+    # ── Session: auto-compact ───────────────────────────────────────
+    if op == "auto_compact_resolve_config":
+        return {"result": _resolve_auto_compact_config(req.get("raw", {}))}
+    if op == "auto_compact_should_trigger":
+        cfg = req.get("config", _DEFAULT_AUTO_COMPACT)
+        return {"result": _should_auto_compact(req.get("usagePercent", 0), cfg)}
+    if op == "auto_compact_build_mechanical_summary":
+        return {"result": _build_mechanical_summary(req.get("messages", []))}
+    if op == "auto_compact_build_llm_prompt":
+        return {"result": _build_llm_summary_prompt(req.get("messages", []))}
+
+    # ── Session: index / persistence ────────────────────────────────
+    if op == "session_list":
+        return {"result": _list_sessions(req["sessionDir"], req.get("options"))}
+    if op == "session_load":
+        return {"result": _load_session_by_id(req["sessionDir"], req["id"])}
+    if op == "session_save":
+        _save_session_record(req["sessionDir"], req["record"])
+        return {"result": True}
+    if op == "session_delete":
+        return {"result": _delete_session(req["sessionDir"], req["id"])}
+    if op == "session_last":
+        return {"result": _get_last_session(req["sessionDir"], req.get("options"))}
+    if op == "session_resolve_target":
+        return {"result": _resolve_session_target(
+            req["sessionDir"], req["target"], req.get("options"),
+        )}
+    if op == "session_prune":
+        return {"result": _prune_sessions(req["sessionDir"], req.get("options"))}
+    if op == "session_migrate_legacy":
+        return {"result": _migrate_legacy_latest(req["sessionDir"], req["cwd"])}
+    if op == "session_rebuild_index":
+        return {"result": _rebuild_index(req["sessionDir"])}
+    if op == "session_is_valid_id":
+        return {"result": _is_valid_session_id(req.get("id", ""))}
 
     raise ValueError(f"unknown op: {op}")
 

@@ -423,8 +423,15 @@ def _escape_xml(s: str) -> str:
     )
 
 
-def format_skills_for_prompt(skills: list[Skill]) -> str:
-    visible = [s for s in skills if not s.disableModelInvocation]
+def _get_attr(obj, key, default=None):
+    """Get attribute or dict key — works with both Skill objects and dicts."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def format_skills_for_prompt(skills: list) -> str:
+    visible = [s for s in skills if not _get_attr(s, "disableModelInvocation", False)]
     if not visible:
         return ""
     lines = [
@@ -439,15 +446,15 @@ def format_skills_for_prompt(skills: list[Skill]) -> str:
     ]
     for s in visible:
         lines.append("  <skill>")
-        lines.append(f"    <name>{_escape_xml(s.name)}</name>")
-        lines.append(f"    <description>{_escape_xml(s.description)}</description>")
-        lines.append(f"    <location>{_escape_xml(s.filePath)}</location>")
+        lines.append(f"    <name>{_escape_xml(_get_attr(s, 'name'))}</name>")
+        lines.append(f"    <description>{_escape_xml(_get_attr(s, 'description'))}</description>")
+        lines.append(f"    <location>{_escape_xml(_get_attr(s, 'filePath'))}</location>")
         lines.append("  </skill>")
     lines.append("</available_skills>")
     return "\n".join(lines)
 
 
-def append_skills_to_prompt(system_prompt: str, skills: list[Skill]) -> str:
+def append_skills_to_prompt(system_prompt: str, skills: list) -> str:
     catalog = format_skills_for_prompt(skills)
     return system_prompt + catalog if catalog else system_prompt
 
@@ -456,23 +463,26 @@ def append_skills_to_prompt(system_prompt: str, skills: list[Skill]) -> str:
 # Expand /skill:name commands
 # ---------------------------------------------------------------------------
 
-def expand_skill_command(text: str, skills: list[Skill]) -> str:
+def expand_skill_command(text: str, skills: list) -> str:
     if not text.startswith("/skill:"):
         return text
     space = text.find(" ")
     skill_name = text[7:space] if space != -1 else text[7:]
     args = text[space + 1:].strip() if space != -1 else ""
 
-    skill = next((s for s in skills if s.name == skill_name), None)
+    skill = next((s for s in skills if _get_attr(s, "name") == skill_name), None)
     if not skill:
         return text
+    skill_path = _get_attr(skill, "filePath")
+    skill_base = _get_attr(skill, "baseDir")
+    skill_name_val = _get_attr(skill, "name")
     try:
-        with open(skill.filePath, encoding="utf-8") as f:
+        with open(skill_path, encoding="utf-8") as f:
             raw = f.read()
         parsed = parse_frontmatter(raw)
         block = (
-            f'<skill name="{skill.name}" location="{skill.filePath}">\n'
-            f"References are relative to {skill.baseDir}.\n\n"
+            f'<skill name="{skill_name_val}" location="{skill_path}">\n'
+            f"References are relative to {skill_base}.\n\n"
             f"{parsed.body.strip()}\n</skill>"
         )
         return f"{block}\n\n{args}" if args else block
@@ -501,12 +511,12 @@ def load_skill_by_dir(dir_name: str, package_root: str | None = None) -> str:
 # Skill read allowlist
 # ---------------------------------------------------------------------------
 
-def skill_read_allowlist(skills: list[Skill]) -> dict:
+def skill_read_allowlist(skills: list) -> dict:
     files: list[str] = []
     roots: list[str] = []
     for s in skills:
-        files.append(os.path.abspath(s.filePath))
-        roots.append(os.path.abspath(s.baseDir) + os.sep)
+        files.append(os.path.abspath(_get_attr(s, "filePath")))
+        roots.append(os.path.abspath(_get_attr(s, "baseDir")) + os.sep)
     return {"files": files, "roots": roots}
 
 

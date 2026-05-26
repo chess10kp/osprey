@@ -23,3 +23,5 @@ reference/
 
 # Headless adapter build output
 dist/
+__pycache__/
+*.pyc
