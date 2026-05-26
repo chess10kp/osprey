@@ -72,6 +72,259 @@ jackal.sh
 
 ---
 
+## Source code shape (~13,200 LOC across 56 TS files)
+
+Largest files (top 10 by LOC):
+
+| File | LOC | Role |
+|------|-----|------|
+| `src/jac/jac-bridge.ts` | 1012 | Sync/async Python toolchain bridge |
+| `src/session/agent-session.ts` | 1000 | **THE agent loop** — tools, MCP, LSP, autocheck, compaction |
+| `src/core/adapter.ts` | 735 | `createNextAgent()` — wires store, session, bridge, auth, `actions.*` |
+| `src/agent/tools.ts` | 703 | Core tool definitions: read, write, edit, bash, glob, jac_*, LSP, mermaid |
+| `src/project/skills.ts` | 517 | SKILL.md discovery, loading, formatting |
+| `src/render/mermaid-render.ts` | 505 | Mermaid → ASCII renderer |
+| `src/jac/lsp-tools.ts` | 418 | LSP tool functions (diagnostics, hover, definition, references) |
+| `src/project/project-init.ts` | 394 | Project analysis for `/init` |
+| `src/core/store.ts` | 392 | Immutable `AgentSnapshot` store |
+| `src/agent/session-permissions.ts` | 388 | Pattern-based tool permission engine |
+
+### `src/` directory structure
+
+```
+src/
+├── index.ts                  # Public API re-exports (everything)
+├── cli/
+│   └── run.ts (312)          # Headless `jackal run` entry
+├── core/
+│   ├── adapter.ts (735)      # createNextAgent() + actions.* bag
+│   ├── store.ts (392)        # AgentSnapshot, immutable store
+│   ├── bridge.ts (314)       # Session events → store mutations
+│   ├── ui-context.ts (170)   # Dialog/notification state for Ink
+│   ├── agent-busy.ts (14)    # Busy detection for queue/abort
+│   └── tool-summary.ts (177) # One-line tool labels in transcript
+├── session/
+│   ├── agent-session.ts (1000) # Agent loop, tools, MCP, LSP, compaction
+│   ├── session.ts (368)        # Disk persistence, 30s auto-save
+│   ├── session-index.ts (304)  # Session list, resume, retention prune
+│   ├── outbound-queue.ts (28)  # Queue messages while agent busy
+│   ├── auto-compact.ts (144)   # Threshold compaction trigger
+│   └── llm-compact.ts (50)     # LLM-based compaction
+├── agent/
+│   ├── tools.ts (703)          # Core tool definitions
+│   ├── dev-mode.ts (209)       # Mode logic + read-only tool blocks
+│   ├── session-permissions.ts (388) # Pattern-based permission engine
+│   ├── tool-approval.ts (84)   # Destructive tool approval queue
+│   ├── subagent-approval.ts (81) # Subagent approval queue
+│   ├── mcp-client.ts (132)     # Stdio MCP to `jac mcp`
+│   ├── mcp-schema.ts (73)      # TypeBox MCP input schema adapter
+│   ├── system-prompt.ts (31)   # Loads SYSTEM.md + skill index
+│   ├── task-tools.ts (235)     # Task CRUD tool definitions
+│   ├── web-tools.ts (302)      # web_search, web_fetch tool defs
+│   ├── agent-tool.ts (80)      # Subagent tool factory
+│   └── tool-output-limit.ts (95) # 50KB tool output truncation
+├── auth/
+│   ├── auth.ts (183)           # pi-ai OAuth/API keys client
+│   ├── auth-flow.ts (182)      # Auth flow state machine
+│   └── auth-actions.ts (231)   # Auth UI action handlers
+├── config/
+│   └── project-config.ts (108) # .jackal walk-up loader (→ bridge)
+├── jac/
+│   ├── jac-bridge.ts (1012)    # Python toolchain bridge (sync + async)
+│   ├── jac-cli.ts (253)        # Parse `jac check/format/test/run` output
+│   ├── jac-doctor.ts (200)     # Doctor checks
+│   ├── jac-workflows.ts (177)  # /osp, explain, diagram-to-model
+│   ├── jac-types.ts            # JacDiagnostic type
+│   ├── lsp-service.ts (364)    # LSP service lifecycle
+│   ├── lsp-client.ts (384)     # LSP client transport
+│   └── lsp-tools.ts (418)      # LSP tool function wrappers
+├── orchestration/
+│   ├── subagents.ts (282)      # Subagent catalog loading
+│   ├── subagent-runner.ts (371) # Subagent execution
+│   ├── chains.ts (175)         # .chain.md workflow catalog
+│   └── frontmatter.ts (97)     # YAML frontmatter parser
+├── project/
+│   ├── skills.ts (517)         # SKILL.md discovery + loading
+│   ├── project-init.ts (394)   # Project analysis for /init
+│   ├── file-explorer.ts (94)   # File listing (→ bridge)
+│   ├── gitignore.ts (41)       # Dead code (bridge handles this)
+│   └── project-config.ts       # (moved to config/)
+├── workflow/
+│   ├── checkpoints.ts (369→343) # Checkpoint CRUD (→ bridge)
+│   ├── tasks.ts (162→365)       # Task CRUD (→ bridge)
+│   ├── custom-commands.ts (203→235) # Slash commands (→ bridge)
+│   ├── context-input.ts (129)   # @file + !command expansion
+│   ├── context-usage.ts (79)    # Token estimation
+│   ├── file-mention-parser.ts (131) # @path:10-20 parsing
+│   └── skill-commands.ts (30)   # /skills catalog
+├── ui/
+│   ├── completions.ts (183)     # Slash + @file autocomplete
+│   ├── approval-display.ts (232) # Approval UI data
+│   └── overlay-rows.ts (26)     # Task overlay formatting
+└── render/
+    └── mermaid-render.ts (505)   # Mermaid → ASCII
+```
+
+---
+
+## Dependencies
+
+**Runtime (`dependencies`):**
+- `@earendil-works/pi-agent-core` — Agent loop, streaming, tool interface (dev dep, bundled)
+- `@earendil-works/pi-ai` — Model providers, auth, streaming (dev dep, bundled)
+- `pi-subagents` — Subagent orchestration patterns
+- `pi-lsp-extension` — LSP client transport
+- `pi-mcp-adapter` — MCP client adapter
+- `pi-mermaid` — Mermaid rendering
+- `@pi-unipi/notify` — Desktop notifications (patched to say "Jackal")
+- `ignore` — `.gitignore` pattern matching
+- `ink`, `react`, `@inkjs/ui` — TUI framework
+- `wrap-ansi` — Terminal text wrapping
+
+**Build/CI (`devDependencies`):**
+- `typescript` — Compiles `src/` → `dist/`
+- `vitest` — Test runner
+- `patch-package` — Applies `patches/*`
+
+---
+
+## The bridge pattern (`src/jac/jac-bridge.ts` ↔ `lib/jac/bridge/toolchain_stdio.py`)
+
+Jackal uses a **JSON-over-stdio bridge** to call Python toolchain modules from TypeScript:
+
+```
+src/jac/jac-bridge.ts          lib/jac/bridge/toolchain_stdio.py
+    ┌──────────────┐                    ┌──────────────┐
+    │ invokeBridge  │── spawn python3 ─→│  main()       │
+    │ invokeBridge  │── stdin JSON ────→│  _dispatch()  │
+    │ Sync          │←─ stdout JSON ────│  {"ok":true}  │
+    └──────────────┘                    └──────────────┘
+```
+
+- **Sync** (`invokeBridgeSync`): `spawnSync` — blocks the Node event loop. ~20-50ms per call. Use for I/O operations where the call count is bounded (config loading, task CRUD, checkpoints).
+- **Async** (`invokeBridge`): `spawn` — non-blocking. Use for long-running operations (jac check, format, test, run).
+
+### What's in the bridge
+
+80 ops total. Each op maps to a Python toolchain function:
+
+| Op prefix | Count | Module |
+|-----------|-------|--------|
+| `find_binary`, `parse_check`, `fingerprint`, `format_diagnostics`, `run_*` | 10 | `lib/jac/jac/_cli_toolchain.py` |
+| `doctor` | 1 | `lib/jac/jac/_doctor_toolchain.py` |
+| `resolve_lsp_config` | 1 | `lib/jac/jac/_lsp_toolchain.py` |
+| `project_list_files`, `project_estimate_selection` | 2 | `lib/jac/project/_file_explorer_toolchain.py` |
+| `project_load_config`, `project_find_config_path`, `project_resolve_default_mode` | 3 | `lib/jac/config/_project_config_toolchain.py` |
+| `frontmatter_*` | 4 | `lib/jac/orchestration/_frontmatter_toolchain.py` |
+| `parse_file_mentions`, `parse_line_range`, `is_valid_file_path`, etc. | 5 | `lib/jac/workflow/_file_mention_parser_toolchain.py` |
+| `estimate_tokens`, `compute_context_usage`, etc. | 5 | `lib/jac/workflow/_context_usage_toolchain.py` |
+| `tasks_*` | 12 | `lib/jac/workflow/_tasks_toolchain.py` |
+| `custom_commands_*` | 7 | `lib/jac/workflow/_custom_commands_toolchain.py` |
+| `dev_mode_*` | 9 | `lib/jac/agent/_dev_mode_toolchain.py` |
+| `overlay_*` | 3 | `lib/jac/ui/_overlay_rows_toolchain.py` |
+| `checkpoint_*` | 12 | `lib/jac/workflow/_checkpoints_toolchain.py` |
+| `workflows_*` | 9 | `lib/jac/jac/_workflows_toolchain.py` |
+
+### Bridge response format
+
+Every bridge response is `{"ok": true, ...payload}` or `{"ok": false, "error": "...", "trace": "..."}`.
+
+The payload key depends on what the op returns:
+- `{"result": <value>}` — most ops
+- `{"diagnostics": [...]}` — `parse_check`
+- `{"fingerprint": "..."}` — `fingerprint`
+- `{"formatted": "..."}` — `format_diagnostics`
+- `{"binary": "..."}` — `find_binary`
+
+### When to use the bridge vs local TS
+
+**Delegate to bridge when:**
+- The operation does file I/O (read/write `.jackal`, `tasks.json`, checkpoints)
+- The call frequency is bounded (1-5 calls per user action)
+- Python is or should be the source of truth (e.g. `.jackal` config walking)
+
+**Keep local TS when:**
+- The function is called in tight loops (e.g. `parseFrontmatter` called dozens of times during skill loading)
+- The function has deep TS type dependencies (`pi-agent-core`, `typebox`, etc.)
+- The function is purely computational and latency-sensitive (token estimation, regex matching)
+
+---
+
+## `lib/jac/` — Jac toolchain (Python source of truth)
+
+This directory is the Jac-native codebase. It follows a consistent pattern for each module:
+
+```
+lib/jac/<domain>/
+├── _<name>_toolchain.py   # Python implementation (source of truth)
+└── <name>.jac             # Jac wrapper module (imports Python via ::py:: block)
+```
+
+The `.jac` wrapper follows a boilerplate pattern:
+```jac
+"""Docstring."""
+
+::py::
+import os
+import sys as _sys
+
+_pkg = os.path.join(os.getcwd(), "lib", "jac", "<domain>")
+if _pkg not in _sys.path:
+    _sys.path.insert(0, _pkg)
+
+from _<name>_toolchain import (func1, func2, ...)
+::py::
+```
+
+### `lib/jac/` directory structure
+
+```
+lib/jac/
+├── main.jac                  # Entry point for --check (toolchain + npm agent loop)
+├── bridge/
+│   └── toolchain_stdio.py    # JSON stdio bridge dispatcher (80 ops)
+├── jac/                      # Jac CLI toolchain (Phase 1)
+│   ├── _cli_toolchain.py     # jac check, format, test, run, fingerprint
+│   ├── _doctor_toolchain.py  # jac doctor report
+│   ├── _lsp_toolchain.py     # LSP config resolution
+│   ├── _workflows_toolchain.py # /osp, explain, diagram-to-model prompts
+│   ├── _npm_bridge.py        # npm agent loop spike
+│   ├── cli.jac, doctor.jac, lsp_config.jac, types.jac, workflows.jac
+├── config/                   # Phase 2A.1
+│   ├── _project_config_toolchain.py # .jackal walk-up, JSON parse, mode resolution
+│   └── project_config.jac
+├── project/                  # Phase 2A.2-3
+│   ├── _gitignore_toolchain.py      # Gitignore matching engine
+│   ├── _file_explorer_toolchain.py  # Project file listing + token estimates
+│   ├── gitignore.jac, file_explorer.jac
+├── orchestration/            # Phase 2C
+│   ├── _frontmatter_toolchain.py    # YAML frontmatter parser
+│   └── frontmatter.jac
+├── workflow/                 # Phase 2D
+│   ├── _file_mention_parser_toolchain.py # @path:10-20 parsing
+│   ├── _context_usage_toolchain.py       # Token estimation
+│   ├── _tasks_toolchain.py               # Task CRUD + persistence
+│   ├── _custom_commands_toolchain.py     # Slash command loading/expansion
+│   ├── _checkpoints_toolchain.py         # Checkpoint CRUD + git file snapshots
+│   └── *.jac wrappers
+├── agent/                    # Phase 2E
+│   ├── _dev_mode_toolchain.py           # Mode logic, destructive bash, approval policy
+│   └── dev_mode.jac
+├── ui/                       # Phase 2F
+│   ├── _overlay_rows_toolchain.py       # Task overlay formatting
+│   └── overlay_rows.jac
+├── spike/                    # Phase 0 feasibility spike
+│   ├── agent_spike.jac
+│   └── npm_agent_spike.mjs
+└── tests/                    # Python + Jac tests
+    ├── test_project_config.py       # 12 pytest tests
+    ├── test_phase2_leaf_modules.py  # 34 pytest tests
+    ├── cli_test.jac                 # Jac tests for cli toolchain
+    └── file_explorer_test.jac       # Jac tests for file explorer
+```
+
+---
+
 ## Environment variables
 
 | Variable | Set by | Purpose |
@@ -84,48 +337,13 @@ jackal.sh
 | `JACKAL_SKIP_TUI_COMPILE` | optional | `1` = use cached `.jac/tui` |
 | `JACKAL_TUI_OUT` | optional | Override TUI output dir (default `.jac/tui`) |
 | `JACKAL_CONTEXT_MAX` | optional | Context window override for `/usage` / auto-compact |
+| `JACKAL_ROOT` | optional | Override Jackal repo root (for bridge resolution) |
+| `JACKAL_TOOLCHAIN_PYTHON` | optional | Override Python binary (default `python3`) |
 | `JAC_DISABLED_PLUGINS` | `jackal.sh` | Disables `jac-desktop` in CLI |
 
 **Auth:** `jackal.sh` symlinks `pi/auth.json` → `~/.pi/agent/auth.json` if missing. Runtime resolves auth via `JACKAL_AGENT_DIR/auth.json` or `~/.jackal/auth.json`.
 
 **Sessions:** `<JACKAL_AGENT_CWD>/.jackal/sessions/*.jsonl` (+ index). Legacy Pi sessions may exist under `pi/sessions/` in the Jackal repo (user data).
-
----
-
-## `src/` module map (where to edit what)
-
-| Path | Responsibility |
-|------|----------------|
-| `core/adapter.ts` | **`createNextAgent()`** — wires store, session, bridge, auth, exposes `actions.*` for shell/facade |
-| `core/store.ts` | Immutable `AgentSnapshot`: phase, transcript, tools, MCP, queue, approvals |
-| `core/bridge.ts` | Session events → store mutations (`agent_start`, `tool_execution_*`, `mcp_ready`, `queue_changed`, …) |
-| `core/ui-context.ts` | Dialogs, notifications for Ink overlays |
-| `core/agent-busy.ts` | Busy detection for queue / abort UX |
-| `core/tool-summary.ts` | One-line tool labels in transcript |
-| `session/agent-session.ts` | Agent loop, tools, MCP lazy connect, LSP, autocheck, slash expansion, compaction |
-| `session/session.ts` | Disk persistence, 30s auto-save |
-| `session/session-index.ts` | Session list, resume, retention prune |
-| `session/outbound-queue.ts` | Queue user messages while agent busy |
-| `session/auto-compact.ts` / `llm-compact.ts` | Threshold compaction (LLM default, mechanical fallback) |
-| `agent/tools.ts` | Core tools: read, write, edit, bash, glob, jac_*, LSP, mermaid, … |
-| `agent/dev-mode.ts` | Modes + read-only tool blocks (plan/ask) |
-| `agent/tool-approval.ts` | Pending destructive tool approval |
-| `agent/mcp-client.ts` | Stdio MCP to `jac mcp` (reads `<cwd>/pi/mcp.json`) |
-| `agent/system-prompt.ts` | Loads `jackal/SYSTEM.md` or `pi/SYSTEM.md` + skill index |
-| `auth/*` | pi-ai OAuth/API keys, model picker state |
-| `config/project-config.ts` | Walk-up `.jackal` JSON loader |
-| `jac/jac-cli.ts` | Parse `jac check`, format, test, run |
-| `jac/lsp-*.ts` | Jac LSP client + tool wrappers |
-| `jac/jac-workflows.ts` | `/osp`, explain prompts, `/init`, diagram-to-model |
-| `orchestration/subagents.ts` | Load `pi/.pi/agents/*.md` + project `subagents/` |
-| `orchestration/chains.ts` | `.chain.md` workflows |
-| `workflow/*` | Checkpoints, tasks, custom commands, file mentions, context usage |
-| `project/skills.ts` | SKILL.md discovery (package + project) |
-| `cli/run.ts` | Headless `jackal run` |
-| `ui/completions.ts` | Slash + `@file` completions for facade |
-| `render/mermaid-render.ts` | Mermaid → ASCII |
-
-**Public API:** everything re-exported from `src/index.ts` (also `dist/index.js`).
 
 ---
 
@@ -147,7 +365,7 @@ jackal.sh
 
 ## `pi/` — config bundle (not runtime code)
 
-Legacy name “pi”; this directory is **data**, not the Pi extension.
+Legacy name "pi"; this directory is **data**, not the Pi extension.
 
 | Path | Used for |
 |------|----------|
@@ -159,7 +377,7 @@ Legacy name “pi”; this directory is **data**, not the Pi extension.
 | `pi/chains/*.chain.md` | scout-and-design, pipeline |
 | `pi/settings.json` | Default models / subagent overrides (reference; runtime uses auth + `.jackal`) |
 | `pi/auth.json` | Symlink to global provider credentials |
-| `patches/` | `patch-package` — e.g. notify branded “Jackal” |
+| `patches/` | `patch-package` — e.g. notify branded "Jackal" |
 
 Project overrides: `<cwd>/.jackal/`, `<cwd>/subagents/`, `<cwd>/chains/`, `<cwd>/.jackal/commands/*.md`.
 
@@ -177,6 +395,8 @@ Project overrides: `<cwd>/.jackal/`, `<cwd>/subagents/`, `<cwd>/chains/`, `<cwd>
 
 **Store phases:** `booting` → `ready` | `streaming` | `compacting` | `retrying` | `error`.
 
+**`createNextAgent()` returns:** `{ store, uiContext, authFlow, authActions, actions: { send, abort, resolveDialog, setModel, ... }, dispose }`. The `actions` bag is the public API surface consumed by the Ink shell via the facade.
+
 ---
 
 ## Dev modes
@@ -191,7 +411,8 @@ Project overrides: `<cwd>/.jackal/`, `<cwd>/subagents/`, `<cwd>/chains/`, `<cwd>
 
 Cycle in UI: **Shift+Tab**. CLI: `./jackal.sh --mode plan`. Config: `.jackal` `mode` or legacy `plan: true`.
 
-Blocked tool set: `READ_ONLY_MODE_BLOCKED_TOOLS` in `src/agent/dev-mode.ts`.
+Blocked tool set: `READ_ONLY_MODE_BLOCKED_TOOLS` in `src/agent/dev-mode.ts` (mirrored in `lib/jac/agent/_dev_mode_toolchain.py`):
+`write`, `edit`, `jac_format`, `jac_fix`, `jac_create`, `create_task`, `update_task`, `delete_task`, `format_jac`, `execute_command`.
 
 ---
 
@@ -251,17 +472,25 @@ Walks up from `JACKAL_AGENT_CWD`. Keys (see `src/config/project-config.ts`):
 
 `autocheck`, `autoformat`, `verbose`, `mode`, `plan` (legacy), `maxFixAttempts`, `mermaid`, `notify`, `lsp`, `subagents`, `contextMax`, `sessions` (autoSave, maxCount, retentionDays), `alwaysAllow`, `permissionPatterns`, `autoCompact`, `compactStrategy`.
 
+The walk-up + JSON parsing is delegated to `lib/jac/config/_project_config_toolchain.py` via the bridge.
+
 ---
 
 ## Tests
 
 | Suite | Location | Run |
 |-------|----------|-----|
-| Adapter/runtime | `tests/adapter/*.test.ts` | `npm run test:adapter` |
-| Session | `tests/session/*.test.ts` | part of `npm test` |
-| TUI components | `tests/tui/*.test.mjs` | `npm run test:tui` (needs fixtures: `npm run test:tui:compile`) |
+| Adapter/runtime | `tests/adapter/*.test.ts` (24 files) | `npm run test:adapter` |
+| Session | `tests/session/*.test.ts` (1 file) | part of `npm test` |
+| TUI components | `tests/tui/*.test.mjs` (13 files) | `npm run test:tui` (needs fixtures: `npm run test:tui:compile`) |
+| Python toolchain | `lib/jac/tests/test_*.py` (2 files, 46 tests) | `python3 -m pytest lib/jac/tests/` |
+| Jac | `lib/jac/tests/*_test.jac` (2 files, 8 tests) | `jac test lib/jac/tests/` |
 
-Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boot, outbound queue, jac-cli parsing.
+**Total:** 279 TS tests + 46 Python tests + 8 Jac tests.
+
+Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boot, outbound queue, jac-cli parsing, file-mention-parser, context-input, auto-compact-config, tool-output-limit, mcp-schema, overlay-rows, skills, session-permissions.
+
+**Test runner:** Vitest for TS. Default timeout 5000ms — long-running tests (like `skills.test.ts` which does file I/O) may need explicit timeout bumps.
 
 ---
 
@@ -296,11 +525,13 @@ Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boo
 | `docs/FEATURES.md` | Feature checklist + status |
 | `docs/JAC-TUI.md` | jac-ink vs jackal repo boundary |
 | `docs/CONSOLIDATION_PLAN.md` | Runtime consolidation phases |
+| `docs/MIGRATION-EXECUTION-PLAN.md` | Jac migration execution plan (phases 0-5) |
 | `docs/PLAN.md` | Implementation phases |
 | `docs/QUICK_REFERENCE.md` | Slash commands, flags, config |
 | `docs/PLAN_MODE.md` | Plan mode UX |
 | `docs/NANOCODER-PARITY.md` | TUI parity gaps |
 | `ROADMAP.md` | Product direction |
+| `lib/jac/README.md` | lib/jac structure and conventions |
 | `reference/pi-lsp-extension/` | Legacy reference only |
 
 ---
@@ -315,11 +546,11 @@ For **developing Jackal itself**, use repo tools (read, grep, bash, edit `src/` 
 
 ## Current priorities (from maintainers)
 
-1. Fast TUI boot — MCP/LSP deferred after first frame  
-2. Stable streaming / transcript / tool rows in Ink  
-3. Harden adapter + bridge + outbound queue  
-4. Jac MCP as primary validate/run surface  
-5. Port remaining polish per `docs/NANOCODER-PARITY.md`  
+1. Fast TUI boot — MCP/LSP deferred after first frame
+2. Stable streaming / transcript / tool rows in Ink
+3. Harden adapter + bridge + outbound queue
+4. Jac MCP as primary validate/run surface
+5. Port remaining polish per `docs/NANOCODER-PARITY.md`
 
 ---
 
@@ -337,17 +568,66 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 
 ---
 
-## Recent learnings (2026-05-25)
+## Practical gotchas (lessons from working in this repo)
 
-### Jac migration shape (current reality)
+### Bridge performance
 
-- `lib/jac/` is now active for migration work, but **not** wired into `jackal.sh` runtime path yet (TS runtime still primary).
-- The migration bridge is `lib/jac/bridge/toolchain_stdio.py` (JSON over stdio). TS calls this through `src/jac/jac-bridge.ts`.
-- Phase 1 is implemented as **TS delegating to Jac/Python toolchain modules** (`lib/jac/jac/_*_toolchain.py`) rather than direct Jac imports from TS.
+- **Sync bridge calls are ~20-50ms** each (spawn Python subprocess). Fine for I/O (config loading, task CRUD), **too expensive for tight loops**.
+- Skills loading calls `parseFrontmatter` dozens of times. Delegating that to the bridge caused test timeouts. Keep hot-path pure logic in TS.
+- Batch ops exist (`frontmatter_parse_batch`) for when cross-language batch processing is needed.
 
-### Phase 2 leaf module migration (completed)
+### TS ↔ Python type boundary
 
-15 Python toolchain modules now exist under `lib/jac/`:
+- The bridge is untyped JSON. Python returns `dict`/`list`/`str`/`None`; TS casts them to typed interfaces.
+- `null` in Python ↔ `null` in JSON, but TS often uses `undefined`. Bridge functions need explicit `?? undefined` / `?? null` normalization.
+- Python `dict` keys are strings; TS `Record<string, unknown>` matches cleanly.
+
+### Build and test
+
+- `npm run build:agent` (tsc) is fast (<5s). Always run after editing `src/`.
+- `npm test` (vitest) takes ~14s. The `cli-harness.test.ts` smoke test has a known timeout issue (waits for `agent_end` event which can be flaky). Exclude it with `--exclude`.
+- `npm run check:jac` runs `lib/jac/main.jac --check` + `jac test` harness. This verifies Python toolchain modules compile and Jac tests pass.
+- Python tests: `python3 -m pytest lib/jac/tests/`. Fast (<1s).
+- After editing `.py` toolchain files, test the bridge directly: `echo '{"op":"<op>","cwd":"..."}' | python3 lib/jac/bridge/toolchain_stdio.py`
+
+### Jac conventions
+
+- Jac wrapper files (`.jac`) are boilerplate: docstring + `::py::` block that adds the toolchain dir to `sys.path` and imports functions.
+- In Jac tests, `root` is a built-in reference name; use `tmp_dir` or similar instead.
+- `_pycache__` directories accumulate in `lib/jac/`. Gitignore handles them; don't commit `.pyc` files.
+
+### Module dependency chains
+
+- `agent-session.ts` (1000 LOC) imports from almost every other module. Changes to leaf modules propagate upward through it.
+- `config/project-config.ts` is a dependency of: `dev-mode.ts`, `agent-session.ts`, `adapter.ts`, `tools.ts`, `session.ts`, `subagents.ts`. The bridge delegation means all these modules now indirectly depend on the Python toolchain being available.
+- `orchestration/frontmatter.ts` is imported by `custom-commands.ts`, `skills.ts`, `subagents.ts`. It's a hot path — keep local.
+- `src/project/gitignore.ts` is dead code (the bridge handles gitignore matching internally). Safe to ignore.
+
+### Common workflows
+
+**Adding a new bridge op:**
+1. Write the Python function in the appropriate `_*_toolchain.py`
+2. Add an `if op == "your_op"` block in `toolchain_stdio.py` `_dispatch()`
+3. Add a bridge function in `src/jac/jac-bridge.ts` (sync or async)
+4. Update the TS module to call the bridge function
+5. Add Python tests in `lib/jac/tests/`
+6. Run `npm run build:agent && npm test -- --exclude tests/adapter/cli-harness.test.ts`
+7. Run `python3 -m pytest lib/jac/tests/`
+
+**Adding a new toolchain module:**
+1. Create `lib/jac/<domain>/_<name>_toolchain.py`
+2. Create `lib/jac/<domain>/<name>.jac` (boilerplate wrapper)
+3. Add import in `toolchain_stdio.py`
+4. Add ops + dispatch entries
+5. Add bridge functions in `jac-bridge.ts`
+6. Add `<domain>` to `lib/jac/main.jac` check scope
+7. Write Python tests
+
+---
+
+## Phase 2 migration status
+
+### Ported modules (15 Python toolchain modules)
 
 | Directory | Modules |
 |-----------|----------|
@@ -359,50 +639,40 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 | `lib/jac/agent/` | dev_mode |
 | `lib/jac/ui/` | overlay_rows |
 
-**Bridge delegation** (TS → Python via sync subprocess):
+### Bridge delegation (TS → Python)
+
 - `config/project-config.ts` → bridge for `.jackal` walk-up + mode resolution
 - `project/file-explorer.ts` → bridge for file listing
 - `workflow/tasks.ts` → bridge for task CRUD
 - `workflow/custom-commands.ts` → bridge for command loading
 - `workflow/checkpoints.ts` → bridge for checkpoint CRUD
 
-**TS keeps local copy** (Python is source of truth but bridge calls too expensive for hot paths):
-- `orchestration/frontmatter.ts`, `workflow/file-mention-parser.ts`, `workflow/context-usage.ts`,
-  `agent/dev-mode.ts`, `ui/overlay-rows.ts`
+### TS keeps local copy (Python = source of truth, TS mirrors for perf)
 
-**Architecture decision**: sync Python subprocess calls (~20-50ms each) are fine for I/O operations (file read/write) but too expensive for tight loops (e.g. skills loading calls `parseFrontmatter` dozens of times). For hot-path modules, the Python toolchain is the source of truth for Jac-native code, while TS keeps a local implementation.
+- `orchestration/frontmatter.ts`, `workflow/file-mention-parser.ts`, `workflow/context-usage.ts`, `agent/dev-mode.ts`, `ui/overlay-rows.ts`
 
-80 bridge ops, 67 bridge functions, 46 Python tests, 279 TS tests.
+### Not yet ported (requires deeper changes)
 
-### Not yet ported (remaining modules)
-
-Modules with deep TS runtime dependencies (typebox, pi-agent-core types, child_process) are deferred:
+Modules with deep TS runtime dependencies (typebox, `pi-agent-core` types, `child_process`):
 - `agent/mcp-schema.ts`, `agent/session-permissions.ts`, `agent/task-tools.ts`, `agent/web-tools.ts`
 - `render/mermaid-render.ts`, `ui/approval-display.ts`, `ui/completions.ts`
 - `workflow/context-input.ts`, `agent/tool-output-limit.ts`
 - `project/skills.ts`, `project/project-init.ts`, `agent/system-prompt.ts`, `workflow/skill-commands.ts`
 
-These require Phase 3+ (deeper architecture changes) or are not suitable for the bridge pattern.
+### Numbers
 
-### CI/test behavior worth remembering
-
-- `npm run check:jac` is the Jac migration health path:
-  1. `jac run lib/jac/main.jac -- --check`
-  2. `scripts/jac-test-harness.sh`
-- `lib/jac/main.jac --check` now includes all `lib/jac/{jac,project,config,orchestration,workflow,agent,ui}` in check scope.
-- Jac test harness runs per-file `jac test` and is useful because mixed diagnostic output can be noisy otherwise.
-
-### Practical gotchas discovered
-
-- In Jac tests, `root` is a built-in reference name; using `root = ...` in tests causes compile/type errors. Use a different local variable name (`tmp_dir`, etc.).
-- TS LSP tooling may fail to initialize even when `npm run build:agent` passes (environment/tsserver resolution issue); treat LSP failure separately from compile correctness.
-- Codebase wiki ingestion commands can fail if wiki is not initialized (`/wiki-init` required first).
-- **Bridge sync calls are ~20-50ms**: fine for I/O, too expensive for hot loops. Profile before delegating parsing/formatting to bridge.
-
-## Patches
-
-`patches/@unipi+notify+2.0.1.patch` — desktop notifications say “Jackal”. Applied on `npm install` via `postinstall`.
+- 80 bridge ops in `toolchain_stdio.py`
+- 67 bridge functions in `jac-bridge.ts`
+- 46 Python tests (12 config + 34 leaf modules)
+- 279 TS tests — all passing
+- ~2000 LOC of Python toolchain code
 
 ---
 
-*Last expanded for agent onboarding — now includes active Jac migration bridge/toolchain learnings and Phase 2 project-module notes.*
+## Patches
+
+`patches/@unipi+notify+2.0.1.patch` — desktop notifications say "Jackal". Applied on `npm install` via `postinstall`.
+
+---
+
+*Last updated 2026-05-25 — comprehensive agent onboarding including Phase 2 migration, bridge architecture, dependency chains, and practical gotchas.*
