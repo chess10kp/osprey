@@ -826,6 +826,104 @@ export function bridgeFormatTasksOverlayHeader(
   return invokeBridgeSync<string>({ op: "overlay_format_tasks_header", tasks });
 }
 
+// ---------------------------------------------------------------------------
+// Checkpoints
+// ---------------------------------------------------------------------------
+
+export function bridgeCheckpointsDir(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "checkpoints_dir", cwd });
+}
+
+export function bridgeValidateCheckpointName(name: string): {
+  valid: boolean;
+  error?: string;
+} {
+  return invokeBridgeSync<{ valid: boolean; error?: string }>({
+    op: "checkpoint_validate_name",
+    name,
+  });
+}
+
+export function bridgeGetModifiedFiles(cwd: string): string[] {
+  return invokeBridgeSync<string[]>({ op: "checkpoint_get_modified_files", cwd });
+}
+
+export function bridgeCreateCheckpoint(options: {
+  cwd: string;
+  messages: unknown[];
+  provider: string;
+  model: string;
+  name?: string;
+  modifiedFiles?: string[];
+}): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({
+    op: "checkpoint_create",
+    cwd: options.cwd,
+    messages: options.messages,
+    provider: options.provider,
+    model: options.model,
+    name: options.name,
+    modifiedFiles: options.modifiedFiles,
+  });
+}
+
+export function bridgeLoadCheckpoint(
+  cwd: string,
+  name: string,
+): {
+  metadata: Record<string, unknown>;
+  conversation: Record<string, unknown>;
+  fileSnapshots: Record<string, string>;
+} {
+  return invokeBridgeSync<{
+    metadata: Record<string, unknown>;
+    conversation: Record<string, unknown>;
+    fileSnapshots: Record<string, string>;
+  }>({ op: "checkpoint_load", cwd, name });
+}
+
+export function bridgeListCheckpoints(
+  cwd: string,
+): Array<{ name: string; metadata: Record<string, unknown>; sizeBytes?: number }> {
+  return invokeBridgeSync<
+    Array<{ name: string; metadata: Record<string, unknown>; sizeBytes?: number }>
+  >({ op: "checkpoint_list", cwd });
+}
+
+export function bridgeDeleteCheckpoint(cwd: string, name: string): void {
+  invokeBridgeSync<boolean>({ op: "checkpoint_delete", cwd, name });
+}
+
+export function bridgeRestoreCheckpointFiles(
+  cwd: string,
+  snapshots: Record<string, string>,
+): void {
+  invokeBridgeSync<boolean>({
+    op: "checkpoint_restore_files",
+    cwd,
+    snapshots,
+  });
+}
+
+export function bridgeFormatRelativeTime(timestamp: string): string {
+  return invokeBridgeSync<string>({ op: "checkpoint_format_relative_time", timestamp });
+}
+
+export function bridgeFormatCheckpointOverlayRow(
+  item: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "checkpoint_format_overlay_row",
+    item,
+  });
+}
+
+export function bridgeFormatCheckpointList(
+  items: Array<Record<string, unknown>>,
+): string {
+  return invokeBridgeSync<string>({ op: "checkpoint_format_list", items });
+}
+
 function workflowRoot(packageRoot?: string): Record<string, unknown> {
   return packageRoot ? { packageRoot } : {};
 }

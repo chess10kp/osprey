@@ -113,6 +113,19 @@ from _overlay_rows_toolchain import (  # noqa: E402
     format_task_overlay_row as _format_task_overlay_row,
     format_tasks_overlay_header as _format_tasks_overlay_header,
 )
+from _checkpoints_toolchain import (  # noqa: E402
+    checkpoints_dir as _checkpoints_dir,
+    validate_checkpoint_name as _validate_checkpoint_name,
+    get_modified_files as _get_modified_files,
+    create_checkpoint as _create_checkpoint,
+    load_checkpoint as _load_checkpoint,
+    list_checkpoints as _list_checkpoints,
+    delete_checkpoint as _delete_checkpoint,
+    restore_checkpoint_files as _restore_checkpoint_files,
+    format_relative_time as _format_relative_time,
+    format_checkpoint_overlay_row as _format_checkpoint_overlay_row,
+    format_checkpoint_list as _format_checkpoint_list,
+)
 
 
 def _dispatch(req: dict) -> dict:
@@ -398,6 +411,50 @@ def _dispatch(req: dict) -> dict:
             r = _parse_frontmatter(item.get("content", ""))
             results.append({"frontmatter": r.frontmatter, "body": r.body})
         return {"result": results}
+
+    # --- checkpoints ops ---
+
+    if op == "checkpoints_dir":
+        return {"result": _checkpoints_dir(req["cwd"])}
+
+    if op == "checkpoint_validate_name":
+        return {"result": _validate_checkpoint_name(req.get("name", ""))}
+
+    if op == "checkpoint_get_modified_files":
+        return {"result": _get_modified_files(req["cwd"])}
+
+    if op == "checkpoint_create":
+        return {"result": _create_checkpoint(
+            req["cwd"],
+            req.get("messages", []),
+            req.get("provider", "unknown"),
+            req.get("model", "unknown"),
+            req.get("name"),
+            req.get("modifiedFiles"),
+        )}
+
+    if op == "checkpoint_load":
+        return {"result": _load_checkpoint(req["cwd"], req["name"])}
+
+    if op == "checkpoint_list":
+        return {"result": _list_checkpoints(req["cwd"])}
+
+    if op == "checkpoint_delete":
+        _delete_checkpoint(req["cwd"], req["name"])
+        return {"result": True}
+
+    if op == "checkpoint_restore_files":
+        _restore_checkpoint_files(req["cwd"], req.get("snapshots", {}))
+        return {"result": True}
+
+    if op == "checkpoint_format_relative_time":
+        return {"result": _format_relative_time(req.get("timestamp", ""))}
+
+    if op == "checkpoint_format_overlay_row":
+        return {"result": _format_checkpoint_overlay_row(req.get("item", {}))}
+
+    if op == "checkpoint_format_list":
+        return {"result": _format_checkpoint_list(req.get("items", []))}
 
     # --- workflows ops ---
 
