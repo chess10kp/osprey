@@ -55,6 +55,64 @@ from _project_config_toolchain import (  # noqa: E402
     load_project_config as _load_project_config,
     resolve_default_mode as _resolve_default_mode,
 )
+from _frontmatter_toolchain import (  # noqa: E402
+    parse_frontmatter as _parse_frontmatter,
+    frontmatter_string as _frontmatter_string,
+    frontmatter_string_list as _frontmatter_string_list,
+)
+from _file_mention_parser_toolchain import (  # noqa: E402
+    parse_file_mentions as _parse_file_mentions,
+    parse_line_range as _parse_line_range,
+    is_valid_file_path as _is_valid_file_path,
+    parse_mention_token as _parse_mention_token,
+    get_current_file_mention as _get_current_file_mention,
+)
+from _context_usage_toolchain import (  # noqa: E402
+    estimate_tokens as _estimate_tokens,
+    estimate_messages_tokens as _estimate_messages_tokens,
+    get_context_max as _get_context_max,
+    compute_context_usage as _compute_context_usage,
+    format_usage_line as _format_usage_line,
+)
+from _tasks_toolchain import (  # noqa: E402
+    load_tasks as _load_tasks,
+    save_tasks as _save_tasks,
+    clear_tasks as _clear_tasks,
+    add_task as _add_task,
+    remove_task_by_index as _remove_task_by_index,
+    remove_task_by_id as _remove_task_by_id,
+    update_tasks as _update_tasks,
+    task_counts as _task_counts,
+    format_task_line as _format_task_line,
+    format_tasks_list as _format_tasks_list,
+    tasks_path as _tasks_path,
+    generate_task_id as _generate_task_id,
+)
+from _custom_commands_toolchain import (  # noqa: E402
+    load_custom_commands as _load_custom_commands,
+    expand_command_template as _expand_command_template,
+    resolve_custom_command_input as _resolve_custom_command_input,
+    expand_custom_command as _expand_custom_command,
+    try_expand_slash_command as _try_expand_slash_command,
+    format_custom_command_catalog as _format_custom_command_catalog,
+    custom_command_slash_names as _custom_command_slash_names,
+)
+from _dev_mode_toolchain import (  # noqa: E402
+    is_read_only_mode as _is_read_only_mode,
+    is_tool_blocked_in_read_only_mode as _is_tool_blocked_in_read_only_mode,
+    cycle_mode as _cycle_mode,
+    parse_mode_flag as _parse_mode_flag,
+    system_prompt_for_mode as _system_prompt_for_mode,
+    is_destructive_bash as _is_destructive_bash,
+    should_auto_approve as _should_auto_approve,
+    read_only_mode_block_reason as _read_only_mode_block_reason,
+    READ_ONLY_MODE_BLOCKED_TOOLS as _READ_ONLY_MODE_BLOCKED_TOOLS,
+)
+from _overlay_rows_toolchain import (  # noqa: E402
+    task_status_icon as _task_status_icon,
+    format_task_overlay_row as _format_task_overlay_row,
+    format_tasks_overlay_header as _format_tasks_overlay_header,
+)
 
 
 def _dispatch(req: dict) -> dict:
@@ -145,6 +203,203 @@ def _dispatch(req: dict) -> dict:
 
     if op == "project_resolve_default_mode":
         return {"result": _resolve_default_mode(req.get("config", {}))}
+
+    # --- frontmatter ops ---
+
+    if op == "frontmatter_parse":
+        result = _parse_frontmatter(req.get("content", ""))
+        return {"result": {"frontmatter": result.frontmatter, "body": result.body}}
+
+    if op == "frontmatter_string":
+        return {"result": _frontmatter_string(req.get("value"))}
+
+    if op == "frontmatter_string_list":
+        return {"result": _frontmatter_string_list(req.get("value"))}
+
+    # --- file mention parser ops ---
+
+    if op == "parse_file_mentions":
+        mentions = _parse_file_mentions(req.get("input", ""))
+        return {"result": [
+            {
+                "rawText": m.raw_text,
+                "filePath": m.file_path,
+                "startIndex": m.start_index,
+                "endIndex": m.end_index,
+                "lineRange": m.line_range,
+            }
+            for m in mentions
+        ]}
+
+    if op == "parse_line_range":
+        return {"result": _parse_line_range(req.get("rangeStr", ""))}
+
+    if op == "is_valid_file_path":
+        return {"result": _is_valid_file_path(req.get("filePath", ""))}
+
+    if op == "parse_mention_token":
+        return {"result": _parse_mention_token(req.get("raw", ""))}
+
+    if op == "get_current_file_mention":
+        return {"result": _get_current_file_mention(
+            req.get("input", ""), req.get("cursorPosition"),
+        )}
+
+    # --- context usage ops ---
+
+    if op == "estimate_tokens":
+        return {"result": _estimate_tokens(req.get("text", ""))}
+
+    if op == "estimate_messages_tokens":
+        return {"result": _estimate_messages_tokens(req.get("messages", []))}
+
+    if op == "get_context_max":
+        return {"result": _get_context_max(
+            req.get("contextWindow"), req.get("override"),
+        )}
+
+    if op == "compute_context_usage":
+        return {"result": _compute_context_usage(
+            req.get("messages", []),
+            req.get("systemPrompt", ""),
+            req.get("contextWindow"),
+            req.get("contextMaxOverride"),
+        )}
+
+    if op == "format_usage_line":
+        return {"result": _format_usage_line(req.get("usage", {}))}
+
+    # --- tasks ops ---
+
+    if op == "tasks_load":
+        return {"result": _load_tasks(req["cwd"])}
+
+    if op == "tasks_save":
+        _save_tasks(req["cwd"], req.get("tasks", []))
+        return {"result": True}
+
+    if op == "tasks_clear":
+        _clear_tasks(req["cwd"])
+        return {"result": True}
+
+    if op == "tasks_add":
+        return {"result": _add_task(req["cwd"], req["title"], req.get("description"))}
+
+    if op == "tasks_remove_by_index":
+        return {"result": _remove_task_by_index(req["cwd"], req["index"])}
+
+    if op == "tasks_remove_by_id":
+        return {"result": _remove_task_by_id(req["cwd"], req["id"])}
+
+    if op == "tasks_update":
+        return {"result": _update_tasks(req["cwd"], req.get("updates", []))}
+
+    if op == "tasks_counts":
+        return {"result": _task_counts(req.get("tasks", []))}
+
+    if op == "tasks_format_line":
+        return {"result": _format_task_line(req.get("task", {}))}
+
+    if op == "tasks_format_list":
+        return {"result": _format_tasks_list(
+            req.get("tasks", []), req.get("title", "Tasks"),
+        )}
+
+    if op == "tasks_path":
+        return {"result": _tasks_path(req["cwd"])}
+
+    if op == "tasks_generate_id":
+        return {"result": _generate_task_id()}
+
+    # --- custom commands ops ---
+
+    if op == "custom_commands_load":
+        return {"result": _load_custom_commands(req["cwd"])}
+
+    if op == "custom_commands_expand_template":
+        return {"result": _expand_command_template(
+            req["template"], req.get("command", ""),
+            req.get("args", []), req.get("parameters", []), req.get("cwd", ""),
+        )}
+
+    if op == "custom_commands_resolve_input":
+        return {"result": _resolve_custom_command_input(
+            req.get("input", ""), req.get("commands", []),
+        )}
+
+    if op == "custom_commands_expand":
+        return {"result": _expand_custom_command(
+            req["command"], req.get("args", []), req.get("cwd", ""),
+        )}
+
+    if op == "custom_commands_try_expand":
+        return {"result": _try_expand_slash_command(
+            req.get("text", ""), req["cwd"],
+        )}
+
+    if op == "custom_commands_catalog":
+        return {"result": _format_custom_command_catalog(req["cwd"])}
+
+    if op == "custom_commands_slash_names":
+        return {"result": _custom_command_slash_names(req["cwd"])}
+
+    # --- dev mode ops ---
+
+    if op == "dev_mode_is_read_only":
+        return {"result": _is_read_only_mode(req.get("mode", ""))}
+
+    if op == "dev_mode_is_tool_blocked":
+        return {"result": _is_tool_blocked_in_read_only_mode(req.get("toolName", ""))}
+
+    if op == "dev_mode_cycle":
+        return {"result": _cycle_mode(req.get("current", "normal"))}
+
+    if op == "dev_mode_parse_flag":
+        return {"result": _parse_mode_flag(req.get("args", []))}
+
+    if op == "dev_mode_system_prompt":
+        return {"result": _system_prompt_for_mode(
+            req.get("basePrompt", ""), req.get("mode", "normal"),
+        )}
+
+    if op == "dev_mode_is_destructive_bash":
+        return {"result": _is_destructive_bash(req.get("cmd", ""))}
+
+    if op == "dev_mode_should_auto_approve":
+        return {"result": _should_auto_approve(
+            req.get("mode", "normal"), req.get("toolName", ""), req.get("params", {}),
+        )}
+
+    if op == "dev_mode_block_reason":
+        return {"result": _read_only_mode_block_reason(
+            req.get("toolName", ""), req.get("mode", "plan"),
+        )}
+
+    if op == "dev_mode_blocked_tools":
+        return {"result": sorted(_READ_ONLY_MODE_BLOCKED_TOOLS)}
+
+    # --- overlay rows ops ---
+
+    if op == "overlay_task_status_icon":
+        return {"result": _task_status_icon(req.get("status", "pending"))}
+
+    if op == "overlay_format_task_row":
+        return {"result": _format_task_overlay_row(
+            req.get("task", {}), req.get("index", 0),
+        )}
+
+    if op == "overlay_format_tasks_header":
+        return {"result": _format_tasks_overlay_header(req.get("tasks", []))}
+
+    if op == "frontmatter_parse_batch":
+        items = req.get("items", [])
+        results = []
+        for item in items:
+            r = _parse_frontmatter(item.get("content", ""))
+            results.append({"frontmatter": r.frontmatter, "body": r.body})
+        return {"result": results}
+
+    # --- workflows ops ---
 
     root = req.get("packageRoot")
 

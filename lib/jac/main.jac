@@ -41,7 +41,17 @@ def run_toolchain_check(cwd: str) -> int:
 
     check = run_jac_check(
         cwd,
-        ["lib/jac/jac", "lib/jac/project", "lib/jac/config", "lib/jac/main.jac", "lib/jac/spike"],
+        [
+            "lib/jac/jac",
+            "lib/jac/project",
+            "lib/jac/config",
+            "lib/jac/orchestration",
+            "lib/jac/workflow",
+            "lib/jac/agent",
+            "lib/jac/ui",
+            "lib/jac/main.jac",
+            "lib/jac/spike",
+        ],
     )
     exit_code = check.get("exitCode", 1)
     diagnostics = check.get("diagnostics", [])

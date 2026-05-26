@@ -425,6 +425,407 @@ export function bridgeResolveDefaultModeSync(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Frontmatter
+// ---------------------------------------------------------------------------
+
+export function bridgeParseFrontmatter(content: string): {
+  frontmatter: Record<string, string | string[]>;
+  body: string;
+} {
+  return invokeBridgeSync<{ frontmatter: Record<string, string | string[]>; body: string }>({
+    op: "frontmatter_parse",
+    content,
+  });
+}
+
+export function bridgeFrontmatterString(
+  value: string | string[] | undefined,
+): string | undefined {
+  return invokeBridgeSync<string | undefined>({
+    op: "frontmatter_string",
+    value,
+  });
+}
+
+export function bridgeFrontmatterStringList(
+  value: string | string[] | undefined,
+): string[] {
+  return invokeBridgeSync<string[]>({
+    op: "frontmatter_string_list",
+    value,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// File mention parser
+// ---------------------------------------------------------------------------
+
+export interface BridgeFileMention {
+  rawText: string;
+  filePath: string;
+  startIndex: number;
+  endIndex: number;
+  lineRange: { start: number; end?: number } | null;
+}
+
+export function bridgeParseFileMentions(input: string): BridgeFileMention[] {
+  return invokeBridgeSync<BridgeFileMention[]>({
+    op: "parse_file_mentions",
+    input,
+  });
+}
+
+export function bridgeParseLineRange(
+  rangeStr: string,
+): { start: number; end?: number } | null {
+  return invokeBridgeSync<{ start: number; end?: number } | null>({
+    op: "parse_line_range",
+    rangeStr,
+  });
+}
+
+export function bridgeIsValidFilePath(filePath: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "is_valid_file_path", filePath });
+}
+
+export function bridgeParseMentionToken(raw: string): {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+} {
+  return invokeBridgeSync<{ path: string; startLine?: number; endLine?: number }>({
+    op: "parse_mention_token",
+    raw,
+  });
+}
+
+export function bridgeGetCurrentFileMention(
+  input: string,
+  cursorPosition?: number,
+): { mention: string; start: number; end: number; rangeSuffix: string } | null {
+  return invokeBridgeSync<{
+    mention: string;
+    start: number;
+    end: number;
+    rangeSuffix: string;
+  } | null>({
+    op: "get_current_file_mention",
+    input,
+    cursorPosition,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Context usage
+// ---------------------------------------------------------------------------
+
+export function bridgeEstimateTokens(text: string): number {
+  return invokeBridgeSync<number>({ op: "estimate_tokens", text });
+}
+
+export function bridgeEstimateMessagesTokens(messages: unknown[]): number {
+  return invokeBridgeSync<number>({ op: "estimate_messages_tokens", messages });
+}
+
+export function bridgeGetContextMax(
+  contextWindow?: number | null,
+  override?: number | null,
+): number {
+  return invokeBridgeSync<number>({
+    op: "get_context_max",
+    contextWindow: contextWindow ?? undefined,
+    override: override ?? undefined,
+  });
+}
+
+export function bridgeComputeContextUsage(options: {
+  messages: unknown[];
+  systemPrompt?: string;
+  contextWindow?: number | null;
+  contextMaxOverride?: number | null;
+}): { used: number; max: number; percent: number; systemPromptTokens: number; messageTokens: number } {
+  return invokeBridgeSync<{
+    used: number;
+    max: number;
+    percent: number;
+    systemPromptTokens: number;
+    messageTokens: number;
+  }>({
+    op: "compute_context_usage",
+    messages: options.messages,
+    systemPrompt: options.systemPrompt ?? "",
+    contextWindow: options.contextWindow ?? undefined,
+    contextMaxOverride: options.contextMaxOverride ?? undefined,
+  });
+}
+
+export function bridgeFormatUsageLine(
+  usage: Record<string, unknown>,
+): string {
+  return invokeBridgeSync<string>({ op: "format_usage_line", usage });
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+export interface BridgeTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
+
+export function bridgeLoadTasks(cwd: string): BridgeTask[] {
+  return invokeBridgeSync<BridgeTask[]>({ op: "tasks_load", cwd });
+}
+
+export function bridgeSaveTasks(cwd: string, tasks: BridgeTask[]): void {
+  invokeBridgeSync<boolean>({ op: "tasks_save", cwd, tasks });
+}
+
+export function bridgeClearTasks(cwd: string): void {
+  invokeBridgeSync<boolean>({ op: "tasks_clear", cwd });
+}
+
+export function bridgeAddTask(
+  cwd: string,
+  title: string,
+  description?: string,
+): BridgeTask {
+  return invokeBridgeSync<BridgeTask>({
+    op: "tasks_add",
+    cwd,
+    title,
+    description,
+  });
+}
+
+export function bridgeRemoveTaskByIndex(
+  cwd: string,
+  index: number,
+): BridgeTask | null {
+  return invokeBridgeSync<BridgeTask | null>({
+    op: "tasks_remove_by_index",
+    cwd,
+    index,
+  });
+}
+
+export function bridgeRemoveTaskById(
+  cwd: string,
+  id: string,
+): BridgeTask | null {
+  return invokeBridgeSync<BridgeTask | null>({
+    op: "tasks_remove_by_id",
+    cwd,
+    id,
+  });
+}
+
+export function bridgeUpdateTasks(
+  cwd: string,
+  updates: Array<{ id: string; status?: string; title?: string; description?: string }>,
+): BridgeTask[] {
+  return invokeBridgeSync<BridgeTask[]>({ op: "tasks_update", cwd, updates });
+}
+
+export function bridgeTaskCounts(
+  tasks: BridgeTask[],
+): { pending: number; in_progress: number; completed: number } {
+  return invokeBridgeSync<{ pending: number; in_progress: number; completed: number }>({
+    op: "tasks_counts",
+    tasks,
+  });
+}
+
+export function bridgeFormatTaskLine(task: BridgeTask): string {
+  return invokeBridgeSync<string>({ op: "tasks_format_line", task });
+}
+
+export function bridgeFormatTasksList(
+  tasks: BridgeTask[],
+  title?: string,
+): string {
+  return invokeBridgeSync<string>({
+    op: "tasks_format_list",
+    tasks,
+    title: title ?? "Tasks",
+  });
+}
+
+export function bridgeTasksPath(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "tasks_path", cwd });
+}
+
+export function bridgeGenerateTaskId(): string {
+  return invokeBridgeSync<string>({ op: "tasks_generate_id" });
+}
+
+// ---------------------------------------------------------------------------
+// Custom commands
+// ---------------------------------------------------------------------------
+
+export function bridgeLoadCustomCommands(
+  cwd: string,
+): Array<{
+  name: string;
+  description: string;
+  aliases: string[];
+  parameters: string[];
+  body: string;
+  filePath: string;
+}> {
+  return invokeBridgeSync<Array<{
+    name: string;
+    description: string;
+    aliases: string[];
+    parameters: string[];
+    body: string;
+    filePath: string;
+  }>>({ op: "custom_commands_load", cwd });
+}
+
+export function bridgeExpandCommandTemplate(
+  template: string,
+  command: string,
+  args: string[],
+  parameters: string[],
+  cwd: string,
+): string {
+  return invokeBridgeSync<string>({
+    op: "custom_commands_expand_template",
+    template,
+    command,
+    args,
+    parameters,
+    cwd,
+  });
+}
+
+export function bridgeResolveCustomCommandInput(
+  input: string,
+  commands: Array<{ name: string; aliases: string[] }>,
+): { command: Record<string, unknown>; args: string[] } | null {
+  return invokeBridgeSync<{ command: Record<string, unknown>; args: string[] } | null>({
+    op: "custom_commands_resolve_input",
+    input,
+    commands,
+  });
+}
+
+export function bridgeTryExpandSlashCommand(
+  text: string,
+  cwd: string,
+): string | null {
+  return invokeBridgeSync<string | null>({
+    op: "custom_commands_try_expand",
+    text,
+    cwd,
+  });
+}
+
+export function bridgeFormatCustomCommandCatalog(cwd: string): string {
+  return invokeBridgeSync<string>({ op: "custom_commands_catalog", cwd });
+}
+
+export function bridgeCustomCommandSlashNames(cwd: string): string[] {
+  return invokeBridgeSync<string[]>({ op: "custom_commands_slash_names", cwd });
+}
+
+// ---------------------------------------------------------------------------
+// Dev mode
+// ---------------------------------------------------------------------------
+
+export function bridgeIsReadOnlyMode(mode: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "dev_mode_is_read_only", mode });
+}
+
+export function bridgeIsToolBlockedInReadOnlyMode(toolName: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "dev_mode_is_tool_blocked", toolName });
+}
+
+export function bridgeCycleMode(current: string): string {
+  return invokeBridgeSync<string>({ op: "dev_mode_cycle", current });
+}
+
+export function bridgeParseModeFlag(
+  args: string[],
+): string | { error: string } | undefined {
+  return invokeBridgeSync<string | { error: string } | undefined>({
+    op: "dev_mode_parse_flag",
+    args,
+  });
+}
+
+export function bridgeSystemPromptForMode(
+  basePrompt: string,
+  mode: string,
+): string {
+  return invokeBridgeSync<string>({
+    op: "dev_mode_system_prompt",
+    basePrompt,
+    mode,
+  });
+}
+
+export function bridgeIsDestructiveBash(cmd: string): boolean {
+  return invokeBridgeSync<boolean>({ op: "dev_mode_is_destructive_bash", cmd });
+}
+
+export function bridgeShouldAutoApprove(
+  mode: string,
+  toolName: string,
+  params: Record<string, unknown>,
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "dev_mode_should_auto_approve",
+    mode,
+    toolName,
+    params,
+  });
+}
+
+export function bridgeReadOnlyModeBlockReason(
+  toolName: string,
+  mode: string,
+): string {
+  return invokeBridgeSync<string>({
+    op: "dev_mode_block_reason",
+    toolName,
+    mode,
+  });
+}
+
+export function bridgeGetBlockedTools(): string[] {
+  return invokeBridgeSync<string[]>({ op: "dev_mode_blocked_tools" });
+}
+
+// ---------------------------------------------------------------------------
+// Overlay rows
+// ---------------------------------------------------------------------------
+
+export function bridgeTaskStatusIcon(status: string): string {
+  return invokeBridgeSync<string>({ op: "overlay_task_status_icon", status });
+}
+
+export function bridgeFormatTaskOverlayRow(
+  task: Record<string, unknown>,
+  index: number,
+): string {
+  return invokeBridgeSync<string>({ op: "overlay_format_task_row", task, index });
+}
+
+export function bridgeFormatTasksOverlayHeader(
+  tasks: Array<Record<string, unknown>>,
+): string {
+  return invokeBridgeSync<string>({ op: "overlay_format_tasks_header", tasks });
+}
+
 function workflowRoot(packageRoot?: string): Record<string, unknown> {
   return packageRoot ? { packageRoot } : {};
 }
