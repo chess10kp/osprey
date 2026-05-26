@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 # Add dirs to path
-for _subdir in ("orchestration", "workflow", "agent", "ui", "config"):
+for _subdir in ("orchestration", "workflow", "agent", "ui", "config", "render"):
     _pkg = os.path.join(os.path.dirname(__file__), "..", _subdir)
     if _pkg not in sys.path:
         sys.path.insert(0, _pkg)
@@ -70,6 +70,11 @@ from _session_permissions_toolchain import (
     needs_tool_approval as _needs_approval,
 )
 from _approval_display_toolchain import format_approval_display as _format_approval
+from _mermaid_render_toolchain import (
+    detect_diagram_type as _detect_type,
+    parse_flowchart as _parse_flow,
+    render_mermaid_ascii as _render_mermaid,
+)
 from _completions_toolchain import get_suggestions as _get_suggestions
 from _context_input_toolchain import (
     _safe_resolve,
@@ -436,6 +441,70 @@ def test_completions_login_subcommand():
 def test_completions_custom_commands():
     results = _get_suggestions("/my-cmd", custom_commands=["/my-cmd", "/other"])
     assert any(r["value"] == "/my-cmd" for r in results)
+
+
+# --- Mermaid render tests ---
+
+
+def test_mermaid_detect_flowchart():
+    assert _detect_type("flowchart LR\n  A --> B") == "flowchart"
+
+
+def test_mermaid_detect_sequence():
+    assert _detect_type("sequenceDiagram\n  A->>B: hi") == "sequence"
+
+
+def test_mermaid_detect_class():
+    assert _detect_type("classDiagram\n  class Foo") == "class"
+
+
+def test_mermaid_detect_unknown():
+    assert _detect_type("something random") == "unknown"
+
+
+def test_mermaid_parse_flowchart():
+    source = "flowchart LR\n  A[Start] --> B[End]"
+    diagram = _parse_flow(source)
+    assert diagram["direction"] == "LR"
+    assert len(diagram["nodes"]) == 2
+    assert len(diagram["edges"]) == 1
+
+
+def test_mermaid_render_flowchart():
+    source = "flowchart TB\n  A[Start] --> B[End]"
+    result = _render_mermaid(source)
+    assert "Start" in result
+    assert "End" in result
+
+
+def test_mermaid_render_sequence():
+    source = "sequenceDiagram\n  participant A\n  participant B\n  A->>B: hello"
+    result = _render_mermaid(source)
+    assert "A" in result
+    assert "B" in result
+    assert "hello" in result
+
+
+def test_mermaid_render_state():
+    source = "stateDiagram-v2\n  idle --> running : start"
+    result = _render_mermaid(source)
+    assert "idle" in result
+    assert "running" in result
+
+
+def test_mermaid_render_class():
+    source = "classDiagram\n  class Foo {\n    +name: str\n    +bar()\n  }"
+    result = _render_mermaid(source)
+    assert "Foo" in result
+
+
+def test_mermaid_render_empty():
+    assert _render_mermaid("flowchart") == "(empty diagram)"
+
+
+def test_mermaid_render_unknown():
+    result = _render_mermaid("pie title\n  A: 30")
+    assert "unsupported" in result
 
 
 # --- Context input tests ---

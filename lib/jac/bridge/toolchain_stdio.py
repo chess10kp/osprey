@@ -131,6 +131,10 @@ from _context_input_toolchain import (  # noqa: E402
 )
 from _approval_display_toolchain import format_approval_display as _format_approval_display  # noqa: E402
 from _completions_toolchain import get_suggestions as _get_suggestions  # noqa: E402
+from _mermaid_render_toolchain import (
+    render_mermaid_ascii as _render_mermaid,
+    detect_diagram_type as _detect_diagram_type,
+)  # noqa: E402
 from _overlay_rows_toolchain import (  # noqa: E402
     task_status_icon as _task_status_icon,
     format_task_overlay_row as _format_task_overlay_row,
@@ -486,6 +490,14 @@ def _dispatch(req: dict) -> dict:
             custom_commands=req.get("customCommands"),
             cursor_position=req.get("cursorPosition"),
         )}
+
+    # --- mermaid render ops ---
+
+    if op == "mermaid_render":
+        return {"result": _render_mermaid(req.get("source", ""))}
+
+    if op == "mermaid_detect_type":
+        return {"result": _detect_diagram_type(req.get("source", ""))}
 
     # --- overlay rows ops ---
 

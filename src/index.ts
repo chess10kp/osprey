@@ -151,8 +151,6 @@ export {
 export {
   renderMermaidAscii,
   detectDiagramType,
-  parseFlowchart,
-  renderFlowchartAscii,
 } from "./render/mermaid-render.js";
 export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./render/mermaid-render.js";
 

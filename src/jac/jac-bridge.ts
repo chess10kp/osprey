@@ -967,6 +967,18 @@ export function bridgeGetSuggestions(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Mermaid render
+// ---------------------------------------------------------------------------
+
+export function bridgeRenderMermaid(source: string): string {
+  return invokeBridgeSync<string>({ op: "mermaid_render", source });
+}
+
+export function bridgeDetectDiagramType(source: string): string {
+  return invokeBridgeSync<string>({ op: "mermaid_detect_type", source });
+}
+
+// ---------------------------------------------------------------------------
 // Overlay rows
 // ---------------------------------------------------------------------------
 
