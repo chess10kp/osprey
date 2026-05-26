@@ -220,6 +220,14 @@ from _session_index_toolchain import (  # noqa: E402
     prune_sessions as _prune_sessions,
     rebuild_index as _rebuild_index,
 )
+from _session_persistence_toolchain import (  # noqa: E402
+    session_dir_path as _session_dir_path,
+    export_session_markdown as _export_session_markdown,
+    save_compaction_backup as _save_compaction_backup,
+    load_compaction_backup as _load_compaction_backup,
+    clear_compaction_backup as _clear_compaction_backup,
+    flush_session_record as _flush_session_record,
+)
 
 
 def _dispatch(req: dict) -> dict:
@@ -879,6 +887,30 @@ def _dispatch(req: dict) -> dict:
         return {"result": _rebuild_index(req["sessionDir"])}
     if op == "session_is_valid_id":
         return {"result": _is_valid_session_id(req.get("id", ""))}
+
+    # ── Session: persistence helpers ────────────────────────────────
+    if op == "session_dir_path":
+        return {"result": _session_dir_path(req["cwd"], req.get("subdir"))}
+    if op == "session_export_markdown":
+        return {"result": _export_session_markdown(
+            req["sessionId"], req["sessionName"], req["cwd"],
+            req.get("modelRef"), req.get("messages", []),
+        )}
+    if op == "session_save_compaction_backup":
+        _save_compaction_backup(req["sessionDir"], req["sessionId"], req.get("messages", []))
+        return {"result": True}
+    if op == "session_load_compaction_backup":
+        return {"result": _load_compaction_backup(req["sessionDir"], req["sessionId"])}
+    if op == "session_clear_compaction_backup":
+        _clear_compaction_backup(req["sessionDir"], req["sessionId"])
+        return {"result": True}
+    if op == "session_flush_record":
+        _flush_session_record(
+            req["sessionDir"], req["sessionId"], req["sessionName"],
+            req["cwd"], req["createdAt"], req.get("messages", []),
+            req.get("modelRef"),
+        )
+        return {"result": True}
 
     raise ValueError(f"unknown op: {op}")
 

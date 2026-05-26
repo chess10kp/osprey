@@ -806,3 +806,108 @@ class TestRebuildIndex:
 
         entries = rebuild_index(d)
         assert entries == []
+
+
+# =====================================================================
+# 4. _session_persistence_toolchain
+# =====================================================================
+
+# Ensure import path for session persistence
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "session")))
+
+from _session_persistence_toolchain import (
+    clear_compaction_backup,
+    export_session_markdown,
+    flush_session_record,
+    load_compaction_backup,
+    save_compaction_backup,
+    session_dir_path,
+)
+
+
+class TestSessionDirPath:
+    def test_default_sessions_dir(self):
+        assert session_dir_path("/cwd") == "/cwd/.jackal/sessions"
+
+    def test_custom_subdir(self):
+        assert session_dir_path("/cwd", "custom") == "/cwd/.jackal/custom"
+
+
+class TestExportSessionMarkdown:
+    def test_basic_export(self):
+        md = export_session_markdown(
+            "sess_1", "My Session", "/tmp",
+            {"provider": "test", "id": "model-1"},
+            [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}],
+        )
+        assert "# My Session" in md
+        assert "**Session ID:** sess_1" in md
+        assert "**Model:** test/model-1" in md
+        assert "**Messages:** 2" in md
+        assert "## user" in md
+        assert "hello" in md
+        assert "## assistant" in md
+        assert "hi" in md
+
+    def test_no_model(self):
+        md = export_session_markdown("sess_1", "test", "/tmp", None, [])
+        assert "**Model:** (none)" in md
+
+    def test_array_content(self):
+        md = export_session_markdown("sess_1", "test", "/tmp", None, [
+            {"role": "assistant", "content": [{"type": "text", "text": "part one"}]},
+        ])
+        assert "part one" in md
+
+
+class TestCompactionBackup:
+    def test_save_and_load(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        msgs = [{"role": "user", "content": "important context"}]
+        save_compaction_backup(d, "sess_1", msgs)
+        loaded = load_compaction_backup(d, "sess_1")
+        assert loaded is not None
+        assert len(loaded) == 1
+        assert loaded[0]["content"] == "important context"
+
+    def test_load_nonexistent(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        assert load_compaction_backup(d, "sess_1") is None
+
+    def test_clear(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        save_compaction_backup(d, "sess_1", [{"role": "user", "content": "x"}])
+        clear_compaction_backup(d, "sess_1")
+        # File exists but empty/invalid
+        loaded = load_compaction_backup(d, "sess_1")
+        assert loaded is None
+
+    def test_save_empty_session_dir_skips(self):
+        # Empty session_dir → no-op
+        save_compaction_backup("", "sess_1", [])
+
+
+class TestFlushSessionRecord:
+    def test_flush_creates_session_file(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        msgs = [{"role": "user", "content": "hello"}]
+        flush_session_record(d, "sess_1", "test", "/tmp", "2026-01-01T00:00:00Z", msgs, None)
+        loaded = load_session_by_id(d, "sess_1")
+        assert loaded is not None
+        assert loaded["sessionName"] == "test"
+        assert len(loaded["messages"]) == 1
+
+    def test_flush_with_model(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        flush_session_record(d, "sess_1", "test", "/tmp", "2026-01-01T00:00:00Z", [], {"provider": "p", "id": "m"})
+        loaded = load_session_by_id(d, "sess_1")
+        assert loaded is not None
+        assert loaded["model"]["provider"] == "p"
+
+    def test_flush_invalid_id_skips(self, tmp_path):
+        d = str(tmp_path / "sessions")
+        flush_session_record(d, "bad_id", "test", "/tmp", "2026-01-01T00:00:00Z", [], None)
+        assert load_session_by_id(d, "bad_id") is None
+
+    def test_flush_empty_dir_skips(self, tmp_path):
+        flush_session_record("", "sess_1", "test", "/tmp", "2026-01-01T00:00:00Z", [], None)

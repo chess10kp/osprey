@@ -1715,3 +1715,82 @@ export function bridgeSessionRebuildIndex(sessionDir: string): SessionIndexEntry
 export function bridgeSessionIsValidId(id: string): boolean {
   return invokeBridgeSync<boolean>({ op: "session_is_valid_id", id });
 }
+
+// ── Session: persistence helpers ──────────────────────────────────
+
+export function bridgeSessionDirPath(cwd: string, subdir?: string): string {
+  return invokeBridgeSync<string>({ op: "session_dir_path", cwd, subdir });
+}
+
+export function bridgeSessionExportMarkdown(opts: {
+  sessionId: string;
+  sessionName: string;
+  cwd: string;
+  modelRef?: { provider: string; id: string } | null;
+  messages: Record<string, unknown>[];
+}): string {
+  return invokeBridgeSync<string>({
+    op: "session_export_markdown",
+    sessionId: opts.sessionId,
+    sessionName: opts.sessionName,
+    cwd: opts.cwd,
+    modelRef: opts.modelRef ?? null,
+    messages: opts.messages,
+  });
+}
+
+export function bridgeSessionSaveCompactionBackup(
+  sessionDir: string,
+  sessionId: string,
+  messages: Record<string, unknown>[],
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "session_save_compaction_backup",
+    sessionDir,
+    sessionId,
+    messages,
+  });
+}
+
+export function bridgeSessionLoadCompactionBackup(
+  sessionDir: string,
+  sessionId: string,
+): Record<string, unknown>[] | null {
+  return invokeBridgeSync<Record<string, unknown>[] | null>({
+    op: "session_load_compaction_backup",
+    sessionDir,
+    sessionId,
+  });
+}
+
+export function bridgeSessionClearCompactionBackup(
+  sessionDir: string,
+  sessionId: string,
+): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "session_clear_compaction_backup",
+    sessionDir,
+    sessionId,
+  });
+}
+
+export function bridgeSessionFlushRecord(opts: {
+  sessionDir: string;
+  sessionId: string;
+  sessionName: string;
+  cwd: string;
+  createdAt: string;
+  messages: Record<string, unknown>[];
+  modelRef?: { provider: string; id: string } | null;
+}): boolean {
+  return invokeBridgeSync<boolean>({
+    op: "session_flush_record",
+    sessionDir: opts.sessionDir,
+    sessionId: opts.sessionId,
+    sessionName: opts.sessionName,
+    cwd: opts.cwd,
+    createdAt: opts.createdAt,
+    messages: opts.messages,
+    modelRef: opts.modelRef ?? null,
+  });
+}
