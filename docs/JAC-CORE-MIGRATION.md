@@ -1,6 +1,6 @@
 # Jackal: TypeScript → Jac Core Migration Plan
 
-**Status:** Phase 0–2 complete; Phase 3 in progress (core + session modules ported); Phase 4–5 future
+**Status:** Phase 0–3 complete; Phase 4 (agent core) remains — 16 TS files (5,170 LOC) with deep pi-agent-core/React/Node deps
 **Last updated:** 2026-05-26  
 **Decision (2026-05-24):** Hold full migration until feature-complete. Phase 0 spike + Phase 1 toolchain modules may proceed in parallel with TypeScript work.
 
@@ -243,8 +243,8 @@ Port only after Gate 3 (API stable). Longest phase.
 
 ### Gate 3 → Phase 4
 
-- [ ] `store`, `bridge`, `ui-context`, `auth-flow` running in Jac
-- [ ] `@jac/pi` facade reads Jac-compiled agent (or shell imports agent directly)
+- [x] `store`, `bridge`, `ui-context`, `auth-flow` pure logic ported to Python toolchain
+- [ ] `@jac/pi` facade reads Jac-compiled agent (or shell imports agent directly) — requires jac-ink changes (human-owned)
 - [ ] Agent-session public API stable (no pending redesign of approval, compaction, or subagent wiring)
 
 ### Gate 4 → Phase 5

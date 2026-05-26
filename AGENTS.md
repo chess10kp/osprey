@@ -486,7 +486,7 @@ The walk-up + JSON parsing is delegated to `lib/jac/config/_project_config_toolc
 | Python toolchain | `lib/jac/tests/test_*.py` (2 files, 46 tests) | `python3 -m pytest lib/jac/tests/` |
 | Jac | `lib/jac/tests/*_test.jac` (2 files, 8 tests) | `jac test lib/jac/tests/` |
 
-**Total:** 285 TS tests + 309 Python tests + 8 Jac tests.
+**Total:** 285 TS tests + 400 Python tests + 8 Jac tests.
 
 Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boot, outbound queue, jac-cli parsing, file-mention-parser, context-input, auto-compact-config, tool-output-limit, mcp-schema, overlay-rows, skills, session-permissions.
 
@@ -627,20 +627,22 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 
 ## Phase 2 migration status
 
-### Ported modules (32 Python toolchain modules)
+### Ported modules (37 Python toolchain modules)
 
 | Directory | Modules |
 |-----------|----------|
 | `lib/jac/jac/` | cli, doctor, lsp_config, workflows, types |
 | `lib/jac/config/` | project_config |
 | `lib/jac/project/` | gitignore, file_explorer, skills, project_init |
-| `lib/jac/orchestration/` | frontmatter |
+| `lib/jac/orchestration/` | frontmatter, subagents, chains, subagent_runner |
 | `lib/jac/workflow/` | file_mention_parser, context_usage, tasks, custom_commands, checkpoints, context_input, skill_commands |
 | `lib/jac/agent/` | dev_mode, system_prompt, session_permissions, mcp_schema, task_tools, tool_output_limit, web_tools |
 | `lib/jac/ui/` | overlay_rows, completions, approval_display |
 | `lib/jac/render/` | mermaid_render |
 | `lib/jac/core/` | tool_summary |
 | `lib/jac/session/` | auto_compact, session_index, session_persistence |
+| `lib/jac/auth/` | auth_flow |
+| `lib/jac/cli/` | run |
 
 ### Bridge delegation (TS → Python)
 
@@ -687,11 +689,11 @@ Ported to Python toolchain:
 
 ### Numbers
 
-- 149 bridge ops in `toolchain_stdio.py`
-- 146 bridge functions in `jac-bridge.ts`
-- 309 Python tests
+- 185 bridge ops in `toolchain_stdio.py`
+- 174 bridge functions in `jac-bridge.ts`
+- 400 Python tests
 - 285 TS tests — all passing
-- ~3400 LOC of Python toolchain code across 32 modules
+- ~10,700 LOC of Python toolchain code across 37 modules
 
 ---
 
@@ -701,4 +703,4 @@ Ported to Python toolchain:
 
 ---
 
-*Last updated 2026-05-26 — Phase 3 in progress: core + session modules ported, 32 Python toolchain modules, 149 bridge ops.*
+*Last updated 2026-05-26 — Phase 3 complete: 37 Python toolchain modules, 185 bridge ops, 400 Python tests. Phase 4 (agent core) requires jac-ink + pi-agent-core changes.*
