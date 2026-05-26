@@ -806,6 +806,46 @@ export function bridgeGetBlockedTools(): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Agent/workflow helpers
+// ---------------------------------------------------------------------------
+
+export function bridgeLoadSystemPromptBase(cwd: string, explicit?: string): string {
+  return invokeBridgeSync<string>({
+    op: "agent_load_system_prompt_base",
+    cwd,
+    explicit,
+  });
+}
+
+export function bridgeFormatSkillCommandCatalog(
+  skills: Array<{ name: string; description: string; source: string }>,
+): string {
+  return invokeBridgeSync<string>({
+    op: "workflow_format_skill_command_catalog",
+    skills,
+  });
+}
+
+export function bridgeToolOutputMaxBytes(): number {
+  return invokeBridgeSync<number>({ op: "tool_output_max_bytes" });
+}
+
+export function bridgeTruncateToolOutput(text: string, maxBytes?: number): string {
+  return invokeBridgeSync<string>({
+    op: "tool_output_truncate",
+    text,
+    maxBytes,
+  });
+}
+
+export function bridgeTruncateToolPayload(value: unknown): string | undefined {
+  return invokeBridgeSync<string | undefined>({
+    op: "tool_output_truncate_payload",
+    value,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Overlay rows
 // ---------------------------------------------------------------------------
 

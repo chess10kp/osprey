@@ -55,6 +55,13 @@ from _dev_mode_toolchain import (
     should_auto_approve,
     system_prompt_for_mode,
 )
+from _system_prompt_toolchain import load_system_prompt_base
+from _tool_output_limit_toolchain import (
+    MAX_TOOL_OUTPUT_BYTES,
+    truncate_tool_output,
+    truncate_tool_payload,
+)
+from _skill_commands_toolchain import format_skill_command_catalog
 from _overlay_rows_toolchain import (
     task_status_icon,
     format_task_overlay_row,
@@ -285,6 +292,26 @@ def test_system_prompt_for_mode():
     assert "Plan mode (active)" in result
     result2 = system_prompt_for_mode("You are helpful.", "normal")
     assert "Plan mode" not in result2
+
+
+def test_load_system_prompt_base_fallback():
+    with tempfile.TemporaryDirectory() as tmp:
+        text = load_system_prompt_base(tmp)
+        assert "You are Jackal" in text
+
+
+def test_tool_output_truncate_utf8_safe():
+    out = truncate_tool_output("😀" * 20000)
+    assert len(out.encode("utf-8")) <= MAX_TOOL_OUTPUT_BYTES
+
+
+def test_tool_output_truncate_payload_error_field():
+    assert truncate_tool_payload({"error": "boom"}) == "boom"
+
+
+def test_format_skill_command_catalog_empty():
+    text = format_skill_command_catalog([])
+    assert "No skills found." in text
 
 
 # --- Overlay rows tests ---

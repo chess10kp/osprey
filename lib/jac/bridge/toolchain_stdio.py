@@ -108,6 +108,15 @@ from _dev_mode_toolchain import (  # noqa: E402
     read_only_mode_block_reason as _read_only_mode_block_reason,
     READ_ONLY_MODE_BLOCKED_TOOLS as _READ_ONLY_MODE_BLOCKED_TOOLS,
 )
+from _system_prompt_toolchain import load_system_prompt_base as _load_system_prompt_base  # noqa: E402
+from _tool_output_limit_toolchain import (  # noqa: E402
+    MAX_TOOL_OUTPUT_BYTES as _MAX_TOOL_OUTPUT_BYTES,
+    truncate_tool_output as _truncate_tool_output,
+    truncate_tool_payload as _truncate_tool_payload,
+)
+from _skill_commands_toolchain import (  # noqa: E402
+    format_skill_command_catalog as _format_skill_command_catalog,
+)
 from _overlay_rows_toolchain import (  # noqa: E402
     task_status_icon as _task_status_icon,
     format_task_overlay_row as _format_task_overlay_row,
@@ -390,6 +399,23 @@ def _dispatch(req: dict) -> dict:
 
     if op == "dev_mode_blocked_tools":
         return {"result": sorted(_READ_ONLY_MODE_BLOCKED_TOOLS)}
+
+    # --- system prompt / skill commands / output limit ops ---
+
+    if op == "agent_load_system_prompt_base":
+        return {"result": _load_system_prompt_base(req["cwd"], req.get("explicit"))}
+
+    if op == "workflow_format_skill_command_catalog":
+        return {"result": _format_skill_command_catalog(req.get("skills", []))}
+
+    if op == "tool_output_max_bytes":
+        return {"result": _MAX_TOOL_OUTPUT_BYTES}
+
+    if op == "tool_output_truncate":
+        return {"result": _truncate_tool_output(req.get("text", ""), req.get("maxBytes", _MAX_TOOL_OUTPUT_BYTES))}
+
+    if op == "tool_output_truncate_payload":
+        return {"result": _truncate_tool_payload(req.get("value"))}
 
     # --- overlay rows ops ---
 
