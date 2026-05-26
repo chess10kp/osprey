@@ -22,7 +22,8 @@ npm run build:agent      # tsc → dist/
 ./jackal.sh              # compile shell + run Ink (TTY required)
 
 # CI / headless (no jac-ink, no TTY)
-npm run check            # or ./jackal.sh --check
+npm run check            # or ./jackal.sh --check (TS adapter smoke)
+npm run check:jac        # lib/jac toolchain + npm agent loop (migration CI)
 ./jackal.sh run "prompt" # headless one-shot
 ```
 
@@ -336,10 +337,43 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 
 ---
 
+## Recent learnings (2026-05-25)
+
+### Jac migration shape (current reality)
+
+- `lib/jac/` is now active for migration work, but **not** wired into `jackal.sh` runtime path yet (TS runtime still primary).
+- The migration bridge is `lib/jac/bridge/toolchain_stdio.py` (JSON over stdio). TS calls this through `src/jac/jac-bridge.ts`.
+- Phase 1 is implemented as **TS delegating to Jac/Python toolchain modules** (`lib/jac/jac/_*_toolchain.py`) rather than direct Jac imports from TS.
+
+### New Phase 2 slice already landed
+
+- Project file listing + gitignore handling are now implemented in `lib/jac/project/`:
+  - `lib/jac/project/_gitignore_toolchain.py`
+  - `lib/jac/project/_file_explorer_toolchain.py`
+  - wrappers: `lib/jac/project/gitignore.jac`, `lib/jac/project/file_explorer.jac`
+- TS now delegates file explorer operations to Jac bridge in `src/project/file-explorer.ts`.
+- Bridge ops added:
+  - `project_list_files`
+  - `project_estimate_selection`
+
+### CI/test behavior worth remembering
+
+- `npm run check:jac` is the Jac migration health path:
+  1. `jac run lib/jac/main.jac -- --check`
+  2. `scripts/jac-test-harness.sh`
+- `lib/jac/main.jac --check` now includes `lib/jac/project` in jac check scope.
+- Jac test harness runs per-file `jac test` and is useful because mixed diagnostic output can be noisy otherwise.
+
+### Practical gotchas discovered
+
+- In Jac tests, `root` is a built-in reference name; using `root = ...` in tests causes compile/type errors. Use a different local variable name (`tmp_dir`, etc.).
+- TS LSP tooling may fail to initialize even when `npm run build:agent` passes (environment/tsserver resolution issue); treat LSP failure separately from compile correctness.
+- Codebase wiki ingestion commands can fail if wiki is not initialized (`/wiki-init` required first).
+
 ## Patches
 
 `patches/@unipi+notify+2.0.1.patch` — desktop notifications say “Jackal”. Applied on `npm install` via `postinstall`.
 
 ---
 
-*Last expanded for agent onboarding — covers runtime split, file ownership, env vars, and edit boundaries so mapping the repo each session is unnecessary.*
+*Last expanded for agent onboarding — now includes active Jac migration bridge/toolchain learnings and Phase 2 project-module notes.*
