@@ -345,23 +345,51 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 - The migration bridge is `lib/jac/bridge/toolchain_stdio.py` (JSON over stdio). TS calls this through `src/jac/jac-bridge.ts`.
 - Phase 1 is implemented as **TS delegating to Jac/Python toolchain modules** (`lib/jac/jac/_*_toolchain.py`) rather than direct Jac imports from TS.
 
-### New Phase 2 slice already landed
+### Phase 2 leaf module migration (completed)
 
-- Project file listing + gitignore handling are now implemented in `lib/jac/project/`:
-  - `lib/jac/project/_gitignore_toolchain.py`
-  - `lib/jac/project/_file_explorer_toolchain.py`
-  - wrappers: `lib/jac/project/gitignore.jac`, `lib/jac/project/file_explorer.jac`
-- TS now delegates file explorer operations to Jac bridge in `src/project/file-explorer.ts`.
-- Bridge ops added:
-  - `project_list_files`
-  - `project_estimate_selection`
+15 Python toolchain modules now exist under `lib/jac/`:
+
+| Directory | Modules |
+|-----------|----------|
+| `lib/jac/jac/` | cli, doctor, lsp_config, workflows, types |
+| `lib/jac/config/` | project_config |
+| `lib/jac/project/` | gitignore, file_explorer |
+| `lib/jac/orchestration/` | frontmatter |
+| `lib/jac/workflow/` | file_mention_parser, context_usage, tasks, custom_commands, checkpoints |
+| `lib/jac/agent/` | dev_mode |
+| `lib/jac/ui/` | overlay_rows |
+
+**Bridge delegation** (TS → Python via sync subprocess):
+- `config/project-config.ts` → bridge for `.jackal` walk-up + mode resolution
+- `project/file-explorer.ts` → bridge for file listing
+- `workflow/tasks.ts` → bridge for task CRUD
+- `workflow/custom-commands.ts` → bridge for command loading
+- `workflow/checkpoints.ts` → bridge for checkpoint CRUD
+
+**TS keeps local copy** (Python is source of truth but bridge calls too expensive for hot paths):
+- `orchestration/frontmatter.ts`, `workflow/file-mention-parser.ts`, `workflow/context-usage.ts`,
+  `agent/dev-mode.ts`, `ui/overlay-rows.ts`
+
+**Architecture decision**: sync Python subprocess calls (~20-50ms each) are fine for I/O operations (file read/write) but too expensive for tight loops (e.g. skills loading calls `parseFrontmatter` dozens of times). For hot-path modules, the Python toolchain is the source of truth for Jac-native code, while TS keeps a local implementation.
+
+80 bridge ops, 67 bridge functions, 46 Python tests, 279 TS tests.
+
+### Not yet ported (remaining modules)
+
+Modules with deep TS runtime dependencies (typebox, pi-agent-core types, child_process) are deferred:
+- `agent/mcp-schema.ts`, `agent/session-permissions.ts`, `agent/task-tools.ts`, `agent/web-tools.ts`
+- `render/mermaid-render.ts`, `ui/approval-display.ts`, `ui/completions.ts`
+- `workflow/context-input.ts`, `agent/tool-output-limit.ts`
+- `project/skills.ts`, `project/project-init.ts`, `agent/system-prompt.ts`, `workflow/skill-commands.ts`
+
+These require Phase 3+ (deeper architecture changes) or are not suitable for the bridge pattern.
 
 ### CI/test behavior worth remembering
 
 - `npm run check:jac` is the Jac migration health path:
   1. `jac run lib/jac/main.jac -- --check`
   2. `scripts/jac-test-harness.sh`
-- `lib/jac/main.jac --check` now includes `lib/jac/project` in jac check scope.
+- `lib/jac/main.jac --check` now includes all `lib/jac/{jac,project,config,orchestration,workflow,agent,ui}` in check scope.
 - Jac test harness runs per-file `jac test` and is useful because mixed diagnostic output can be noisy otherwise.
 
 ### Practical gotchas discovered
@@ -369,6 +397,7 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 - In Jac tests, `root` is a built-in reference name; using `root = ...` in tests causes compile/type errors. Use a different local variable name (`tmp_dir`, etc.).
 - TS LSP tooling may fail to initialize even when `npm run build:agent` passes (environment/tsserver resolution issue); treat LSP failure separately from compile correctness.
 - Codebase wiki ingestion commands can fail if wiki is not initialized (`/wiki-init` required first).
+- **Bridge sync calls are ~20-50ms**: fine for I/O, too expensive for hot loops. Profile before delegating parsing/formatting to bridge.
 
 ## Patches
 
