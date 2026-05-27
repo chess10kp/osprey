@@ -625,22 +625,22 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 
 ---
 
-## Phase 2 migration status
+## Migration status — all portable logic ported
 
-### Ported modules (37 Python toolchain modules)
+### Ported modules (45 Python toolchain modules)
 
 | Directory | Modules |
 |-----------|----------|
-| `lib/jac/jac/` | cli, doctor, lsp_config, workflows, types |
+| `lib/jac/jac/` | cli, doctor, lsp_config, lsp_helpers, workflows, types |
 | `lib/jac/config/` | project_config |
 | `lib/jac/project/` | gitignore, file_explorer, skills, project_init |
 | `lib/jac/orchestration/` | frontmatter, subagents, chains, subagent_runner |
 | `lib/jac/workflow/` | file_mention_parser, context_usage, tasks, custom_commands, checkpoints, context_input, skill_commands |
-| `lib/jac/agent/` | dev_mode, system_prompt, session_permissions, mcp_schema, task_tools, tool_output_limit, web_tools |
+| `lib/jac/agent/` | dev_mode, system_prompt, session_permissions, mcp_schema, mcp_schema_coerce, task_tools, tool_output_limit, web_tools, path_resolve |
 | `lib/jac/ui/` | overlay_rows, completions, approval_display |
 | `lib/jac/render/` | mermaid_render |
-| `lib/jac/core/` | tool_summary |
-| `lib/jac/session/` | auto_compact, session_index, session_persistence |
+| `lib/jac/core/` | tool_summary, store_types, adapter_helpers, agent_busy |
+| `lib/jac/session/` | auto_compact, session_index, session_persistence, llm_compact, outbound_queue |
 | `lib/jac/auth/` | auth_flow |
 | `lib/jac/cli/` | run |
 
@@ -654,46 +654,43 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 
 ### TS keeps local copy (Python = source of truth, TS mirrors for perf)
 
-- `orchestration/frontmatter.ts`, `workflow/file-mention-parser.ts`, `workflow/context-usage.ts`, `agent/dev-mode.ts`, `ui/overlay-rows.ts`
-
-### TS keeps local copy (Python = source of truth, TS mirrors for perf)
-
 - `orchestration/frontmatter.ts`, `workflow/file-mention-parser.ts`, `workflow/context-usage.ts`, `agent/dev-mode.ts`, `ui/overlay-rows.ts`, `core/tool-summary.ts`
 
-### Phase 3 — in progress (core + session state)
+### Not portable — requires jac-ink + pi-agent-core changes (human-owned)
 
-Ported to Python toolchain:
-- `core/tool-summary.ts` → `lib/jac/core/_tool_summary_toolchain.py`
-- `session/auto-compact.ts` → `lib/jac/session/_auto_compact_toolchain.py`
-- `session/session-index.ts` → `lib/jac/session/_session_index_toolchain.py`
-- `session/session.ts` (persistence helpers) → `lib/jac/session/_session_persistence_toolchain.py`
+These 17 TS files (~5,100 LOC) have deep runtime dependencies and cannot be Python toolchain modules:
 
-### Not yet ported (Phase 3 remaining → Phase 4)
+**Reactive subscription systems (React useSyncExternalStore, event listeners):**
+- `core/store.ts` (AgentStore class) — React subscription store
+- `core/bridge.ts` (bridgeEvents) — reactive event subscription
+- `core/ui-context.ts` — dialog/async promise system with listeners
+- `core/adapter.ts` (createNextAgent) — wires everything together
+- `agent/tool-approval.ts`, `agent/subagent-approval.ts` — reactive Promise queues
 
-**Must stay in TS (reactive/UI/network):**
-- `core/store.ts` — React subscription system
-- `core/bridge.ts` — event subscription handler
-- `core/ui-context.ts` — dialog/async promise system
-- `core/adapter.ts` — createNextAgent wiring
-- `session/llm-compact.ts` — pi-ai LLM calls
-- `auth/*.ts` — fetch-based API calls + UI context
-
-**Phase 4 (agent core):**
+**Agent loop (pi-agent-core Agent class, streaming):**
 - `session/agent-session.ts` (1000 LOC) — THE agent loop
-- `agent/tools.ts` (703 LOC) — core tool definitions
-- `agent/tool-approval.ts`, `agent/subagent-approval.ts`, `agent/agent-tool.ts`
-- `agent/mcp-client.ts`
-- `orchestration/subagents.ts`, `orchestration/subagent-runner.ts`, `orchestration/chains.ts`
-- `jac/lsp-client.ts`, `jac/lsp-service.ts`
-- `cli/run.ts`
+- `agent/tools.ts` (703 LOC) — core tool definitions (AgentTool, TypeBox)
+- `agent/agent-tool.ts` — subagent tool factory
+
+**Network/IO (fetch, child_process, sockets):**
+- `auth/auth.ts` — pi-ai OAuth, fetch API
+- `auth/auth-actions.ts` — async OAuth flows
+- `agent/mcp-client.ts` — MCP SDK, spawn
+- `jac/lsp-client.ts` — vscode-languageserver-protocol, sockets
+- `jac/lsp-service.ts` — LSP lifecycle management
+
+**Bridge/thin wrappers (TS side, no logic to port):**
+- `jac/jac-bridge.ts` — bridge function wrappers
+- `jac/jac-cli.ts` — async spawn wrappers
 
 ### Numbers
 
-- 185 bridge ops in `toolchain_stdio.py`
-- 174 bridge functions in `jac-bridge.ts`
-- 400 Python tests
+- 215 bridge ops in `toolchain_stdio.py`
+- 205 bridge functions in `jac-bridge.ts`
+- 481 Python tests
 - 285 TS tests — all passing
-- ~10,700 LOC of Python toolchain code across 37 modules
+- ~7,550 LOC of Python toolchain code across 45 modules
+- 50 `.jac` wrapper files
 
 ---
 
@@ -703,4 +700,4 @@ Ported to Python toolchain:
 
 ---
 
-*Last updated 2026-05-26 — Phase 3 complete: 37 Python toolchain modules, 185 bridge ops, 400 Python tests. Phase 4 (agent core) requires jac-ink + pi-agent-core changes.*
+*Last updated 2026-05-26 — All portable pure logic ported: 45 Python toolchain modules, 215 bridge ops, 481 Python tests. Remaining 17 TS files require jac-ink + pi-agent-core in-process support.*

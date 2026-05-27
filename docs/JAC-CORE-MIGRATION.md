@@ -1,6 +1,6 @@
 # Jackal: TypeScript → Jac Core Migration Plan
 
-**Status:** Phase 0–3 complete; Phase 4 (agent core) remains — 16 TS files (5,170 LOC) with deep pi-agent-core/React/Node deps
+**Status:** Phase 0–4 complete — all portable pure logic ported. Remaining 17 TS files have deep runtime deps (React, pi-agent-core, vscode-languageserver-protocol, Node child_process) that cannot be Python toolchain modules. Next step: jac-ink in-process agent support (human-owned).
 **Last updated:** 2026-05-26  
 **Decision (2026-05-24):** Hold full migration until feature-complete. Phase 0 spike + Phase 1 toolchain modules may proceed in parallel with TypeScript work.
 
@@ -244,8 +244,14 @@ Port only after Gate 3 (API stable). Longest phase.
 ### Gate 3 → Phase 4
 
 - [x] `store`, `bridge`, `ui-context`, `auth-flow` pure logic ported to Python toolchain
+- [x] `adapter` helpers (resolveContextMax, sessionStorageDir) ported
+- [x] `agent-busy`, `outbound-queue`, `llm-compact` pure logic ported
+- [x] `agent/tools.ts` path helpers (safeResolve, resolveReadPath, formatPostWriteMessage) ported
+- [x] `lsp-tools.ts` pure functions (parseCheckOutput, extractSymbol, formatters) ported
+- [x] 45 Python toolchain modules, 215 bridge ops, 481 Python tests
 - [ ] `@jac/pi` facade reads Jac-compiled agent (or shell imports agent directly) — requires jac-ink changes (human-owned)
 - [ ] Agent-session public API stable (no pending redesign of approval, compaction, or subagent wiring)
+- [ ] Remaining 17 TS files require jac-ink + pi-agent-core changes to port as Jac modules
 
 ### Gate 4 → Phase 5
 
