@@ -685,9 +685,9 @@ These 17 TS files (~5,100 LOC) have deep runtime dependencies and cannot be Pyth
 
 ### Numbers
 
-- 215 bridge ops in `toolchain_stdio.py`
-- 205 bridge functions in `jac-bridge.ts`
-- 481 Python tests
+- 219 bridge ops in `toolchain_stdio.py`
+- 209 bridge functions in `jac-bridge.ts`
+- 494 Python tests
 - 285 TS tests — all passing
 - ~7,550 LOC of Python toolchain code across 45 modules
 - 50 `.jac` wrapper files
@@ -700,4 +700,4 @@ These 17 TS files (~5,100 LOC) have deep runtime dependencies and cannot be Pyth
 
 ---
 
-*Last updated 2026-05-26 — All portable pure logic ported: 45 Python toolchain modules, 215 bridge ops, 481 Python tests. Remaining 17 TS files require jac-ink + pi-agent-core in-process support.*
+*Last updated 2026-05-26 — All portable pure logic ported: 45 Python toolchain modules, 219 bridge ops, 494 Python tests. Remaining 17 TS files require jac-ink + pi-agent-core in-process support.*

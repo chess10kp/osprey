@@ -248,7 +248,7 @@ Port only after Gate 3 (API stable). Longest phase.
 - [x] `agent-busy`, `outbound-queue`, `llm-compact` pure logic ported
 - [x] `agent/tools.ts` path helpers (safeResolve, resolveReadPath, formatPostWriteMessage) ported
 - [x] `lsp-tools.ts` pure functions (parseCheckOutput, extractSymbol, formatters) ported
-- [x] 45 Python toolchain modules, 215 bridge ops, 481 Python tests
+- [x] 45 Python toolchain modules, 219 bridge ops, 494 Python tests
 - [ ] `@jac/pi` facade reads Jac-compiled agent (or shell imports agent directly) — requires jac-ink changes (human-owned)
 - [ ] Agent-session public API stable (no pending redesign of approval, compaction, or subagent wiring)
 - [ ] Remaining 17 TS files require jac-ink + pi-agent-core changes to port as Jac modules
