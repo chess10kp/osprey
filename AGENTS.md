@@ -546,7 +546,7 @@ For **developing Jackal itself**, use repo tools (read, grep, bash, edit `src/` 
 
 ## Current priorities (from maintainers)
 
-1. Fast TUI boot — MCP/LSP deferred after first frame
+1. Fast TUI boot — ✅ batched bridge calls (5.9s → 2.5s), MCP/LSP deferred with `setImmediate`
 2. Stable streaming / transcript / tool rows in Ink
 3. Harden adapter + bridge + outbound queue
 4. Jac MCP as primary validate/run surface
