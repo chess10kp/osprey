@@ -641,7 +641,7 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 | `lib/jac/render/` | mermaid_render |
 | `lib/jac/core/` | tool_summary, store_types, adapter_helpers, agent_busy |
 | `lib/jac/session/` | auto_compact, session_index, session_persistence, llm_compact, outbound_queue |
-| `lib/jac/auth/` | auth_flow |
+| `lib/jac/auth/` | auth_flow, auth_io |
 | `lib/jac/cli/` | run |
 
 ### Bridge delegation (TS → Python)
