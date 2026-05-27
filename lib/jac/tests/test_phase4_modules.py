@@ -18,7 +18,7 @@ import tempfile
 
 # Ensure lib/jac dirs are on sys.path
 _LIB = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-for _sub in ("agent", "core", "session", "jac"):
+for _sub in ("agent", "core", "session", "jac", "auth"):
     _p = os.path.join(_LIB, _sub)
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -534,3 +534,99 @@ class TestFormatLocations:
         result = format_locations(locs)
         lines = result.strip().split("\n")
         assert len(lines) == 20
+
+
+# ─── Auth I/O ────────────────────────────────────────────────────────────────
+
+class TestResolveAuthPath:
+    def test_explicit_agent_dir(self):
+        from _auth_io_toolchain import resolve_auth_path
+        result = resolve_auth_path("/opt/jackal")
+        assert result == "/opt/jackal/auth.json"
+
+    def test_env_override(self, monkeypatch):
+        from _auth_io_toolchain import resolve_auth_path
+        monkeypatch.setenv("JACKAL_AGENT_DIR", "/env/path")
+        result = resolve_auth_path()
+        assert result == "/env/path/auth.json"
+
+    def test_default_home(self, monkeypatch):
+        from _auth_io_toolchain import resolve_auth_path
+        monkeypatch.delenv("JACKAL_AGENT_DIR", raising=False)
+        result = resolve_auth_path()
+        assert result.endswith(".jackal/auth.json")
+
+
+class TestLoadAuthFile:
+    def test_missing_file(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file
+        result = load_auth_file(str(tmp_path / "nonexistent.json"))
+        assert result == {}
+
+    def test_valid_file(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file
+        p = tmp_path / "auth.json"
+        p.write_text('{"openai": {"type": "api_key", "key": "sk-123"}}')
+        result = load_auth_file(str(p))
+        assert "openai" in result
+        assert result["openai"]["key"] == "sk-123"
+
+    def test_invalid_json(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file
+        p = tmp_path / "auth.json"
+        p.write_text("not json")
+        result = load_auth_file(str(p))
+        assert result == {}
+
+    def test_non_dict_json(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file
+        p = tmp_path / "auth.json"
+        p.write_text("[1, 2, 3]")
+        result = load_auth_file(str(p))
+        assert result == {}
+
+
+class TestSaveAuthFile:
+    def test_creates_dir_and_file(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file, save_auth_file
+        p = tmp_path / "sub" / "dir" / "auth.json"
+        data = {"openai": {"type": "api_key", "key": "sk-test"}}
+        save_auth_file(str(p), data)
+        assert p.is_file()
+        loaded = load_auth_file(str(p))
+        assert loaded == data
+
+    def test_overwrites(self, tmp_path):
+        from _auth_io_toolchain import load_auth_file, save_auth_file
+        p = tmp_path / "auth.json"
+        save_auth_file(str(p), {"a": 1})
+        save_auth_file(str(p), {"b": 2})
+        loaded = load_auth_file(str(p))
+        assert "a" not in loaded
+        assert loaded["b"] == 2
+
+
+class TestGetAuthStatus:
+    def test_runtime_key(self):
+        from _auth_io_toolchain import get_auth_status
+        result = get_auth_status("openai", {}, runtime_keys={"openai"})
+        assert result["configured"] is True
+        assert result["source"] == "stored"
+        assert result["label"] == "runtime override"
+
+    def test_stored(self):
+        from _auth_io_toolchain import get_auth_status
+        result = get_auth_status("openai", {"openai": {"type": "api_key", "key": "sk-..."}})
+        assert result["configured"] is True
+        assert result["source"] == "stored"
+
+    def test_env(self):
+        from _auth_io_toolchain import get_auth_status
+        result = get_auth_status("openai", {}, env_api_key="sk-env-key")
+        assert result["configured"] is True
+        assert result["source"] == "environment"
+
+    def test_not_configured(self):
+        from _auth_io_toolchain import get_auth_status
+        result = get_auth_status("openai", {})
+        assert result["configured"] is False

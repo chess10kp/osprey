@@ -2166,3 +2166,28 @@ export function bridgeLspFormatHoverInfo(info: Record<string, unknown>): string 
 export function bridgeLspFormatLocations(locations: Record<string, unknown>[], label?: string): string {
   return invokeBridgeSync<string>({ op: "lsp_format_locations", locations, label });
 }
+
+// ── Auth: I/O ────────────────────────────────────────────────────
+
+export function bridgeAuthResolvePath(agentDir?: string): string {
+  return invokeBridgeSync<string>({ op: "auth_resolve_path", agentDir });
+}
+
+export function bridgeAuthLoadFile(path: string): Record<string, unknown> {
+  return invokeBridgeSync<Record<string, unknown>>({ op: "auth_load_file", path });
+}
+
+export function bridgeAuthSaveFile(path: string, data: Record<string, unknown>): boolean {
+  return invokeBridgeSync<boolean>({ op: "auth_save_file", path, data });
+}
+
+export function bridgeAuthGetStatus(
+  provider: string,
+  storedProviders?: Record<string, unknown>,
+  runtimeKeys?: string[],
+  envApiKey?: string,
+): { configured: boolean; source?: string; label?: string } {
+  return invokeBridgeSync<{ configured: boolean; source?: string; label?: string }>({
+    op: "auth_get_status", provider, storedProviders, runtimeKeys, envApiKey,
+  });
+}

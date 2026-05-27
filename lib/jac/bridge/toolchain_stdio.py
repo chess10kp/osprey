@@ -275,6 +275,12 @@ from _auth_flow_toolchain import (  # noqa: E402
     initial_auth_flow_state as _initial_auth_flow_state,
     transition_auth_flow as _transition_auth_flow,
 )
+from _auth_io_toolchain import (  # noqa: E402
+    resolve_auth_path as _resolve_auth_path,
+    load_auth_file as _load_auth_file,
+    save_auth_file as _save_auth_file,
+    get_auth_status as _get_auth_status,
+)
 from _path_resolve_toolchain import (  # noqa: E402
     safe_resolve as _safe_resolve,
     resolve_read_path as _resolve_read_path,
@@ -1012,6 +1018,20 @@ def _dispatch(req: dict) -> dict:
     if op == "auth_transition":
         return {"result": _transition_auth_flow(
             req.get("state", {}), req.get("action", ""), req.get("payload"),
+        )}
+
+    # ── Auth: I/O ────────────────────────────────────────────────
+    if op == "auth_resolve_path":
+        return {"result": _resolve_auth_path(req.get("agentDir"))}
+    if op == "auth_load_file":
+        return {"result": _load_auth_file(req["path"])}
+    if op == "auth_save_file":
+        _save_auth_file(req["path"], req.get("data", {}))
+        return {"result": True}
+    if op == "auth_get_status":
+        return {"result": _get_auth_status(
+            req["provider"], req.get("storedProviders", {}),
+            req.get("runtimeKeys"), req.get("envApiKey"),
         )}
 
     # ── Orchestration: subagents ──────────────────────────────────
