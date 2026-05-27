@@ -18,7 +18,7 @@ import tempfile
 
 # Ensure lib/jac dirs are on sys.path
 _LIB = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-for _sub in ("agent", "core", "session", "jac", "auth"):
+for _sub in ("agent", "core", "session", "jac", "auth", "config"):
     _p = os.path.join(_LIB, _sub)
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -630,3 +630,29 @@ class TestGetAuthStatus:
         from _auth_io_toolchain import get_auth_status
         result = get_auth_status("openai", {})
         assert result["configured"] is False
+
+
+# ─── Boot batch ──────────────────────────────────────────────────────────────
+
+class TestBootBatch:
+    def test_returns_config_and_mode(self):
+        from _project_config_toolchain import boot_batch
+        result = boot_batch(os.getcwd())
+        assert "projectConfig" in result
+        assert "bootMode" in result
+        assert result["bootMode"] in ("normal", "auto-accept", "yolo", "plan", "ask")
+
+    def test_context_max_default_none(self):
+        from _project_config_toolchain import boot_batch
+        result = boot_batch("/tmp")
+        assert result["contextMax"] is None
+
+    def test_session_boot_batch(self):
+        from _project_config_toolchain import session_boot_batch
+        result = session_boot_batch(os.getcwd(), {})
+        assert "alwaysAllow" in result
+        assert "systemPromptBase" in result
+        assert "lspConfig" in result
+        assert isinstance(result["alwaysAllow"], list)
+        assert isinstance(result["systemPromptBase"], str)
+        assert isinstance(result["lspConfig"], dict)

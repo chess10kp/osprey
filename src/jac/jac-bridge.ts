@@ -407,6 +407,33 @@ export function bridgeLoadProjectConfigSync(
   });
 }
 
+export interface BootBatchResult {
+  projectConfig: BridgeProjectConfig;
+  bootMode: string;
+  contextMax: number | null;
+}
+
+export function bridgeBootBatchSync(cwd: string): BootBatchResult {
+  return invokeBridgeSync<BootBatchResult>({ op: "boot_batch", cwd });
+}
+
+export interface SessionBootBatchResult {
+  alwaysAllow: string[];
+  systemPromptBase: string;
+  lspConfig: Record<string, unknown>;
+}
+
+export function bridgeSessionBootBatchSync(
+  cwd: string,
+  projectConfig: Record<string, unknown>,
+): SessionBootBatchResult {
+  return invokeBridgeSync<SessionBootBatchResult>({
+    op: "session_boot_batch",
+    cwd,
+    projectConfig,
+  });
+}
+
 export function bridgeFindConfigPathSync(
   cwd: string,
 ): string | null {

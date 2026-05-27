@@ -1,6 +1,7 @@
 import type { DevMode } from "../agent/dev-mode.js";
 import {
   bridgeLoadProjectConfigSync,
+  bridgeBootBatchSync,
   bridgeResolveDefaultModeSync,
 } from "../jac/jac-bridge.js";
 
@@ -79,4 +80,19 @@ export function loadProjectConfig(cwd: string): JackalProjectConfig {
   // Delegate walk-up + JSON parse to Python toolchain via bridge (sync)
   const raw = bridgeLoadProjectConfigSync(cwd);
   return raw as JackalProjectConfig;
+}
+
+export interface BootBatchResult {
+  projectConfig: JackalProjectConfig;
+  bootMode: DevMode;
+  contextMax: number | null;
+}
+
+export function loadBootBatch(cwd: string): BootBatchResult {
+  const raw = bridgeBootBatchSync(cwd);
+  return {
+    projectConfig: raw.projectConfig as JackalProjectConfig,
+    bootMode: raw.bootMode as DevMode,
+    contextMax: raw.contextMax,
+  };
 }

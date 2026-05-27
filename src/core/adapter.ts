@@ -9,8 +9,9 @@ import { JackalAuth, JackalModels } from "../auth/auth.js";
 import { JackalSessionManager } from "../session/session.js";
 import { JackalAgentSession, type CompactContextOptions, type CompactContextResult } from "../session/agent-session.js";
 import type { DevMode } from "../agent/dev-mode.js";
-import { resolveBootMode } from "../agent/dev-mode.js";
-import { loadProjectConfig } from "../config/project-config.js";
+import { cycleMode } from "../agent/dev-mode.js";
+import { loadProjectConfig, loadBootBatch, type JackalProjectConfig } from "../config/project-config.js";
+import { bridgeSessionBootBatchSync } from "../jac/jac-bridge.js";
 import {
   listSessions as listSessionIndex,
   resolveSessionTarget,
@@ -73,7 +74,7 @@ export interface CreateNextAgentOptions {
   sessionId?: string;
 }
 
-function resolveContextMax(cwd: string, options?: CreateNextAgentOptions): number | null {
+function resolveContextMax(cwd: string, options: CreateNextAgentOptions | undefined, projectConfig: JackalProjectConfig): number | null {
   if (typeof options?.contextMax === "number" && options.contextMax > 0) {
     return options.contextMax;
   }
@@ -82,7 +83,7 @@ function resolveContextMax(cwd: string, options?: CreateNextAgentOptions): numbe
     const parsed = Number.parseInt(env, 10);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
   }
-  const cfg = loadProjectConfig(cwd) as { contextMax?: number };
+  const cfg = projectConfig as { contextMax?: number };
   if (typeof cfg.contextMax === "number" && cfg.contextMax > 0) {
     return cfg.contextMax;
   }
@@ -331,9 +332,18 @@ export async function createNextAgent(
   const models = new JackalModels(auth);
   const authActions = new AuthActions(auth, models, authFlow);
 
+  // Load project config + boot mode in ONE bridge call
+  const batch = loadBootBatch(cwd);
+  const projectConfig = batch.projectConfig;
+
+  // Load session boot data (alwaysAllow, systemPromptBase, lspConfig) in one bridge call
+  const sessionBatch = bridgeSessionBootBatchSync(cwd, projectConfig as Record<string, unknown>);
+
   const { manager: sessionManager, prunedSessionIds } = JackalSessionManager.continueRecent(
     cwd,
     options?.sessionDir,
+    undefined,
+    projectConfig,
   );
   if (prunedSessionIds.length > 0) {
     uiContext.notify(
@@ -341,8 +351,9 @@ export async function createNextAgent(
       "info",
     );
   }
-  const initialMode = resolveBootMode(cwd, options?.mode);
-  const contextMaxOverride = resolveContextMax(cwd, options);
+  // Use pre-resolved boot mode from batch (avoids another bridge call)
+  const initialMode = options?.mode ?? batch.bootMode;
+  const contextMaxOverride = options?.contextMax ?? batch.contextMax;
   store.setMode(initialMode);
 
   const session = new JackalAgentSession({
@@ -352,6 +363,8 @@ export async function createNextAgent(
     sessionManager,
     initialMode,
     contextMaxOverride,
+    projectConfig,
+    sessionBootBatch: sessionBatch,
     onPendingApprovalChange: (pending) => {
       store.setPendingApproval(pending);
     },
@@ -374,9 +387,13 @@ export async function createNextAgent(
   });
   await session.initialize();
   store.markReady();
-  session.scheduleMcpConnect();
-  session.scheduleLspConnect();
-  await clearTasks(cwd);
+
+  // Non-critical background init — don't block the first render
+  setImmediate(() => {
+    session.scheduleMcpConnect();
+    session.scheduleLspConnect();
+  });
+  clearTasks(cwd).catch(() => { /* non-critical */ });
 
   return {
     store,

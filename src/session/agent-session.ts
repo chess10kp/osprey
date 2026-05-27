@@ -23,7 +23,7 @@ import {
   runJacCheck,
   runJacFormat,
 } from "../jac/jac-cli.js";
-import { loadProjectConfig } from "../config/project-config.js";
+import { loadProjectConfig, type JackalProjectConfig } from "../config/project-config.js";
 import {
   type DevMode,
   cycleMode,
@@ -65,6 +65,14 @@ export interface JackalAgentSessionOptions {
   systemPrompt?: string;
   initialMode?: DevMode;
   contextMaxOverride?: number | null;
+  /** Pre-loaded project config — if provided, constructor skips loadProjectConfig(). */
+  projectConfig?: JackalProjectConfig;
+  /** Pre-loaded session boot batch (alwaysAllow, systemPromptBase, lspConfig). */
+  sessionBootBatch?: {
+    alwaysAllow: string[];
+    systemPromptBase: string;
+    lspConfig: Record<string, unknown>;
+  };
   onPendingApprovalChange?: (pending: import("../agent/tool-approval.js").PendingApproval | null) => void;
   onPendingSubagentApprovalChange?: (
     pending: import("../agent/subagent-approval.js").PendingSubagentApproval | null,
@@ -130,21 +138,28 @@ export class JackalAgentSession {
     this._approvalQueue = new ToolApprovalQueue(options.onPendingApprovalChange);
     this._subagentApprovalQueue = new SubagentApprovalQueue(options.onPendingSubagentApprovalChange);
     this._sessionPermissions = new SessionPermissions();
-    const projectConfig = loadProjectConfig(options.cwd);
-    this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
+    const projectConfig = options.projectConfig ?? loadProjectConfig(options.cwd);
+
+    if (options.sessionBootBatch) {
+      this._alwaysAllow = new Set(options.sessionBootBatch.alwaysAllow);
+      this._baseSystemPrompt = options.sessionBootBatch.systemPromptBase ||
+        loadJackalSystemPrompt(options.cwd, options.systemPrompt);
+      this._lspService = new JacLspService(options.cwd, projectConfig, options.sessionBootBatch.lspConfig);
+    } else {
+      this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
+      this._baseSystemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
+      this._lspService = new JacLspService(options.cwd, projectConfig);
+    }
+    setActiveLspService(this._lspService);
     this._permissionPatterns = loadPermissionPatterns(projectConfig);
     const { skills } = loadJackalSkills({ cwd: options.cwd });
     this._skills = skills;
-    this._baseSystemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
     this._systemPrompt = systemPromptForMode(this._baseSystemPrompt, this._mode);
     this._contextMaxOverride =
       typeof options.contextMaxOverride === "number" && options.contextMaxOverride > 0
         ? options.contextMaxOverride
         : null;
     this._autoCompactConfig = resolveAutoCompactConfig(projectConfig);
-
-    this._lspService = new JacLspService(options.cwd, projectConfig);
-    setActiveLspService(this._lspService);
 
     const saved = options.sessionManager.model;
     const savedRef = options.sessionManager.savedModelRef;

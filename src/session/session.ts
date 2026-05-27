@@ -12,7 +12,7 @@ import {
   saveSessionRecord,
   type SessionRecord,
 } from "./session-index.js";
-import { loadProjectConfig } from "../config/project-config.js";
+import { loadProjectConfig, type JackalProjectConfig } from "../config/project-config.js";
 
 export interface SessionSnapshot {
   sessionId: string;
@@ -65,10 +65,10 @@ export class JackalSessionManager {
   }
 
   /** Prune old sessions per `.jackal` `sessions.maxCount` / `retentionDays`. */
-  static pruneConfigured(cwd: string, sessionDir?: string): string[] {
+  static pruneConfigured(cwd: string, sessionDir?: string, projectConfig?: JackalProjectConfig): string[] {
     const dir = sessionDir ?? join(cwd, ".jackal", "sessions");
     if (!existsSync(dir)) return [];
-    const cfg = loadProjectConfig(cwd);
+    const cfg = projectConfig ?? loadProjectConfig(cwd);
     if (!cfg.sessions?.maxCount && !cfg.sessions?.retentionDays) return [];
     return pruneSessions(dir, {
       maxCount: cfg.sessions.maxCount,
@@ -80,6 +80,7 @@ export class JackalSessionManager {
     cwd: string,
     sessionDir?: string,
     options?: JackalSessionOptions,
+    projectConfig?: JackalProjectConfig,
   ): { manager: JackalSessionManager; prunedSessionIds: string[] } {
     const dir = sessionDir ?? join(cwd, ".jackal", "sessions");
     if (!existsSync(dir)) {
@@ -88,8 +89,8 @@ export class JackalSessionManager {
 
     migrateLegacyLatest(dir, cwd);
 
-    const prunedSessionIds = JackalSessionManager.pruneConfigured(cwd, dir);
-    const cfg = loadProjectConfig(cwd);
+    const prunedSessionIds = JackalSessionManager.pruneConfigured(cwd, dir, projectConfig);
+    const cfg = projectConfig ?? loadProjectConfig(cwd);
 
     const sessionOpts: JackalSessionOptions = {
       autoSave: cfg.sessions?.autoSave ?? options?.autoSave ?? true,

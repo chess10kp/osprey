@@ -58,6 +58,8 @@ from _project_config_toolchain import (  # noqa: E402
     find_config_path as _find_config_path,
     load_project_config as _load_project_config,
     resolve_default_mode as _resolve_default_mode,
+    boot_batch as _boot_batch,
+    session_boot_batch as _session_boot_batch,
 )
 from _frontmatter_toolchain import (  # noqa: E402
     parse_frontmatter as _parse_frontmatter,
@@ -405,6 +407,12 @@ def _dispatch(req: dict) -> dict:
 
     if op == "project_resolve_default_mode":
         return {"result": _resolve_default_mode(req.get("config", {}))}
+
+    if op == "boot_batch":
+        return {"result": _boot_batch(req["cwd"])}
+
+    if op == "session_boot_batch":
+        return {"result": _session_boot_batch(req["cwd"], req.get("projectConfig", {}))}
 
     # --- frontmatter ops ---
 

@@ -1,6 +1,6 @@
 // Development modes — tool approval policy and plan-mode tool filtering.
 
-import { loadProjectConfig, resolveDefaultMode } from "../config/project-config.js";
+import { loadProjectConfig, resolveDefaultMode, type JackalProjectConfig } from "../config/project-config.js";
 
 export type DevMode = "normal" | "auto-accept" | "yolo" | "plan" | "ask";
 
@@ -197,7 +197,7 @@ export function shouldAutoApprove(
 }
 
 /** Resolve boot mode: CLI flag → JACKAL_MODE env → `.jackal` config. */
-export function resolveBootMode(cwd: string, cliMode?: DevMode): DevMode {
+export function resolveBootMode(cwd: string, cliMode?: DevMode, projectConfig?: JackalProjectConfig): DevMode {
   if (cliMode) return cliMode;
 
   const env = process.env.JACKAL_MODE?.trim();
@@ -205,5 +205,5 @@ export function resolveBootMode(cwd: string, cliMode?: DevMode): DevMode {
     return env as DevMode;
   }
 
-  return resolveDefaultMode(loadProjectConfig(cwd));
+  return resolveDefaultMode(projectConfig ?? loadProjectConfig(cwd));
 }

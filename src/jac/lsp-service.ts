@@ -111,9 +111,15 @@ export class JacLspService {
   private _started = false;
   private _disposed = false;
 
-  constructor(cwd: string, projectConfig: JackalProjectConfig = {}) {
+  constructor(
+    cwd: string,
+    projectConfig: JackalProjectConfig = {},
+    preResolvedConfig?: Record<string, unknown>,
+  ) {
     this._cwd = resolve(cwd);
-    this._config = resolveLspConfig(this._cwd, projectConfig);
+    this._config = preResolvedConfig
+      ? (preResolvedConfig as unknown as ResolvedLspConfig)
+      : resolveLspConfig(this._cwd, projectConfig);
   }
 
   get config(): ResolvedLspConfig {
