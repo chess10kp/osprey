@@ -1,6 +1,7 @@
 import type { DevMode } from "../agent/dev-mode.js";
 import {
   bridgeLoadProjectConfigSync,
+  bridgeBootBatch,
   bridgeBootBatchSync,
   bridgeResolveDefaultModeSync,
 } from "../jac/jac-bridge.js";
@@ -84,6 +85,15 @@ export interface BootBatchResult {
   projectConfig: JackalProjectConfig;
   bootMode: DevMode;
   contextMax: number | null;
+}
+
+export async function loadBootBatchAsync(cwd: string): Promise<BootBatchResult> {
+  const raw = await bridgeBootBatch(cwd);
+  return {
+    projectConfig: raw.projectConfig as JackalProjectConfig,
+    bootMode: raw.bootMode as DevMode,
+    contextMax: raw.contextMax,
+  };
 }
 
 export function loadBootBatch(cwd: string): BootBatchResult {

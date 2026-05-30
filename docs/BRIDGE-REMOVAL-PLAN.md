@@ -335,12 +335,12 @@ Each child manages its own re-render scope.
 
 1. **Don't rewrite tools in Jac yet** — keep them in TS, register with byllm adapter. Tool rewriting is a separate project.
 2. **Don't touch jac-ink** — the TUI compile pipeline stays as-is. Only the runtime hooks (facade) change.
-3. **Don't remove the `.jac` wrapper files in `lib/jac/`** — they may be useful for in-process calls after the bridge is gone. Evaluate individually.
+3. **Don't remove `.jac` wrapper files blindly** — remove only wrappers whose toolchains and bridge ops are already unused.
 4. **Don't change the store/bridge event API** — too many consumers. Phase 2's byllm adapter emits the same events.
 
 ---
 
-## What's Done (Phases 0–1)
+## What's Done (Phases 0–1 + bridge cleanup)
 
 ### Phase 0: Immediate latency fix (`8f1e4a6`)
 - **`src/ui/completions.ts`**: Rewritten as pure TS. Slash commands, `@file` autocomplete, model/provider suggestions all run in-process. No bridge, no `spawnSync`. The Python `lib/jac/ui/_completions_toolchain.py` is now dead code.
@@ -354,6 +354,13 @@ Each child manages its own re-render scope.
 ### Phase 1: Remove bridge from remaining hot-path modules (`b9be410`)
 - **`src/render/mermaid-render.ts`**: 360-line Python toolchain → pure TS flowchart/sequence/class/ER/state renderer. No bridge.
 - **`src/ui/approval-display.ts`**: Tool approval preview generation → pure TS. No bridge.
+
+### Bridge cleanup and runtime acceleration (`58193e8`, `4e0bd61`, `55588da`, `3259884`)
+- Added **persistent Python worker** (`lib/jac/bridge/worker.py`, `src/jac/worker.ts`) and routed async bridge calls through it.
+- Removed **all LSP support** from Jackal runtime (`src/jac/lsp-client.ts`, `src/jac/lsp-service.ts`, `src/jac/lsp-tools.ts`) and deleted LSP reference tree.
+- Deleted dead Python toolchains and wrappers already replaced by TS (`completions`, `mermaid_render`, `approval_display`, `tool_summary`, `overlay_rows`).
+- Removed dead LSP toolchains/wrappers (`_lsp_toolchain.py`, `_lsp_helpers_toolchain.py`, `lsp.jac`, `lsp_config.jac`).
+- Switched adapter boot path to worker-backed async bridge ops for `boot_batch` and `session_boot_batch`.
 
 ---
 
@@ -397,11 +404,14 @@ src/auth/auth.ts (183)
 
 **Blocker:** Phase 2. The bridge still handles 209 ops, of which ~160+ are called from the agent session on the "cold" path (when the agent is running). These can't be removed until the agent loop no longer uses the bridge.
 
-**What can be cleaned up now:**
-- `lib/jac/ui/_completions_toolchain.py` — dead code (TS handles completions)
-- `lib/jac/render/_mermaid_render_toolchain.py` — dead code (TS handles mermaid)
-- `lib/jac/ui/_approval_display_toolchain.py` — dead code (TS handles approval display)
-- The bridge ops `completions_get_suggestions`, `mermaid_render`, `mermaid_detect_type`, `approval_display_format` — can be removed from `toolchain_stdio.py`
+**What has already been cleaned up:**
+- `lib/jac/ui/_completions_toolchain.py` — removed
+- `lib/jac/render/_mermaid_render_toolchain.py` — removed
+- `lib/jac/ui/_approval_display_toolchain.py` — removed
+- `lib/jac/core/_tool_summary_toolchain.py` — removed
+- `lib/jac/ui/_overlay_rows_toolchain.py` — removed
+- `completions_get_suggestions`, `mermaid_render`, `mermaid_detect_type`, `approval_display_format` ops — removed from `toolchain_stdio.py`
+- `lsp_*` ops and LSP config resolution bridge path — removed from `toolchain_stdio.py`
 
 **What must stay until Phase 2:**
 - All `store_*` ops (11) — used by `bridgeEvents()` in the reactive store layer
@@ -410,7 +420,6 @@ src/auth/auth.ts (183)
 - All `tasks_*` ops (13) — used by task CRUD
 - All `checkpoint_*` ops — used by checkpoint CRUD
 - All `dev_mode_*` ops (9) — used by tool filtering (TS has local copies but bridge is still called)
-- All `lsp_*` ops — used by LSP tools
 - All `subagent_*`, `chain_*`, `runner_*` ops — used by orchestration
 - All `jac_*` CLI ops — used by jac check/format/test/run tools
 - Boot batch ops, config ops, project ops

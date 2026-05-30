@@ -10,8 +10,8 @@ import { JackalSessionManager } from "../session/session.js";
 import { JackalAgentSession, type CompactContextOptions, type CompactContextResult } from "../session/agent-session.js";
 import type { DevMode } from "../agent/dev-mode.js";
 import { cycleMode } from "../agent/dev-mode.js";
-import { loadProjectConfig, loadBootBatch, type JackalProjectConfig } from "../config/project-config.js";
-import { bridgeSessionBootBatchSync } from "../jac/jac-bridge.js";
+import { loadBootBatchAsync, type JackalProjectConfig } from "../config/project-config.js";
+import { bridgeSessionBootBatch } from "../jac/jac-bridge.js";
 import {
   listSessions as listSessionIndex,
   resolveSessionTarget,
@@ -331,12 +331,12 @@ export async function createNextAgent(
   const models = new JackalModels(auth);
   const authActions = new AuthActions(auth, models, authFlow);
 
-  // Load project config + boot mode in ONE bridge call
-  const batch = loadBootBatch(cwd);
+  // Load project config + boot mode in ONE bridge call (worker-backed async bridge)
+  const batch = await loadBootBatchAsync(cwd);
   const projectConfig = batch.projectConfig;
 
   // Load session boot data (alwaysAllow, systemPromptBase) in one bridge call
-  const sessionBatch = bridgeSessionBootBatchSync(cwd, projectConfig as Record<string, unknown>);
+  const sessionBatch = await bridgeSessionBootBatch(cwd, projectConfig as Record<string, unknown>);
 
   const { manager: sessionManager, prunedSessionIds } = JackalSessionManager.continueRecent(
     cwd,

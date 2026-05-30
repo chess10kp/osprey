@@ -356,6 +356,10 @@ export interface BootBatchResult {
   contextMax: number | null;
 }
 
+export async function bridgeBootBatch(cwd: string): Promise<BootBatchResult> {
+  return invokeBridge<BootBatchResult>({ op: "boot_batch", cwd });
+}
+
 export function bridgeBootBatchSync(cwd: string): BootBatchResult {
   return invokeBridgeSync<BootBatchResult>({ op: "boot_batch", cwd });
 }
@@ -363,6 +367,17 @@ export function bridgeBootBatchSync(cwd: string): BootBatchResult {
 export interface SessionBootBatchResult {
   alwaysAllow: string[];
   systemPromptBase: string;
+}
+
+export async function bridgeSessionBootBatch(
+  cwd: string,
+  projectConfig: Record<string, unknown>,
+): Promise<SessionBootBatchResult> {
+  return invokeBridge<SessionBootBatchResult>({
+    op: "session_boot_batch",
+    cwd,
+    projectConfig,
+  });
 }
 
 export function bridgeSessionBootBatchSync(
