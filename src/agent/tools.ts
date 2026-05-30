@@ -76,9 +76,13 @@ async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promi
   return { ...result, durationMs: Date.now() - startedAt };
 }
 
-async function maybeAutoFormat(cwd: string, path: string): Promise<string | null> {
-  const cfg = await loadProjectConfigAsync(cwd);
-  if (!cfg.autoformat || !path.endsWith(".jac")) return null;
+async function maybeAutoFormat(
+  cwd: string,
+  path: string,
+  cfg?: { autoformat?: boolean },
+): Promise<string | null> {
+  const resolvedCfg = cfg ?? await loadProjectConfigAsync(cwd);
+  if (!resolvedCfg.autoformat || !path.endsWith(".jac")) return null;
   try {
     const result = await runJacFormat(cwd, [path]);
     if (result.exitCode !== 0) {
@@ -96,9 +100,13 @@ async function maybeAutoFormat(cwd: string, path: string): Promise<string | null
   }
 }
 
-async function maybeAutoCheck(cwd: string, path: string): Promise<string | null> {
-  const cfg = await loadProjectConfigAsync(cwd);
-  if (!cfg.autocheck || !path.endsWith(".jac")) return null;
+async function maybeAutoCheck(
+  cwd: string,
+  path: string,
+  cfg?: { autocheck?: boolean },
+): Promise<string | null> {
+  const resolvedCfg = cfg ?? await loadProjectConfigAsync(cwd);
+  if (!resolvedCfg.autocheck || !path.endsWith(".jac")) return null;
   try {
     const { diagnostics, rawOutput, exitCode } = await runJacCheck(cwd, [path]);
     const errors = diagnostics.filter((d) => d.severity === "error");
@@ -122,8 +130,9 @@ async function runPostWriteHooks(
   cwd: string,
   path: string,
 ): Promise<{ notes: string[]; autoformat: string | null; autocheck: string | null }> {
-  const autoformat = await maybeAutoFormat(cwd, path);
-  const autocheck = await maybeAutoCheck(cwd, path);
+  const cfg = await loadProjectConfigAsync(cwd);
+  const autoformat = await maybeAutoFormat(cwd, path, cfg);
+  const autocheck = await maybeAutoCheck(cwd, path, cfg);
   const notes = [autoformat, autocheck].filter((n): n is string => Boolean(n));
   return { notes, autoformat, autocheck };
 }
