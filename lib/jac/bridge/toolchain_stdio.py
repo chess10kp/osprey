@@ -39,7 +39,6 @@ from _cli_toolchain import (  # noqa: E402
     run_jac_test,
 )
 from _doctor_toolchain import run_jac_doctor  # noqa: E402
-from _lsp_toolchain import resolve_lsp_config  # noqa: E402
 from _file_explorer_toolchain import (  # noqa: E402
     list_project_files,
     estimate_selection_chars,
@@ -170,17 +169,6 @@ from _context_input_toolchain import (  # noqa: E402
     run_inline_command as _run_inline_command,
     expand_context_input_sync as _expand_context_input_sync,
 )
-from _approval_display_toolchain import format_approval_display as _format_approval_display  # noqa: E402
-from _completions_toolchain import get_suggestions as _get_suggestions  # noqa: E402
-from _mermaid_render_toolchain import (
-    render_mermaid_ascii as _render_mermaid,
-    detect_diagram_type as _detect_diagram_type,
-)  # noqa: E402
-from _overlay_rows_toolchain import (  # noqa: E402
-    task_status_icon as _task_status_icon,
-    format_task_overlay_row as _format_task_overlay_row,
-    format_tasks_overlay_header as _format_tasks_overlay_header,
-)
 from _skills_toolchain import (  # noqa: E402
     load_skills_from_dir as _load_skills_from_dir,
     load_jackal_skills as _load_jackal_skills,
@@ -230,15 +218,6 @@ from _checkpoints_toolchain import (  # noqa: E402
     format_relative_time as _format_relative_time,
     format_checkpoint_overlay_row as _format_checkpoint_overlay_row,
     format_checkpoint_list as _format_checkpoint_list,
-)
-from _tool_summary_toolchain import (  # noqa: E402
-    normalize_tool_input as _normalize_tool_input,
-    tool_input_field as _tool_input_field,
-    tool_bash_command as _tool_bash_command,
-    tool_file_path as _tool_file_path,
-    format_tool_summary as _format_tool_summary,
-    enrich_tool_input_from_result as _enrich_tool_input_from_result,
-    tool_event_input as _tool_event_input,
 )
 from _auto_compact_toolchain import (  # noqa: E402
     resolve_auto_compact_config as _resolve_auto_compact_config,
@@ -309,14 +288,6 @@ from _store_types_toolchain import (  # noqa: E402
 )
 from _llm_compact_toolchain import wrap_compaction_summary as _wrap_compaction_summary  # noqa: E402
 from _outbound_queue_toolchain import OutboundMessageQueue as _OutboundMessageQueue  # noqa: E402
-from _lsp_helpers_toolchain import (  # noqa: E402
-    parse_check_output as _parse_check_output_lsp,
-    extract_symbol as _extract_symbol,
-    escape_regex as _escape_regex,
-    format_lsp_diagnostics as _format_lsp_diagnostics,
-    format_hover_info as _format_hover_info,
-    format_locations as _format_locations,
-)
 
 
 def _dispatch(req: dict) -> dict:
@@ -371,13 +342,6 @@ def _dispatch(req: dict) -> dict:
 
     if op == "doctor":
         return {"result": run_jac_doctor(req["cwd"])}
-
-    if op == "resolve_lsp_config":
-        return {
-            "result": resolve_lsp_config(
-                req["cwd"], req.get("projectConfig") or {}
-            )
-        }
 
     if op == "project_list_files":
         return {
@@ -1162,24 +1126,6 @@ def _dispatch(req: dict) -> dict:
     if op == "queue_length":
         q = _OutboundMessageQueue.from_dict(req.get("data", {}))
         return {"result": q.length}
-
-    # ── LSP helpers ──────────────────────────────────────────────────
-    if op == "lsp_parse_check_output":
-        return {"result": _parse_check_output_lsp(
-            req.get("output", ""), req.get("defaultFile"),
-        )}
-    if op == "lsp_extract_symbol":
-        return {"result": _extract_symbol(req.get("line", ""), req.get("character", 0))}
-    if op == "lsp_escape_regex":
-        return {"result": _escape_regex(req.get("str", ""))}
-    if op == "lsp_format_diagnostics":
-        return {"result": _format_lsp_diagnostics(req.get("diagnostics", []))}
-    if op == "lsp_format_hover_info":
-        return {"result": _format_hover_info(req.get("info", {}))}
-    if op == "lsp_format_locations":
-        return {"result": _format_locations(
-            req.get("locations", []), req.get("label", "Results"),
-        )}
 
     raise ValueError(f"unknown op: {op}")
 
