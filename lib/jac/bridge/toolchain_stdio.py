@@ -640,35 +640,6 @@ def _dispatch(req: dict) -> dict:
     if op == "context_run_inline_command":
         return {"result": _run_inline_command(req["cwd"], req.get("command", ""))}
 
-    # --- approval display ops ---
-
-    if op == "approval_display_format":
-        return {"result": _format_approval_display(
-            req["toolName"], req.get("params", {}), req.get("subagentName"),
-        )}
-
-    # --- completions ops ---
-
-    if op == "completions_get_suggestions":
-        return {"result": _get_suggestions(
-            req.get("inputText", ""),
-            auth_step_kind=req.get("authStepKind", ""),
-            providers=req.get("providers"),
-            models=req.get("models"),
-            auth_options=req.get("authOptions"),
-            file_paths=req.get("filePaths"),
-            custom_commands=req.get("customCommands"),
-            cursor_position=req.get("cursorPosition"),
-        )}
-
-    # --- mermaid render ops ---
-
-    if op == "mermaid_render":
-        return {"result": _render_mermaid(req.get("source", ""))}
-
-    if op == "mermaid_detect_type":
-        return {"result": _detect_diagram_type(req.get("source", ""))}
-
     # --- overlay rows ops ---
 
     if op == "overlay_task_status_icon":

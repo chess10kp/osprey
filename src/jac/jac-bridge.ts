@@ -952,60 +952,6 @@ export function bridgeRunInlineCommand(cwd: string, command: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Approval display
-// ---------------------------------------------------------------------------
-
-export function bridgeFormatApprovalDisplay(
-  toolName: string,
-  params: Record<string, unknown>,
-  subagentName?: string,
-): {
-  headline: string;
-  question: string;
-  detailLines: string[];
-  previewLines: Array<{ text: string; tone?: string }>;
-} {
-  return invokeBridgeSync({
-    op: "approval_display_format",
-    toolName,
-    params,
-    subagentName,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Completions
-// ---------------------------------------------------------------------------
-
-export function bridgeGetSuggestions(opts: {
-  inputText: string;
-  authStepKind?: string;
-  providers?: string[];
-  models?: string[];
-  authOptions?: string[];
-  filePaths?: string[];
-  customCommands?: string[];
-  cursorPosition?: number;
-}): Array<{ label: string; value: string }> {
-  return invokeBridgeSync<Array<{ label: string; value: string }>>({
-    op: "completions_get_suggestions",
-    ...opts,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Mermaid render
-// ---------------------------------------------------------------------------
-
-export function bridgeRenderMermaid(source: string): string {
-  return invokeBridgeSync<string>({ op: "mermaid_render", source });
-}
-
-export function bridgeDetectDiagramType(source: string): string {
-  return invokeBridgeSync<string>({ op: "mermaid_detect_type", source });
-}
-
-// ---------------------------------------------------------------------------
 // Overlay rows
 // ---------------------------------------------------------------------------
 

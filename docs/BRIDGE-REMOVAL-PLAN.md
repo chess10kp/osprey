@@ -18,6 +18,18 @@ The bridge has 209 ops across `jac-bridge.ts`. Most are called infrequently (con
 
 ---
 
+## Status
+
+| Phase | Status | Commits |
+|-------|--------|--------|
+| **0** Debounce + local completions + targeted useTick | ✅ Done | `8f1e4a6` |
+| **1** Remove bridge from mermaid + approval display | ✅ Done | `b9be410` |
+| **2** Replace `pi-agent-core` with `byllm` | ⏳ Blocked — requires upstream jac-ink + jaclang changes |
+| **3** Delete bridge entirely | ⏳ Blocked on Phase 2 |
+| **4** Split shell component | ⏳ Blocked — requires jac-ink focus management support |
+
+---
+
 ## Architecture After
 
 ```
@@ -325,3 +337,91 @@ Each child manages its own re-render scope.
 2. **Don't touch jac-ink** — the TUI compile pipeline stays as-is. Only the runtime hooks (facade) change.
 3. **Don't remove the `.jac` wrapper files in `lib/jac/`** — they may be useful for in-process calls after the bridge is gone. Evaluate individually.
 4. **Don't change the store/bridge event API** — too many consumers. Phase 2's byllm adapter emits the same events.
+
+---
+
+## What's Done (Phases 0–1)
+
+### Phase 0: Immediate latency fix (`8f1e4a6`)
+- **`src/ui/completions.ts`**: Rewritten as pure TS. Slash commands, `@file` autocomplete, model/provider suggestions all run in-process. No bridge, no `spawnSync`. The Python `lib/jac/ui/_completions_toolchain.py` is now dead code.
+- **`templates/jackal_agent_facade.mjs`**: Three targeted subscription hooks replace the global `useTick()`:
+  - `useStoreTick()` — only store mutations (streaming, tools, phase)
+  - `useAuthTick()` — only auth changes (login/logout/model)
+  - `useUITick()` — only UI context (dialogs, notifications)
+  - Input/completions only re-render on auth changes, not on every streaming token
+- **`useCompletions`**: 120ms debounce + catalog caching. Completion catalog (file paths, commands, models) loaded once at boot, then filtered in pure JS.
+
+### Phase 1: Remove bridge from remaining hot-path modules (`b9be410`)
+- **`src/render/mermaid-render.ts`**: 360-line Python toolchain → pure TS flowchart/sequence/class/ER/state renderer. No bridge.
+- **`src/ui/approval-display.ts`**: Tool approval preview generation → pure TS. No bridge.
+
+---
+
+## What's Blocked
+
+### Phase 2: Replace `pi-agent-core` with `byllm`
+
+**Blocker:** Requires upstream changes to jac-ink and jaclang that are outside Jackal's repo boundary (per AGENTS.md rule: "Do not modify jac-ink, jaclang, or jac-client").
+
+**What needs to happen upstream:**
+1. `byllm`'s `Model` class must be callable from the Jac runtime that's embedded in the Ink TUI process
+2. The `Agent` class in `pi-agent-core` provides: streaming events, tool approval callbacks, abort, context window tracking — `byllm`'s `StreamEvent` provides most of these but the adapter wiring is non-trivial
+3. Auth: `@earendil-works/pi-ai` handles OAuth flows with multiple providers. `byllm` uses `litellm` for provider routing. These are different auth models that need reconciliation.
+4. 16 TS files (~5,100 LOC) depend on `pi-agent-core` types (`Agent`, `AgentTool`, `AgentMessage`). Rewriting these requires either:
+   - A compatibility shim that maps `byllm` types to `AgentTool`/`AgentMessage` interfaces
+   - Or rewriting every tool definition to use `byllm`'s tool protocol
+
+**Files affected (16):**
+```
+src/session/agent-session.ts (1000 LOC — THE agent loop)
+src/session/session.ts (368)
+src/session/session-index.ts (304)
+src/session/llm-compact.ts (50)
+src/session/auto-compact.ts (144)
+src/agent/tools.ts (703 — core tool definitions)
+src/agent/task-tools.ts (235)
+src/agent/web-tools.ts (302)
+src/agent/agent-tool.ts (80)
+src/agent/mcp-client.ts (132)
+src/agent/tool-output-limit.ts (95)
+src/workflow/context-usage.ts (79)
+src/workflow/checkpoints.ts (343)
+src/orchestration/subagents.ts (282)
+src/orchestration/subagent-runner.ts (371)
+src/auth/auth.ts (183)
+```
+
+**Recommendation:** This should be driven by the jaseci/jac team as part of the `jac ai` integration. Jackal's agent loop is architecturally equivalent to `ai_agent.jac` — the port path is clear but the scope is ~3 weeks of dedicated work.
+
+### Phase 3: Delete bridge entirely
+
+**Blocker:** Phase 2. The bridge still handles 209 ops, of which ~160+ are called from the agent session on the "cold" path (when the agent is running). These can't be removed until the agent loop no longer uses the bridge.
+
+**What can be cleaned up now:**
+- `lib/jac/ui/_completions_toolchain.py` — dead code (TS handles completions)
+- `lib/jac/render/_mermaid_render_toolchain.py` — dead code (TS handles mermaid)
+- `lib/jac/ui/_approval_display_toolchain.py` — dead code (TS handles approval display)
+- The bridge ops `completions_get_suggestions`, `mermaid_render`, `mermaid_detect_type`, `approval_display_format` — can be removed from `toolchain_stdio.py`
+
+**What must stay until Phase 2:**
+- All `store_*` ops (11) — used by `bridgeEvents()` in the reactive store layer
+- All `session_*` ops (18) — used by session persistence
+- All `auth_*` ops (12) — used by auth flows
+- All `tasks_*` ops (13) — used by task CRUD
+- All `checkpoint_*` ops — used by checkpoint CRUD
+- All `dev_mode_*` ops (9) — used by tool filtering (TS has local copies but bridge is still called)
+- All `lsp_*` ops — used by LSP tools
+- All `subagent_*`, `chain_*`, `runner_*` ops — used by orchestration
+- All `jac_*` CLI ops — used by jac check/format/test/run tools
+- Boot batch ops, config ops, project ops
+
+### Phase 4: Split shell component
+
+**Blocker:** jac-ink's `useInput` hook is process-global (captures all keyboard events). Moving input handling to a sub-component requires focus management that jac-ink doesn't currently support.
+
+**What could be done with jac-ink support:**
+- `InputBox` component with its own `useInput` hook, only active when focused
+- `Transcript` component that only re-renders on transcript changes
+- `StatusBar` component that only re-renders on phase/mode changes
+
+**Workaround (current):** The targeted `useTick` subscriptions from Phase 0 already isolate the input from streaming re-renders. The monolithic shell is ugly but no longer causes latency.
