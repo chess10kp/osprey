@@ -57,11 +57,11 @@ export function generateTaskId(): string {
 }
 
 export async function loadTasks(cwd: string): Promise<Task[]> {
-  return bridgeLoadTasks(cwd).map(fromBridge);
+  return (await bridgeLoadTasks(cwd)).map(fromBridge);
 }
 
 export async function saveTasks(cwd: string, tasks: Task[]): Promise<void> {
-  bridgeSaveTasks(
+  await bridgeSaveTasks(
     cwd,
     tasks.map((t) => ({
       id: t.id,
@@ -76,7 +76,7 @@ export async function saveTasks(cwd: string, tasks: Task[]): Promise<void> {
 }
 
 export async function clearTasks(cwd: string): Promise<void> {
-  bridgeClearTasks(cwd);
+  await bridgeClearTasks(cwd);
 }
 
 export async function addTask(
@@ -84,21 +84,21 @@ export async function addTask(
   title: string,
   description?: string,
 ): Promise<Task> {
-  return fromBridge(bridgeAddTask(cwd, title, description));
+  return fromBridge(await bridgeAddTask(cwd, title, description));
 }
 
 export async function removeTaskByIndex(cwd: string, index: number): Promise<Task | null> {
-  const t = bridgeRemoveTaskByIndex(cwd, index);
+  const t = await bridgeRemoveTaskByIndex(cwd, index);
   return t ? fromBridge(t) : null;
 }
 
 export async function removeTaskById(cwd: string, id: string): Promise<Task | null> {
-  const t = bridgeRemoveTaskById(cwd, id);
+  const t = await bridgeRemoveTaskById(cwd, id);
   return t ? fromBridge(t) : null;
 }
 
 export async function updateTasks(cwd: string, updates: TaskUpdate[]): Promise<Task[]> {
-  return bridgeUpdateTasks(
+  return (await bridgeUpdateTasks(
     cwd,
     updates.map((u) => ({
       id: u.id,
@@ -106,7 +106,7 @@ export async function updateTasks(cwd: string, updates: TaskUpdate[]): Promise<T
       title: u.title,
       description: u.description,
     })),
-  ).map(fromBridge);
+  )).map(fromBridge);
 }
 
 export function taskCounts(tasks: Task[]): {

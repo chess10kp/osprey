@@ -564,19 +564,44 @@ export interface BridgeTask {
   completedAt?: string | null;
 }
 
-export function bridgeLoadTasks(cwd: string): BridgeTask[] {
+export async function bridgeLoadTasks(cwd: string): Promise<BridgeTask[]> {
+  return invokeBridge<BridgeTask[]>({ op: "tasks_load", cwd });
+}
+
+export function bridgeLoadTasksSync(cwd: string): BridgeTask[] {
   return invokeBridgeSync<BridgeTask[]>({ op: "tasks_load", cwd });
 }
 
-export function bridgeSaveTasks(cwd: string, tasks: BridgeTask[]): void {
+export async function bridgeSaveTasks(cwd: string, tasks: BridgeTask[]): Promise<void> {
+  await invokeBridge<boolean>({ op: "tasks_save", cwd, tasks });
+}
+
+export function bridgeSaveTasksSync(cwd: string, tasks: BridgeTask[]): void {
   invokeBridgeSync<boolean>({ op: "tasks_save", cwd, tasks });
 }
 
-export function bridgeClearTasks(cwd: string): void {
+export async function bridgeClearTasks(cwd: string): Promise<void> {
+  await invokeBridge<boolean>({ op: "tasks_clear", cwd });
+}
+
+export function bridgeClearTasksSync(cwd: string): void {
   invokeBridgeSync<boolean>({ op: "tasks_clear", cwd });
 }
 
-export function bridgeAddTask(
+export async function bridgeAddTask(
+  cwd: string,
+  title: string,
+  description?: string,
+): Promise<BridgeTask> {
+  return invokeBridge<BridgeTask>({
+    op: "tasks_add",
+    cwd,
+    title,
+    description,
+  });
+}
+
+export function bridgeAddTaskSync(
   cwd: string,
   title: string,
   description?: string,
@@ -589,7 +614,18 @@ export function bridgeAddTask(
   });
 }
 
-export function bridgeRemoveTaskByIndex(
+export async function bridgeRemoveTaskByIndex(
+  cwd: string,
+  index: number,
+): Promise<BridgeTask | null> {
+  return invokeBridge<BridgeTask | null>({
+    op: "tasks_remove_by_index",
+    cwd,
+    index,
+  });
+}
+
+export function bridgeRemoveTaskByIndexSync(
   cwd: string,
   index: number,
 ): BridgeTask | null {
@@ -600,7 +636,18 @@ export function bridgeRemoveTaskByIndex(
   });
 }
 
-export function bridgeRemoveTaskById(
+export async function bridgeRemoveTaskById(
+  cwd: string,
+  id: string,
+): Promise<BridgeTask | null> {
+  return invokeBridge<BridgeTask | null>({
+    op: "tasks_remove_by_id",
+    cwd,
+    id,
+  });
+}
+
+export function bridgeRemoveTaskByIdSync(
   cwd: string,
   id: string,
 ): BridgeTask | null {
@@ -611,7 +658,14 @@ export function bridgeRemoveTaskById(
   });
 }
 
-export function bridgeUpdateTasks(
+export async function bridgeUpdateTasks(
+  cwd: string,
+  updates: Array<{ id: string; status?: string; title?: string; description?: string }>,
+): Promise<BridgeTask[]> {
+  return invokeBridge<BridgeTask[]>({ op: "tasks_update", cwd, updates });
+}
+
+export function bridgeUpdateTasksSync(
   cwd: string,
   updates: Array<{ id: string; status?: string; title?: string; description?: string }>,
 ): BridgeTask[] {
