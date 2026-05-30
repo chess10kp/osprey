@@ -300,9 +300,9 @@ async function bootAdapter() {
         Object.keys(bootOpts).length > 0 ? bootOpts : undefined,
       );
 
-      adapter.store.subscribe(emit);
-      adapter.authFlow.subscribe(emit);
-      adapter.uiContext.subscribe(emit);
+      adapter.store.subscribe(emitStore);
+      adapter.authFlow.subscribe(emitAuth);
+      adapter.uiContext.subscribe(emitUI);
 
       state.adapter = adapter;
       state.ready = true;
@@ -324,9 +324,58 @@ function subscribe(listener) {
   };
 }
 
+// Targeted subscription hooks — each subscribes only to its own emitter.
+// This avoids input re-renders triggered by streaming token events.
+
+// Store emits on every snapshot mutation (streaming, tools, phase changes).
+let __storeListeners = new Set();
+// Auth emits on login/logout/model changes.
+let __authListeners = new Set();
+// UI emits on dialogs/notifications.
+let __uiListeners = new Set();
+
+function subscribeStore(listener) {
+  __storeListeners.add(listener);
+  return () => { __storeListeners.delete(listener); };
+}
+function subscribeAuth(listener) {
+  __authListeners.add(listener);
+  return () => { __authListeners.delete(listener); };
+}
+function subscribeUI(listener) {
+  __uiListeners.add(listener);
+  return () => { __uiListeners.delete(listener); };
+}
+
 function useTick() {
   const [, set] = useState(0);
   useEffect(() => subscribe(() => set((v) => v + 1)), []);
+}
+function useStoreTick() {
+  const [, set] = useState(0);
+  useEffect(() => subscribeStore(() => set((v) => v + 1)), []);
+}
+function useAuthTick() {
+  const [, set] = useState(0);
+  useEffect(() => subscribeAuth(() => set((v) => v + 1)), []);
+}
+function useUITick() {
+  const [, set] = useState(0);
+  useEffect(() => subscribeUI(() => set((v) => v + 1)), []);
+}
+
+// Emit to the right subset of listeners based on source.
+function emitStore() {
+  for (const fn of __storeListeners) { try { fn(); } catch {} }
+  for (const fn of state.listeners) { try { fn(); } catch {} }
+}
+function emitAuth() {
+  for (const fn of __authListeners) { try { fn(); } catch {} }
+  for (const fn of state.listeners) { try { fn(); } catch {} }
+}
+function emitUI() {
+  for (const fn of __uiListeners) { try { fn(); } catch {} }
+  for (const fn of state.listeners) { try { fn(); } catch {} }
 }
 
 function useJackalBoot() {
@@ -342,7 +391,7 @@ function useJackalBoot() {
 }
 
 function useAgentState() {
-  useTick();
+  useStoreTick();
   return state.adapter ? state.adapter.store.getSnapshot() : null;
 }
 
@@ -373,12 +422,12 @@ function useToolTimeline() {
 }
 
 function useAuthFlow() {
-  useTick();
+  useAuthTick();
   return state.adapter ? state.adapter.authFlow.state : { step: { kind: "idle" } };
 }
 
 function useJackalUI() {
-  useTick();
+  useUITick();
   return state.adapter
     ? state.adapter.uiContext.getUIState()
     : {
@@ -701,7 +750,7 @@ function useJackalSession() {
 }
 
 function useExplorerState() {
-  useTick();
+  useUITick();
   return {
     active: explorerState.active,
     files: filteredExplorerFiles(),
@@ -715,7 +764,7 @@ function useExplorerState() {
 }
 
 function useTasksOverlayState() {
-  useTick();
+  useUITick();
   return {
     active: tasksOverlayState.active,
     loading: tasksOverlayState.loading,
@@ -726,7 +775,7 @@ function useTasksOverlayState() {
 }
 
 function useCheckpointOverlayState() {
-  useTick();
+  useUITick();
   return {
     active: checkpointOverlayState.active,
     mode: checkpointOverlayState.mode,
@@ -739,47 +788,86 @@ function useCheckpointOverlayState() {
   };
 }
 
+// Completion catalog — loaded once at boot, then filtered in pure JS.
+let __completionCatalog = {
+  providers: [],
+  models: [],
+  authStepKind: "idle",
+  authOptions: [],
+  filePaths: [],
+  customCommands: [],
+  loaded: false,
+};
+
+async function loadCompletionCatalog() {
+  const a = state.adapter;
+  if (!a) return;
+  try {
+    const step = a.authFlow.state.step ?? { kind: "idle" };
+    const providers = a.authActions.listProviders().map((p) => p.id);
+    const models = a.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`);
+    let authOptions = [];
+    if (step.kind === "select") authOptions = step.options.map((o) => o.id);
+    const filePaths = await listProjectFiles(process.cwd());
+    const customCommands = a.actions.getCustomCommandSlashNames?.() ?? [];
+    __completionCatalog = {
+      providers,
+      models,
+      authStepKind: step.kind,
+      authOptions,
+      filePaths,
+      customCommands,
+      loaded: true,
+    };
+  } catch {
+    /* keep stale catalog */
+  }
+}
+
 function useCompletions(input, cursorPosition) {
-  useTick();
+  // Only subscribe to auth changes (model picker state), not store streaming.
+  useAuthTick();
   const [list, setList] = useState([]);
+  const inputRef = useRef(input);
+  const cursorRef = useRef(cursorPosition);
+  inputRef.current = input;
+  cursorRef.current = cursorPosition;
+
+  // Reload catalog when auth changes (login/logout/model switch)
   useEffect(() => {
     let cancelled = false;
+    if (!state.adapter) return;
     (async () => {
+      await loadCompletionCatalog();
+      if (cancelled) return;
+      // Re-filter with fresh catalog
+      const mod = await import(ADAPTER_PATH);
+      if (cancelled || !mod.getSuggestions) return;
+      const cursor = typeof cursorRef.current === "number" && cursorRef.current >= 0
+        ? cursorRef.current : (inputRef.current ?? "").length;
+      const sugg = mod.getSuggestions(inputRef.current ?? "", __completionCatalog, cursor);
+      setList(sugg);
+    })();
+    return () => { cancelled = true; };
+  }, [state.adapter, __completionCatalog.authStepKind]);
+
+  // Debounced filtering on input changes — 120ms to avoid keystroke blocking.
+  useEffect(() => {
+    const timer = setTimeout(async () => {
       try {
         const mod = await import(ADAPTER_PATH);
-        if (cancelled) return;
-        const a = state.adapter;
-        const step = a?.authFlow.state.step ?? { kind: "idle" };
-        const providers = a ? a.authActions.listProviders().map((p) => p.id) : [];
-        const models = a
-          ? a.authActions.listModels().map((m) => `${m.provider}/${m.modelId}`)
-          : [];
-        let authOptions = [];
-        if (step.kind === "select") authOptions = step.options.map((o) => o.id);
-        const filePaths = await listProjectFiles(process.cwd());
-        const customCommands = a.actions.getCustomCommandSlashNames?.() ?? [];
-        const ctx = {
-          authStepKind: step.kind,
-          providers,
-          models,
-          authOptions,
-          filePaths,
-          customCommands,
-        };
-        const cursor =
-          typeof cursorPosition === "number" && cursorPosition >= 0
-            ? cursorPosition
-            : (input ?? "").length;
-        const sugg = mod.getSuggestions(input ?? "", ctx, cursor);
+        if (!mod.getSuggestions) return;
+        const cursor = typeof cursorPosition === "number" && cursorPosition >= 0
+          ? cursorPosition : (input ?? "").length;
+        const sugg = mod.getSuggestions(input ?? "", __completionCatalog, cursor);
         setList(sugg);
       } catch {
         setList([]);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    }, 120);
+    return () => clearTimeout(timer);
   }, [input, cursorPosition]);
+
   return list;
 }
 
