@@ -313,23 +313,6 @@ export async function bridgeRunJacDoctor(cwd: string): Promise<JacDoctorReport> 
   return invokeBridge<JacDoctorReport>({ op: "doctor", cwd });
 }
 
-export interface ResolvedLspConfig {
-  enabled: boolean;
-  autoStart: string[];
-  servers: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
-}
-
-export function bridgeResolveLspConfig(
-  cwd: string,
-  projectConfig: Record<string, unknown> = {},
-): ResolvedLspConfig {
-  return invokeBridgeSync<ResolvedLspConfig>({
-    op: "resolve_lsp_config",
-    cwd,
-    projectConfig,
-  });
-}
-
 export interface BridgeListProjectFilesOptions {
   maxDepth?: number;
   maxFiles?: number;
@@ -420,7 +403,6 @@ export function bridgeBootBatchSync(cwd: string): BootBatchResult {
 export interface SessionBootBatchResult {
   alwaysAllow: string[];
   systemPromptBase: string;
-  lspConfig: Record<string, unknown>;
 }
 
 export function bridgeSessionBootBatchSync(
@@ -2102,42 +2084,6 @@ export function bridgeQueueClear(data: OutboundQueueData): OutboundQueueData {
 
 export function bridgeQueueLength(data: OutboundQueueData): number {
   return invokeBridgeSync<number>({ op: "queue_length", data });
-}
-
-// ── LSP helpers ───────────────────────────────────────────────────
-
-export interface LspDiagnosticResult {
-  file: string;
-  line: number;
-  column?: number;
-  severity: string;
-  message: string;
-  code?: string | number;
-  source?: string;
-}
-
-export function bridgeLspParseCheckOutput(output: string, defaultFile?: string): LspDiagnosticResult[] {
-  return invokeBridgeSync<LspDiagnosticResult[]>({ op: "lsp_parse_check_output", output, defaultFile });
-}
-
-export function bridgeLspExtractSymbol(line: string, character: number): string {
-  return invokeBridgeSync<string>({ op: "lsp_extract_symbol", line, character });
-}
-
-export function bridgeLspEscapeRegex(str: string): string {
-  return invokeBridgeSync<string>({ op: "lsp_escape_regex", str });
-}
-
-export function bridgeLspFormatDiagnostics(diagnostics: LspDiagnosticResult[]): string {
-  return invokeBridgeSync<string>({ op: "lsp_format_diagnostics", diagnostics });
-}
-
-export function bridgeLspFormatHoverInfo(info: Record<string, unknown>): string {
-  return invokeBridgeSync<string>({ op: "lsp_format_hover_info", info });
-}
-
-export function bridgeLspFormatLocations(locations: Record<string, unknown>[], label?: string): string {
-  return invokeBridgeSync<string>({ op: "lsp_format_locations", locations, label });
 }
 
 // ── Auth: I/O ────────────────────────────────────────────────────

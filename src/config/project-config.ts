@@ -34,8 +34,6 @@ export interface JackalProjectConfig {
   maxFixAttempts?: number;
   mermaid?: boolean;
   notify?: boolean;
-  /** Start Jac LSP on session boot (default true). Set false to disable. */
-  lsp?: boolean;
   subagents?: boolean | JackalSubagentsConfig;
   /** Override model context window (tokens) for `/usage` and auto-compact. */
   contextMax?: number;

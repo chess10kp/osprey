@@ -52,7 +52,6 @@ import {
 import { expandSkillCommand, loadJackalSkills, type Skill } from "../project/skills.js";
 import { listSubagents } from "../orchestration/subagents.js";
 import { listChains } from "../orchestration/chains.js";
-import { JacLspService, setActiveLspService } from "../jac/lsp-service.js";
 import { OutboundMessageQueue } from "./outbound-queue.js";
 
 export type SessionEventSink = (event: { type: string; [key: string]: unknown }) => void;
@@ -67,11 +66,10 @@ export interface JackalAgentSessionOptions {
   contextMaxOverride?: number | null;
   /** Pre-loaded project config — if provided, constructor skips loadProjectConfig(). */
   projectConfig?: JackalProjectConfig;
-  /** Pre-loaded session boot batch (alwaysAllow, systemPromptBase, lspConfig). */
+  /** Pre-loaded session boot batch (alwaysAllow, systemPromptBase). */
   sessionBootBatch?: {
     alwaysAllow: string[];
     systemPromptBase: string;
-    lspConfig: Record<string, unknown>;
   };
   onPendingApprovalChange?: (pending: import("../agent/tool-approval.js").PendingApproval | null) => void;
   onPendingSubagentApprovalChange?: (
@@ -111,9 +109,6 @@ export class JackalAgentSession {
   private _mcp: JackalMcpClient | null = null;
   private _mcpLazyTimer: ReturnType<typeof setTimeout> | null = null;
   private _mcpConnecting = false;
-  private _lspService: JacLspService | null = null;
-  private _lspLazyTimer: ReturnType<typeof setTimeout> | null = null;
-  private _lspConnecting = false;
   private _mode: DevMode;
   private _approvalQueue: ToolApprovalQueue;
   private _subagentApprovalQueue: SubagentApprovalQueue;
@@ -144,13 +139,10 @@ export class JackalAgentSession {
       this._alwaysAllow = new Set(options.sessionBootBatch.alwaysAllow);
       this._baseSystemPrompt = options.sessionBootBatch.systemPromptBase ||
         loadJackalSystemPrompt(options.cwd, options.systemPrompt);
-      this._lspService = new JacLspService(options.cwd, projectConfig, options.sessionBootBatch.lspConfig);
     } else {
       this._alwaysAllow = loadAlwaysAllowTools(options.cwd, projectConfig);
       this._baseSystemPrompt = loadJackalSystemPrompt(options.cwd, options.systemPrompt);
-      this._lspService = new JacLspService(options.cwd, projectConfig);
     }
-    setActiveLspService(this._lspService);
     this._permissionPatterns = loadPermissionPatterns(projectConfig);
     const { skills } = loadJackalSkills({ cwd: options.cwd });
     this._skills = skills;
@@ -430,42 +422,6 @@ export class JackalAgentSession {
       this._mcpLazyTimer = null;
       void this.connectMcpLazy();
     }, delayMs);
-  }
-
-  /** Defer Jac LSP spawn until after first frame (default 100ms). */
-  scheduleLspConnect(delayMs = 100): void {
-    if (this._disposed || this._lspConnecting || !this._lspService?.isEnabled()) return;
-    if (this._lspLazyTimer) return;
-
-    this._lspLazyTimer = setTimeout(() => {
-      this._lspLazyTimer = null;
-      void this.connectLspLazy();
-    }, delayMs);
-  }
-
-  /** Start Jac LSP in the background; emits lsp_connecting → lsp_ready. */
-  async connectLspLazy(): Promise<void> {
-    if (this._disposed || this._lspConnecting || !this._lspService?.isEnabled()) return;
-    this._lspConnecting = true;
-    this._emit({ type: "lsp_connecting", language: "jac" });
-
-    try {
-      await this._lspService!.start();
-      this._emit({
-        type: "lsp_ready",
-        language: "jac",
-        ready: this._lspService!.isReady(),
-      });
-    } catch (error) {
-      this._emit({
-        type: "lsp_status",
-        connected: false,
-        language: "jac",
-        error: String(error),
-      });
-    } finally {
-      this._lspConnecting = false;
-    }
   }
 
   /** Connect to Jac MCP in the background; emits mcp_connecting → mcp_ready. */
@@ -943,20 +899,9 @@ export class JackalAgentSession {
       clearTimeout(this._mcpLazyTimer);
       this._mcpLazyTimer = null;
     }
-    if (this._lspLazyTimer) {
-      clearTimeout(this._lspLazyTimer);
-      this._lspLazyTimer = null;
-    }
-
     if (this._mcp) {
       await this._mcp.disconnect().catch(() => undefined);
       this._mcp = null;
-    }
-
-    if (this._lspService) {
-      await this._lspService.shutdown().catch(() => undefined);
-      this._lspService = null;
-      setActiveLspService(null);
     }
   }
 
@@ -969,21 +914,12 @@ export class JackalAgentSession {
       clearTimeout(this._mcpLazyTimer);
       this._mcpLazyTimer = null;
     }
-    if (this._lspLazyTimer) {
-      clearTimeout(this._lspLazyTimer);
-      this._lspLazyTimer = null;
-    }
     this._sessionManager.dispose();
     this._agent.abort();
     this._unsubAgent();
     if (this._mcp) {
       this._mcp.disconnect().catch(() => undefined);
       this._mcp = null;
-    }
-    if (this._lspService) {
-      void this._lspService.shutdown();
-      this._lspService = null;
-      setActiveLspService(null);
     }
     this._emit({ type: "session_shutdown" });
     this._listeners.clear();

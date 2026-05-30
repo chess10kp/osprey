@@ -204,7 +204,6 @@ export async function runNextAgentSmoke(cwd: string): Promise<NextAgentResult> {
     });
     await session.initialize();
     session.scheduleMcpConnect();
-    session.scheduleLspConnect();
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -336,7 +335,7 @@ export async function createNextAgent(
   const batch = loadBootBatch(cwd);
   const projectConfig = batch.projectConfig;
 
-  // Load session boot data (alwaysAllow, systemPromptBase, lspConfig) in one bridge call
+  // Load session boot data (alwaysAllow, systemPromptBase) in one bridge call
   const sessionBatch = bridgeSessionBootBatchSync(cwd, projectConfig as Record<string, unknown>);
 
   const { manager: sessionManager, prunedSessionIds } = JackalSessionManager.continueRecent(
@@ -391,7 +390,6 @@ export async function createNextAgent(
   // Non-critical background init — don't block the first render
   setImmediate(() => {
     session.scheduleMcpConnect();
-    session.scheduleLspConnect();
   });
   clearTasks(cwd).catch(() => { /* non-critical */ });
 

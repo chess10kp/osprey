@@ -154,19 +154,6 @@ export {
 } from "./render/mermaid-render.js";
 export type { MermaidDiagram, MermaidDiagramType, MermaidNode, MermaidEdge } from "./render/mermaid-render.js";
 
-// LSP tools
-export {
-  getFileDiagnostics,
-  getMultiFileDiagnostics,
-  getHoverInfo,
-  findDefinitions,
-  findReferences,
-  formatLspDiagnostics,
-  formatHoverInfo,
-  formatLocations,
-} from "./jac/lsp-tools.js";
-export type { LspDiagnostic, LspHoverInfo, LspLocation } from "./jac/lsp-tools.js";
-
 import { pathToFileURL } from "node:url";
 import { runNextAgentSmoke } from "./core/adapter.js";
 import { parseRunArgs, printRunUsage, runCli } from "./cli/run.js";
