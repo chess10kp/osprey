@@ -1,10 +1,11 @@
 // Bridge from TypeScript runtime to lib/jac/jac Python toolchain (cli + doctor).
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JacDiagnostic } from "./jac-types.js";
+import { workerBridgeCall } from "./worker.js";
 
 const BRIDGE_REL = "lib/jac/bridge/toolchain_stdio.py";
 
@@ -107,48 +108,7 @@ function invokeBridgeSync<T>(request: Record<string, unknown>): T {
 }
 
 async function invokeBridge<T>(request: Record<string, unknown>): Promise<T> {
-  const root = resolveJackalRoot();
-  const script = join(root, BRIDGE_REL);
-  const python = resolvePython();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(python, [script], {
-      cwd: root,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, PYTHONUNBUFFERED: "1" },
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (err) => reject(err));
-    child.on("close", (code) => {
-      const line = stdout.trim().split("\n").pop() ?? "";
-      if (!line) {
-        reject(
-          new Error(
-            stderr.trim() ||
-              `toolchain bridge exited ${code ?? "?"} with no output (python=${python})`,
-          ),
-        );
-        return;
-      }
-      try {
-        resolve(parseBridgeLine<T>(line, request));
-      } catch (err) {
-        reject(err);
-      }
-    });
-
-    child.stdin.write(JSON.stringify(request));
-    child.stdin.end();
-  });
+  return workerBridgeCall<T>(request);
 }
 
 /** Fast PATH probe for LSP boot (same candidates as lib/jac/jac/_cli_toolchain.py). */

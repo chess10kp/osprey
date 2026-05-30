@@ -176,24 +176,28 @@ export async function workerBridgeCall<T = unknown>(
   delete params.op;
 
   const response = await rpc(op, params) as Record<string, unknown> | undefined;
-
-  // Dispatch responses are wrapped in {"result": <payload>}
-  if (response && typeof response === "object" && "result" in response) {
-    // Parse the payload like parseBridgeLine does
-    const result = response.result;
-    if (result && typeof result === "object" && "ok" in (result as Record<string, unknown>)) {
-      const r = result as Record<string, unknown>;
-      if (r.ok === false) {
-        throw new Error(String(r.error ?? "bridge error"));
-      }
-      // Return the unwrapped payload (everything except 'ok')
-      const payload = { ...r };
-      delete payload.ok;
-      return (Object.keys(payload).length === 1 ? Object.values(payload)[0] : payload) as T;
-    }
-    return result as T;
+  if (!response || typeof response !== "object") {
+    return response as T;
   }
 
+  // toolchain _dispatch payload shape (no top-level "ok")
+  if ("result" in response && response.result !== undefined) {
+    return response.result as T;
+  }
+  if ("diagnostics" in response) {
+    return response.diagnostics as T;
+  }
+  if ("fingerprint" in response) {
+    return response.fingerprint as T;
+  }
+  if ("formatted" in response) {
+    return response.formatted as T;
+  }
+  if ("binary" in response) {
+    return response.binary as T;
+  }
+
+  // For ops that return direct payload maps (rare) or non-toolchain RPC methods.
   return response as T;
 }
 
