@@ -23,7 +23,7 @@ import {
   runJacCheck,
   runJacFormat,
 } from "../jac/jac-cli.js";
-import { loadProjectConfig, type JackalProjectConfig } from "../config/project-config.js";
+import { loadProjectConfig, loadProjectConfigAsync, type JackalProjectConfig } from "../config/project-config.js";
 import {
   type DevMode,
   cycleMode,
@@ -561,7 +561,7 @@ export class JackalAgentSession {
 
   async runFixFlow(maxAttempts?: number, targetFile?: string): Promise<string> {
     const cwd = this._sessionManager.cwd;
-    const cfg = loadProjectConfig(cwd);
+    const cfg = await loadProjectConfigAsync(cwd);
     const cap = maxAttempts ?? cfg.maxFixAttempts ?? 3;
     const files = targetFile ? [targetFile] : undefined;
     const lines: string[] = [];

@@ -1,8 +1,10 @@
 import type { DevMode } from "../agent/dev-mode.js";
 import {
+  bridgeLoadProjectConfig,
   bridgeLoadProjectConfigSync,
   bridgeBootBatch,
   bridgeBootBatchSync,
+  bridgeResolveDefaultMode,
   bridgeResolveDefaultModeSync,
 } from "../jac/jac-bridge.js";
 
@@ -67,12 +69,27 @@ export interface JackalProjectConfig {
 }
 
 /** Resolve boot mode from `.jackal` (`mode` key, legacy `plan: true`). */
+export async function resolveDefaultModeAsync(config: JackalProjectConfig): Promise<DevMode> {
+  // Delegate to Python toolchain via bridge (worker-backed async)
+  const mode = await bridgeResolveDefaultMode(
+    config as Record<string, unknown>,
+  );
+  return mode as DevMode;
+}
+
+/** Resolve boot mode from `.jackal` (`mode` key, legacy `plan: true`). */
 export function resolveDefaultMode(config: JackalProjectConfig): DevMode {
   // Delegate to Python toolchain via bridge (sync)
   const mode = bridgeResolveDefaultModeSync(
     config as Record<string, unknown>,
   );
   return mode as DevMode;
+}
+
+export async function loadProjectConfigAsync(cwd: string): Promise<JackalProjectConfig> {
+  // Delegate walk-up + JSON parse to Python toolchain via bridge (worker-backed async)
+  const raw = await bridgeLoadProjectConfig(cwd);
+  return raw as JackalProjectConfig;
 }
 
 export function loadProjectConfig(cwd: string): JackalProjectConfig {

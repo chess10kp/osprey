@@ -4,7 +4,7 @@ import { dirname, isAbsolute, normalize, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { loadProjectConfig } from "../config/project-config.js";
+import { loadProjectConfigAsync } from "../config/project-config.js";
 import {
   formatDiagnostics,
   runJacCheck,
@@ -77,7 +77,7 @@ async function runBash(cwd: string, command: string, timeoutSeconds = 60): Promi
 }
 
 async function maybeAutoFormat(cwd: string, path: string): Promise<string | null> {
-  const cfg = loadProjectConfig(cwd);
+  const cfg = await loadProjectConfigAsync(cwd);
   if (!cfg.autoformat || !path.endsWith(".jac")) return null;
   try {
     const result = await runJacFormat(cwd, [path]);
@@ -97,7 +97,7 @@ async function maybeAutoFormat(cwd: string, path: string): Promise<string | null
 }
 
 async function maybeAutoCheck(cwd: string, path: string): Promise<string | null> {
-  const cfg = loadProjectConfig(cwd);
+  const cfg = await loadProjectConfigAsync(cwd);
   if (!cfg.autocheck || !path.endsWith(".jac")) return null;
   try {
     const { diagnostics, rawOutput, exitCode } = await runJacCheck(cwd, [path]);
@@ -373,7 +373,7 @@ export function createCoreTools(cwd: string, skills: Skill[] = []): AgentTool[] 
     }),
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as { maxAttempts?: number; files?: string[] };
-      const cfg = loadProjectConfig(cwd);
+      const cfg = await loadProjectConfigAsync(cwd);
       const maxAttempts = params.maxAttempts ?? cfg.maxFixAttempts ?? 3;
       const attempts: Array<{
         attempt: number;
