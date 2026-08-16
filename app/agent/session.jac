@@ -7,6 +7,7 @@ model name on each turn (cheap) so /model swaps are immediate.
 
 import sys;
 import os;
+import json;
 import time;
 import from .llm { ToolSpec, Transport, react_loop, make_transport }
 import from .tools { tool_specs }
@@ -54,8 +55,12 @@ def render_event(kind: str, data: dict) {
     }
 }
 
-"""Run one agent turn: seed history on first use, stream the loop."""
-def run_turn(message: str) -> str {
+"""Run one agent turn: seed history on first use, stream the loop.
+
+on_event(kind, data) is the UI boundary: the term renderer prints, the
+JSONL renderer serializes - one protocol, two clients.
+"""
+def run_turn(message: str, on_event: any = render_event) -> str {
     if not history {
         history.append({"role": "system", "content": SYSTEM_PROMPT});
     }
@@ -64,15 +69,29 @@ def run_turn(message: str) -> str {
     _t0 = time.time();
     _n_tools = 0;
     try {
-        answer = react_loop(history, tool_specs(), transport, render_event);
+        answer = react_loop(history, tool_specs(), transport, on_event);
     } finally {
-        sys.stdout.write("\n");
-        if show_stats {
-            sys.stdout.write(
-                f"  [{time.time() - _t0:.1f}s - {_n_tools} tools]\n"
-            );
+        if on_event is render_event {
+            sys.stdout.write("\n");
+            if show_stats {
+                sys.stdout.write(
+                    f"  [{time.time() - _t0:.1f}s - {_n_tools} tools]\n"
+                );
+            }
+            sys.stdout.flush();
+        } else {
+            on_event("turn_end", {"secs": time.time() - _t0, "tools": _n_tools});
         }
-        sys.stdout.flush();
     }
     return answer;
+}
+
+
+"""JSONL event sink: one serialized event per line on stdout. This IS the
+harness's UI protocol."""
+def json_event(kind: str, data: dict) {
+    line = json.dumps({"type": kind, **data});
+    out: any = sys.stdout;
+    out.write(line + "\n");
+    out.flush();
 }

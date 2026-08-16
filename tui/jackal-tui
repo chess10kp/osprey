@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Jackal TUI launcher. Usage: tui/jackal-tui [target-dir]   (default: $PWD)
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+TARGET="$(readlink -f "${1:-$PWD}")"
+cd "$DIR"
+exec node --import tsx index.tsx "$TARGET"
