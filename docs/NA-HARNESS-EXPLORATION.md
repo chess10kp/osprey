@@ -88,8 +88,12 @@ jackal/
 Placement does the dogfooding for us: every `core/` module is anchor-free →
 `jac check --placements` must show `[decided native]`. That is the acceptance bar.
 
-**Stretch (Phase N4):** hand-rolled JSON codec + libcurl FFI for the LLM HTTP edge
-→ `jac nacompile -o jackal` ships Jackal as a single zero-dependency binary.
+**TUI (Phase N3):** server codespace — a Python terminal library (e.g. rich/
+  textual) via Jac's Python interop. **Do NOT build a C FFI TUI** — terminal
+  Unicode/escape handling is a multi-year trap; that's why every real TUI
+  rides a mature library. **Single binary (old N4): CUT.** TLS/HTTP/SSE/JSON
+  over FFI buys distribution simplicity at the cost of stability + a
+  litellm-sized reimplementation treadmill. Native stays kernel-only.
 
 ## 6. Phased plan
 
@@ -98,8 +102,8 @@ Placement does the dogfooding for us: every `core/` module is anchor-free →
 | **N0** REPL loop | `main.jac` + `agent/` on server codespace: streaming turns, read/write/edit/bash tools, `/help` `/exit` | `jac run main.jac` completes a 3-turn session that edits a file |
 | **N1** Native core | `core/diff.jac`, `core/parse.jac`, `core/tokens.jac` | `--placements` shows each `[decided native]`; called from N0 loop |
 | **N2** Surface | sessions (jsonl persistence), slash commands, jac check/format integration, dev modes (yolo/safe) | restart restores session; `/fix` loop works |
-| **N3** TUI growth | Rich (server) or FFI termios raw-mode + ANSI renderer (`core/render.jac` native) | live streaming render, tool timeline, Ctrl-C abort |
-| **N4** Single binary | JSON codec + libcurl FFI LLM edge; everything else already native | `jac nacompile -o jackal && ./jackal` full session |
+| **N3** TUI growth | Rich/textual (server) via Python interop — ANSI render helpers may pin native | live streaming render, tool timeline, Ctrl-C abort |
+| **N4** Native kernels | profiling-driven: pin only measured hot paths (diff, tokenize, render) | benchmarks show native kernels win where it counts; no FFI, no C deps |
 
 ## 7. What dies / what gets re-ported
 
