@@ -2,12 +2,12 @@
 
 **Date:** 2026-08-16 · **Source:** `~/repos/cordis/paper.pdf` — Shi, Zhang, Cui,
 *A Programming Paradigm for Spatiotemporal Composability* (PKU / DeepSeek-AI).
-**Goal:** the na-harness becomes a dynamically composable system — functionality
+**Goal:** the app-harness becomes a dynamically composable system — functionality
 swapped in/out at runtime, effects reverted structurally, dependencies reactive.
 This is also the principled replacement for the dropped jac plugin system: a
 component model we own, written in Jac.
 
-**Status: core spike landed** — `na/cordis/core.jac` + 6 passing tests.
+**Status: core spike landed** — `app/cordis/core.jac` + 6 passing tests.
 
 ---
 
@@ -25,7 +25,7 @@ harness generates and deploys modifications to its own components while serving;
 without temporal composability every self-modification is a restart that loses
 state; without spatial composability dependents break silently.
 
-## 2. What landed (C0 spike) — `na/cordis/core.jac`
+## 2. What landed (C0 spike) — `app/cordis/core.jac`
 
 A compact synchronous port, faithful in the load-bearing parts:
 

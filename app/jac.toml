@@ -1,0 +1,22 @@
+[project]
+name = "jackal"
+version = "0.1.0"
+description = "Jackal - all-Jac na-codespace coding agent harness"
+entry-point = "main.jac"
+
+# Model config for the ambient `llm` builtin. api_key here is a fallback;
+# provider env vars (e.g. OPENROUTER_API_KEY) take precedence.
+[byllm.model]
+default_model = "mockllm"
+api_key = ""
+
+# Pure compute: pin native (dogfooding target). Inference keeps core/edit
+# server while its importer tools.jac is server-anchored, so pin explicitly.
+[build]
+default_codespace = "native"
+
+[placement.pins]
+"core.edit" = "native"
+
+[dependencies]
+httpx = "~=0.28"
