@@ -198,3 +198,25 @@ test("type-only modules erase successfully instead of hard rejecting", () => {
   assert.equal(result.jac, "\n");
   assert.ok(result.mappings.some((mapping) => mapping.rule_id === "ts.module.type-erasure.v1"));
 });
+
+test("pure module factory calls lower to explicit interop globals", () => {
+  const result = convert(`
+    import { getSegmenter } from "./segmenter.ts";
+    const segmenter = getSegmenter("word");
+    export function current(): any { return segmenter; }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob segmenter = getSegmenter\("word"\);/);
+  assert.equal(result.droppedCount, 0);
+  assertJacChecks(result.jac);
+});
+
+test("module factory calls with spread arguments remain unsupported", () => {
+  const result = convert(`
+    declare function build(...values: string[]): unknown;
+    const values = ["a", "b"];
+    export const built = build(...values);
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7205"));
+});

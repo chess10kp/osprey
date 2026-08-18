@@ -4391,19 +4391,16 @@ function isModuleGlobalInit(node) {
   const n = unwrapTsValue(node);
   if (!n) return false;
   switch (n.type) {
-    // Factory calls stay rejected: lowering `const x = factory(...)` to a Jac
-    // glob is NOT sound under a static gate — emitExpr produces syntactically
-    // valid Jac that the type checker then rejects (member access on an
-    // Unknown-typed import/namespace -> E1032/E1030), which would sink the
-    // WHOLE file. Verified: 31/88 real factory-const emissions failed jac check.
-    // A sound version needs the type checker in the loop, not a shape gate.
-    // Factory calls stay rejected: lowering `const x = factory(...)` to a Jac
-    // glob is NOT sound under a static gate — emitExpr produces syntactically
-    // valid Jac that the type checker then rejects (member access on an
-    // Unknown-typed import/namespace -> E1032/E1030), which would sink the
-    // WHOLE file. Verified: 31/88 real factory-const emissions failed jac check.
-    // A sound version needs the type checker in the loop, not a shape gate.
+    // V2.14: preserve a bounded pure factory call as an interop global. This is
+    // intentionally limited to a stable identifier/member callee and value-only
+    // arguments: no optional calls, spread, inline callbacks, or nested effects.
+    // The imported factory remains an explicit interop boundary in emitted Jac.
     case "CallExpression":
+      return !n.optional
+        && isStableRepeatableExpr(n.callee)
+        && (n.arguments ?? []).every(
+          (arg) => arg?.type !== "SpreadElement" && isModuleGlobalInit(arg),
+        );
     case "TaggedTemplateExpression":
     case "ArrowFunctionExpression":
     case "FunctionExpression":
