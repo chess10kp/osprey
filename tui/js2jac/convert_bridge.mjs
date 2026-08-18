@@ -1687,12 +1687,16 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
 /** Expressions safe to repeat in a conditional lowering without changing JS
  * evaluation count. Calls, updates, assignments, and optional reads are not. */
 function isStableRepeatableExpr(node) {
-  return node?.type === "Identifier" || node?.type === "ThisExpression"
+  return (node?.type === "ChainExpression" && isStableRepeatableExpr(node.expression))
+    || (node?.type === "MetaProperty" && node.meta?.name === "import" && node.property?.name === "meta")
+    || node?.type === "Identifier" || node?.type === "ThisExpression"
     || node?.type === "Literal"
     || ((node?.type === "MemberExpression" || node?.type === "OptionalMemberExpression")
-      && !node.optional
       && isStableRepeatableExpr(node.object)
-      && (!node.computed || isStableRepeatableExpr(node.property)));
+      && (!node.computed || isStableRepeatableExpr(node.property)))
+    || ((node?.type === "BinaryExpression" || node?.type === "LogicalExpression")
+      && node.operator !== "??"
+      && isStableRepeatableExpr(node.left) && isStableRepeatableExpr(node.right));
 }
 
 /** V2.4: emit a member access, supporting `a.b` and computed `a[expr]`. Optional
@@ -1701,11 +1705,27 @@ function isStableRepeatableExpr(node) {
  */
 function emitMemberAccess(node, path, diags, ctx = {}) {
   if (node.optional) {
-    diags.push(diag("E7215", "Optional chaining (?.) is not supported", path));
-    return null;
+    if (!isStableRepeatableExpr(node.object)) {
+      diags.push(diag("E7215", "Optional member receiver must be side-effect-free", path));
+      return null;
+    }
+    const recv = emitExpr(node.object, path, diags, ctx);
+    if (recv === null) return null;
+    const plain = emitMemberAccess({ ...node, optional: false }, path, diags, ctx);
+    if (plain === null) return null;
+    return `(${plain} if ${recv} is not None else None)`;
   }
   // V2.12: `process.env.NAME` / `process.env["NAME"]` -> `environ.get("NAME")`
   // via `import from os { environ }` (str | None, matching JS string|undefined).
+  if (
+    !node.computed
+    && node.object?.type === "MetaProperty"
+    && node.object.meta?.name === "import"
+    && node.object.property?.name === "meta"
+    && node.property?.name === "url"
+  ) {
+    return "__file__";
+  }
   if (
     !node.computed
     && node.object?.type === "MemberExpression"
@@ -2447,11 +2467,30 @@ function emitExpr(node, path, diags, ctx = {}) {
     return emitExpr(node.expression, path, diags, ctx);
   }
   if (kind === "MemberExpression") return emitMemberAccess(node, path, diags, ctx);
-  if (kind === "OptionalMemberExpression" || kind === "OptionalCallExpression") {
-    // Emit anyway: optional chaining has no native Jac short-circuit; lower to a
-    // plain member/call (pi-tui uses `?.` on optionals that are guarded nearby).
-    const plainType = kind === "OptionalMemberExpression" ? "MemberExpression" : "CallExpression";
-    return emitExpr({ ...node, type: plainType, optional: false }, path, diags, ctx);
+  if (kind === "MetaProperty" && node.meta?.name === "import" && node.property?.name === "meta") {
+    return "__file__";
+  }
+  if (kind === "OptionalMemberExpression") {
+    return emitMemberAccess(node, path, diags, ctx);
+  }
+  if (kind === "OptionalCallExpression" || (kind === "CallExpression" && node.optional)) {
+    if (!isStableRepeatableExpr(node.callee)) {
+      diags.push(diag("E7215", "Optional call target must be side-effect-free", path));
+      return null;
+    }
+    const callee = emitExpr(node.callee, path, diags, ctx);
+    if (callee === null) return null;
+    const args = [];
+    for (const arg of node.arguments ?? []) {
+      if (arg.type === "SpreadElement") {
+        diags.push(diag("E7215", "Spread arguments in optional calls are not supported", path));
+        return null;
+      }
+      const text = emitExpr(arg, path, diags, ctx);
+      if (text === null) return null;
+      args.push(text);
+    }
+    return `(${callee}(${args.join(", ")}) if ${callee} is not None else None)`;
   }
   if (kind === "ChainExpression") {
     // Surface `?.` chains; the inner expression carries the `optional` flag.
@@ -4443,6 +4482,8 @@ function isModuleGlobalInit(node) {
         && isModuleGlobalInit(n.left) && isModuleGlobalInit(n.right);
     case "Identifier":
       return true;
+    case "MetaProperty":
+      return n.meta?.name === "import" && n.property?.name === "meta";
     case "MemberExpression":
       if (!isModuleGlobalInit(n.object)) return false;
       if (n.computed) return isModuleGlobalInit(n.property);
@@ -4473,6 +4514,22 @@ function isModuleGlobalInit(node) {
 function parseModuleGlobal(declarator, kind, exported, path) {
   if (kind !== "const" && kind !== "let") return null;
   if (declarator?.id?.type !== "Identifier") return null;
+  if ((declarator.init === null || declarator.init === undefined) && kind === "let") {
+    const probe = [];
+    const ann = declarator.id.typeAnnotation?.typeAnnotation;
+    const jacType = ann ? tsTypeToJac(ann, path, probe) : "any";
+    if (!jacType || probe.length) return null;
+    const name = declarator.id.name;
+    const head = exported ? "glob:pub" : "glob";
+    return {
+      jac: `${head} ${name}: ${jacType} = None;`,
+      mappings: [{
+        rule_id: "js.module.const-global.v1",
+        mapping_class: "guarded",
+        target: `${head} ${name} (uninitialized let -> None)`,
+      }],
+    };
+  }
   const init = unwrapTsValue(declarator.init);
   if (!isModuleGlobalInit(init)) return null;
   const probe = [];

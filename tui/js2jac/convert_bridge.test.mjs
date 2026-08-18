@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(here, "vendor", "babel_parser", "package.json"));
 const parser = require("@babel/parser");
 
-function convert(source, virtualPath = "fixture.ts") {
+function convert(source, virtualPath = "fixture.ts", options = {}) {
   const ast = parser.parse(source, {
     sourceType: "module",
     plugins: ["estree", "typescript"],
@@ -24,6 +24,7 @@ function convert(source, virtualPath = "fixture.ts") {
     path: virtualPath,
     ast,
     source,
+    ...options,
   });
 }
 
@@ -219,4 +220,75 @@ test("module factory calls with spread arguments remain unsupported", () => {
   `);
   assert.equal(result.ok, false);
   assert.ok(result.diagnostics.some((diag) => diag.code === "E7205"));
+});
+
+test("optional member plus nullish fallback preserves short-circuiting", () => {
+  const result = convert(`
+    export function label(value: any): string {
+      return value?.label ?? "default";
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /value\.label if value is not None else None/);
+  assert.match(result.jac, /is not None else "default"/);
+});
+
+test("optional calls lower only for stable call targets", () => {
+  const stable = convert(`
+    export function notify(callback: any, value: string): any {
+      return callback?.(value);
+    }
+  `);
+  assert.equal(stable.ok, true, JSON.stringify(stable.diagnostics));
+  assert.match(stable.jac, /callback\(value\) if callback is not None else None/);
+
+  const effectful = convert(`
+    declare function nextCallback(): any;
+    export function notify(value: string): any {
+      return nextCallback()?.(value);
+    }
+  `);
+  assert.equal(effectful.ok, false);
+  assert.ok(effectful.diagnostics.some((diag) => diag.code === "E7215"));
+});
+
+test("import meta url lowers to the server file anchor", () => {
+  const result = convert(`
+    import { createRequire } from "node:module";
+    const require = createRequire(import.meta.url);
+    export function current(): any { return require; }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob require = createRequire\(__file__\);/);
+  assertJacChecks(result.jac);
+});
+
+test("uninitialized typed let becomes a nullable module global", () => {
+  const result = convert(`
+    type Helper = { ready: boolean };
+    let helper: Helper | null | undefined;
+    export function current(): any { return helper; }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob helper: any \| None = None;/);
+  assertJacChecks(result.jac);
+});
+
+test("native module patterns emit a reviewable fail-open floor", () => {
+  const result = convert(`
+    import { createRequire } from "node:module";
+    const cjsRequire = createRequire(import.meta.url);
+    type Helper = { run: (value: string) => boolean };
+    let helper: Helper | null | undefined;
+    export function run(value: string): boolean {
+      if (!helper) return false;
+      try { return helper.run(value); } catch { return false; }
+    }
+  `, "native.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.equal(result.droppedCount, 1);
+  assert.match(result.jac, /glob cjsRequire = createRequire\(__file__\);/);
+  assert.match(result.jac, /glob helper: any \| None = None;/);
+  assert.match(result.jac, /JS2JAC-HOLE\[E7200\] Declaration produced no output/);
+  assert.match(result.jac, /try \{ return helper\.run\(value\); \} catch/);
 });
