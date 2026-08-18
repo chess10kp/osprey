@@ -1474,6 +1474,18 @@ function noteDictBinding(name, init, ann, ctx) {
     return;
   }
   if (ann?.type === "TSTypeLiteral") ctx.dictBindings.add(name);
+  if (ann?.type === "TSArrayType" && ann.elementType?.type === "TSTypeLiteral") {
+    ctx.dictListBindings ??= new Set();
+    ctx.dictListBindings.add(name);
+    const fieldTypes = new Map();
+    for (const member of ann.elementType.members ?? []) {
+      if (member.type !== "TSPropertySignature" || member.key?.type !== "Identifier") continue;
+      const fieldType = tsTypeToJac(member.typeAnnotation?.typeAnnotation, ctx.path, ctx.diags);
+      if (fieldType) fieldTypes.set(member.key.name, member.optional ? withOptionalJacType(fieldType) : fieldType);
+    }
+    ctx.dictListFieldTypes ??= new Map();
+    ctx.dictListFieldTypes.set(name, fieldTypes);
+  }
   // V2.12: a call to a function whose TS return type is an object literal type
   // produces a dict value (see DICT_RETURNING_FUNCS).
   if (init?.type === "CallExpression" && init.callee?.type === "Identifier"
@@ -1520,7 +1532,17 @@ function tryEmitExprMapComprehension(node, path, diags, ctx) {
   if (!bodyExpr) return undefined;
   const iterText = emitExpr(node.callee.object, path, diags, ctx);
   if (iterText === null) return null;
-  const bodyText = emitExpr(bodyExpr, path, diags, ctx);
+  const callbackCtx = { ...ctx, dictBindings: new Set(ctx?.dictBindings ?? []) };
+  if (node.callee.object?.type === "Identifier"
+    && ctx?.dictListBindings?.has(node.callee.object.name)) {
+    callbackCtx.dictBindings.add(itemName);
+    const fieldTypes = ctx.dictListFieldTypes?.get(node.callee.object.name);
+    if (fieldTypes) {
+      callbackCtx.dictFieldTypes = new Map(ctx.dictFieldTypes ?? []);
+      callbackCtx.dictFieldTypes.set(itemName, fieldTypes);
+    }
+  }
+  const bodyText = emitExpr(bodyExpr, path, diags, callbackCtx);
   if (bodyText === null) return null;
   return `[${bodyText} for ${itemName} in ${iterText}]`;
 }
@@ -1536,6 +1558,42 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
   }
   const method = node.callee.property?.type === "Identifier" ? node.callee.property.name : null;
   if (!method) return undefined;
+  if (method === "sort" && (node.arguments ?? []).length === 1) {
+    const callback = node.arguments[0];
+    if (callback?.type === "ArrowFunctionExpression" && !callback.async && !callback.generator
+      && callback.params?.length === 2
+      && callback.params[0]?.type === "Identifier" && callback.params[1]?.type === "Identifier") {
+      let comparison = callback.body;
+      if (comparison?.type === "BlockStatement") {
+        const statements = comparison.body ?? [];
+        comparison = statements.length === 1 && statements[0]?.type === "ReturnStatement"
+          ? statements[0].argument
+          : null;
+      }
+      const left = comparison?.type === "BinaryExpression" && comparison.operator === "-"
+        ? comparison.left
+        : null;
+      const right = left ? comparison.right : null;
+      const memberName = (expr, param) => expr?.type === "MemberExpression" && !expr.computed
+        && expr.object?.type === "Identifier" && expr.object.name === param
+        && expr.property?.type === "Identifier"
+        ? expr.property.name
+        : null;
+      const a = callback.params[0].name;
+      const b = callback.params[1].name;
+      const ascending = memberName(left, a);
+      const descending = memberName(left, b);
+      const property = ascending && memberName(right, b) === ascending
+        ? ascending
+        : (descending && memberName(right, a) === descending ? descending : null);
+      if (property) {
+        const recv = emitExpr(node.callee.object, path, diags, ctx);
+        if (recv === null) return null;
+        const reverse = property === descending ? ", reverse=True" : "";
+        return `${recv}.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort["${property}"]; }${reverse})`;
+      }
+    }
+  }
   // `x.toString()` -> Jac `str(x)`. Only the no-arg form; a radix arg
   // (`n.toString(16)`) has no clean Jac equivalent and falls through to diagnose.
   if (method === "toString" && (node.arguments ?? []).length === 0) {
@@ -1872,7 +1930,13 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
   if (node.property.name === "length") {
     return `len(${obj})`;
   }
-  if (usesDictBracketAccess(node, ctx)) return `${obj}["${node.property.name}"]`;
+  if (usesDictBracketAccess(node, ctx)) {
+    const fieldType = node.object?.type === "Identifier"
+      ? ctx.dictFieldTypes?.get(node.object.name)?.get(node.property.name)
+      : null;
+    const access = `${obj}["${node.property.name}"]`;
+    return fieldType ? `(${access} as ${fieldType})` : access;
+  }
   return `${obj}.${node.property.name}`;
 }
 

@@ -531,3 +531,20 @@ test("numeric locals widen when fractional compound updates require it", () => {
   assert.match(result.jac, /i: int = 0;/);
   assertJacChecks(result.jac);
 });
+
+test("object-array comparator sort and map preserve dictionary access", () => {
+  const result = convert(`
+    export function rank(): string[] {
+      const results: { item: string; totalScore: number }[] = [
+        { item: "late", totalScore: 2 },
+        { item: "first", totalScore: 1 },
+      ];
+      results.sort((a, b) => a.totalScore - b.totalScore);
+      return results.map((result) => result.item);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /\.sort\(key=lambda \(_jx_sort: any\).*\["totalScore"\]/);
+  assert.match(result.jac, /\(result\["item"\] as str\) for result in results/);
+  assertJacChecks(result.jac);
+});
