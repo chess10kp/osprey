@@ -1311,11 +1311,11 @@ function propContextFromSig(sig) {
  * rejected (E7215) until a dedicated object-semantics slice proves equivalence.
  * Returns the dict source (without surrounding braces) or null with a diag.
  */
-function emitObjectLiteral(node, path, diags) {
+function emitObjectLiteral(node, path, diags, ctx = {}) {
   const parts = [];
   for (const prop of node.properties ?? []) {
     if (prop.type === "SpreadElement") {
-      const val = emitExpr(prop.argument, path, diags);
+      const val = emitExpr(prop.argument, path, diags, ctx);
       if (val === null) return null;
       parts.push(`**${val}`);
       continue;
@@ -1329,9 +1329,9 @@ function emitObjectLiteral(node, path, diags) {
       // ref `[SummaryKeys.Confirmed]`, identifier, literal) lowers to a Jac dict
       // with an expression key `{SummaryKeys.Confirmed: ...}`. Non-emittable keys
       // (calls, etc.) still fail via emitExpr's null return.
-      const keyExpr = emitExpr(prop.key, path, diags, {});
+      const keyExpr = emitExpr(prop.key, path, diags, ctx);
       if (keyExpr === null) return null;
-      const cval = emitExpr(prop.value, path, diags, {});
+      const cval = emitExpr(prop.value, path, diags, ctx);
       if (cval === null) return null;
       parts.push(`${keyExpr}: ${cval}`);
       continue;
@@ -1343,7 +1343,7 @@ function emitObjectLiteral(node, path, diags) {
         diags.push(diag("E7215", "Shorthand object property must have a simple name", path));
         return null;
       }
-      const val = emitExpr(prop.value, path, diags);
+      const val = emitExpr(prop.value, path, diags, ctx);
       if (val === null) return null;
       parts.push(`"${name}": ${val}`);
       continue;
@@ -1359,7 +1359,7 @@ function emitObjectLiteral(node, path, diags) {
       diags.push(diag("E7215", `Unsupported object key form: ${key?.type}`, path));
       return null;
     }
-    const val = emitExpr(prop.value, path, diags);
+    const val = emitExpr(prop.value, path, diags, ctx);
     if (val === null) return null;
     parts.push(`${keyText}: ${val}`);
   }
@@ -1477,11 +1477,16 @@ function noteDictBinding(name, init, ann, ctx) {
     return;
   }
   if (ann?.type === "TSTypeLiteral") ctx.dictBindings.add(name);
-  if (ann?.type === "TSArrayType" && ann.elementType?.type === "TSTypeLiteral") {
+  const dictElement = ann?.type === "TSArrayType"
+    ? ann.elementType
+    : (ann?.type === "TSTypeReference" && ["Array", "ReadonlyArray"].includes(formatTsTypeRefName(ann.typeName))
+      ? ann.typeParameters?.params?.[0]
+      : null);
+  if (dictElement?.type === "TSTypeLiteral") {
     ctx.dictListBindings ??= new Set();
     ctx.dictListBindings.add(name);
     const fieldTypes = new Map();
-    for (const member of ann.elementType.members ?? []) {
+    for (const member of dictElement.members ?? []) {
       if (member.type !== "TSPropertySignature" || member.key?.type !== "Identifier") continue;
       const fieldType = tsTypeToJac(member.typeAnnotation?.typeAnnotation, ctx.path, ctx.diags);
       if (fieldType) fieldTypes.set(member.key.name, member.optional ? withOptionalJacType(fieldType) : fieldType);
@@ -1494,6 +1499,8 @@ function noteDictBinding(name, init, ann, ctx) {
   if (init?.type === "CallExpression" && init.callee?.type === "Identifier"
     && DICT_RETURNING_FUNCS.has(init.callee.name)) {
     ctx.dictBindings.add(name);
+    const fieldTypes = DICT_RETURN_FIELD_TYPES.get(init.callee.name);
+    if (fieldTypes) ctx.dictFieldTypes?.set(name, fieldTypes);
   }
 }
 
@@ -1930,15 +1937,15 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
   // sinking the whole file. `length` is never a JS method call, so this read-only
   // rewrite is unambiguous. A user object with a real `.length` field would fail
   // `len()` under check and be pruned downstream — no worse than the status quo.
-  if (node.property.name === "length") {
-    return `len(${obj})`;
-  }
   if (usesDictBracketAccess(node, ctx)) {
     const fieldType = node.object?.type === "Identifier"
       ? ctx.dictFieldTypes?.get(node.object.name)?.get(node.property.name)
       : null;
     const access = `${obj}["${node.property.name}"]`;
     return fieldType ? `(${access} as ${fieldType})` : access;
+  }
+  if (node.property.name === "length") {
+    return `len(${obj})`;
   }
   return `${obj}.${node.property.name}`;
 }
@@ -2160,7 +2167,17 @@ function emitStatement(stmt, ctx) {
     if (binding === null) return null;
     const right = emitExpr(stmt.right, path, diags, ctx);
     if (right === null) return null;
-    const bodyLines = emitStatement(stmt.body, ctx);
+    const bodyCtx = {
+      ...ctx,
+      dictBindings: new Set(ctx.dictBindings ?? []),
+      dictFieldTypes: new Map(ctx.dictFieldTypes ?? []),
+    };
+    if (stmt.right?.type === "Identifier" && ctx.dictListBindings?.has(stmt.right.name)) {
+      bodyCtx.dictBindings.add(binding.loopVar);
+      const fieldTypes = ctx.dictListFieldTypes?.get(stmt.right.name);
+      if (fieldTypes) bodyCtx.dictFieldTypes.set(binding.loopVar, fieldTypes);
+    }
+    const bodyLines = emitStatement(stmt.body, bodyCtx);
     if (bodyLines === null) return null;
     return [
       `for ${identText(binding.loopVar)} in ${right} {`,
@@ -2493,6 +2510,7 @@ let MATCH_LOCALS = new Set();
 // literal type — calls to them produce dict values, so member access on their
 // results lowers to subscripts. Collected per file in convertEnvelope.
 let DICT_RETURNING_FUNCS = new Set();
+let DICT_RETURN_FIELD_TYPES = new Map();
 // V2.12: locally-declared class names — `new LocalClass(...)` lowers to the
 // Jac call construction `LocalClass(...)`.
 let LOCAL_CLASSES = new Set();
@@ -2919,7 +2937,7 @@ function emitExpr(node, path, diags, ctx = {}) {
     return `[${elems.join(", ")}]`;
   }
   if (kind === "ObjectExpression") {
-    const body = emitObjectLiteral(node, path, diags);
+    const body = emitObjectLiteral(node, path, diags, ctx);
     if (body === null) return null;
     return `{${body}}`;
   }
@@ -5205,38 +5223,57 @@ function convertEnvelope(payload) {
   IDENT_RENAMES = localRenames;
   MATCH_LOCALS = matchLocals;
   DICT_RETURNING_FUNCS = new Set();
+  DICT_RETURN_FIELD_TYPES = new Map();
   const typeAliases = collectTypeAliases(body);
   // V2.12: collect functions whose TS return annotation is an object type —
   // their call results are dict values, so member access lowers to subscripts.
   {
-    const softLiteral = (ann, depth = 0) => {
-      if (!ann || depth > 6) return false;
-      if (ann.type === "TSTypeLiteral") return true;
-      if (ann.type === "TSParenthesizedType") return softLiteral(ann.typeAnnotation, depth + 1);
+    const recordNode = (ann, depth = 0) => {
+      if (!ann || depth > 6) return null;
+      if (ann.type === "TSTypeLiteral") return ann;
+      if (ann.type === "TSParenthesizedType") return recordNode(ann.typeAnnotation, depth + 1);
       // `T | None` returns are still dict-shaped (callers null-guard).
       if (ann.type === "TSUnionType") {
-        return (ann.types ?? []).some((t) => softLiteral(t, depth + 1));
+        for (const type of ann.types ?? []) {
+          const resolved = recordNode(type, depth + 1);
+          if (resolved) return resolved;
+        }
+        return null;
       }
       if (ann.type === "TSTypeReference" && ann.typeName?.type === "Identifier") {
         const e = typeAliases.get(ann.typeName.name);
-        if (!e) return false;
-        if (e.kind === "interface") return true;
-        return softLiteral(e.node, depth + 1);
+        if (!e) return null;
+        if (e.kind === "interface") return e.node?.body ?? e.node;
+        return recordNode(e.node, depth + 1);
       }
-      return false;
+      return null;
+    };
+    const noteRecordReturn = (name, ann) => {
+      const record = recordNode(ann);
+      if (!record) return;
+      DICT_RETURNING_FUNCS.add(name);
+      const fields = new Map();
+      for (const member of record.members ?? record.body ?? []) {
+        if (member.type !== "TSPropertySignature" || member.key?.type !== "Identifier") continue;
+        const probe = [];
+        const fieldType = tsTypeToJac(member.typeAnnotation?.typeAnnotation, path, probe);
+        if (fieldType && !probe.length) {
+          fields.set(member.key.name, member.optional ? withOptionalJacType(fieldType) : fieldType);
+        }
+      }
+      DICT_RETURN_FIELD_TYPES.set(name, fields);
     };
     const seenWalk = new Set();
     const walkReturns = (n) => {
       if (!n || typeof n !== "object" || seenWalk.has(n)) return;
       seenWalk.add(n);
       if (Array.isArray(n)) { for (const x of n) walkReturns(x); return; }
-      if (n.type === "FunctionDeclaration" && n.id?.name && softLiteral(n.returnType?.typeAnnotation)) {
-        DICT_RETURNING_FUNCS.add(n.id.name);
+      if (n.type === "FunctionDeclaration" && n.id?.name) {
+        noteRecordReturn(n.id.name, n.returnType?.typeAnnotation);
       }
       if (n.type === "VariableDeclarator" && n.id?.type === "Identifier"
-        && (n.init?.type === "ArrowFunctionExpression" || n.init?.type === "FunctionExpression")
-        && softLiteral(n.init.returnType?.typeAnnotation)) {
-        DICT_RETURNING_FUNCS.add(n.id.name);
+        && (n.init?.type === "ArrowFunctionExpression" || n.init?.type === "FunctionExpression")) {
+        noteRecordReturn(n.id.name, n.init.returnType?.typeAnnotation);
       }
       for (const k of Object.keys(n)) {
         if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"

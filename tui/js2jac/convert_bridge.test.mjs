@@ -539,16 +539,37 @@ test("numeric locals widen when fractional compound updates require it", () => {
 test("object-array comparator sort and map preserve dictionary access", () => {
   const result = convert(`
     export function rank(): string[] {
-      const results: { item: string; totalScore: number }[] = [
+      const results: Array<{ item: string; totalScore: number }> = [
         { item: "late", totalScore: 2 },
         { item: "first", totalScore: 1 },
       ];
       results.sort((a, b) => a.totalScore - b.totalScore);
+      let prefix = "";
+      for (const result of results) prefix += result.item;
       return results.map((result) => result.item);
     }
   `, "fixture.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /\.sort\(key=lambda \(_jx_sort: any\).*\["totalScore"\]/);
   assert.match(result.jac, /\(result\["item"\] as str\) for result in results/);
+  assert.match(result.jac, /prefix \+= \(result\["item"\] as str\)/);
+  assertJacChecks(result.jac);
+});
+
+test("record-returning helpers preserve field types at member access", () => {
+  const result = convert(`
+    function extract(value: string): { code: string; length: number } | undefined {
+      return value ? { code: value, length: value.length } : undefined;
+    }
+    export function label(value: string): string {
+      const found = extract(value);
+      const wrapped = found ? { code: found.code } : { code: "" };
+      return found ? found.code + str(found.length) : "";
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /\(found\["code"\] as str\)/);
+  assert.match(result.jac, /\(found\["length"\] as float\)/);
+  assert.doesNotMatch(result.jac, /len\(found\)/);
   assertJacChecks(result.jac);
 });
