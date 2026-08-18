@@ -1,6 +1,10 @@
 # Jackal — Agent onboarding (read this first)
 
-Jac-native terminal coding agent. **Ink TUI** (`templates/shell.cl.jac`) + **headless TypeScript runtime** (`src/` → `dist/`). Does **not** use the legacy Pi extension shell (`pi/extensions/` was removed).
+Jac-native terminal coding agent.
+
+> **Architecture transition (2026-08-17):** forward product development is the all-Jac harness under `app/`, including a custom Jac differential TUI. The **Ink TUI** (`templates/shell.cl.jac`) + **headless TypeScript runtime** (`src/` → `dist/`) remains the runnable parity reference until Roadmap N3 cutover. New product features land in `app/`; legacy fixes in `src/`/`templates/` are limited to keeping the reference path runnable. See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
+
+The repository does **not** use the legacy Pi extension shell (`pi/extensions/` was removed).
 
 ---
 
@@ -10,7 +14,7 @@ Jac-native terminal coding agent. **Ink TUI** (`templates/shell.cl.jac`) + **hea
 2. **Do not modify** `jac-ink`, `jaclang`, or `jac-client`. Do **not** write or edit compile-pipeline shims in jac-tui.
 3. **Do not edit** `templates/jackal_agent_facade.mjs` as a long-term fix — it is copied into `.jac/tui/` by `jackal.sh`; real hook naming belongs in jac-ink upstream. Short-term Jackal-only facade tweaks in-repo are acceptable when the human agrees.
 4. **Framework/plugin gaps** → stop, document symptom + owning repo + minimal recommended fix for the **human** (see [Human handoff](#human-handoff-jac-ink--jaclang)).
-5. **Work here:** `src/`, `templates/shell.cl.jac` + `templates/components/`, `jackal.sh`, `scripts/*.mjs` (TUI postprocess only), `pi/skills/`, `pi/prompts/`, docs, tests.
+5. **Forward product work:** `app/`, its tests, and docs. **Legacy-reference fixes only:** `src/`, `templates/`, `jackal.sh`, and TUI postprocess scripts. Shared package data remains under `pi/`.
 
 ---
 
@@ -546,11 +550,12 @@ For **developing Jackal itself**, use repo tools (read, grep, bash, edit `src/` 
 
 ## Current priorities (from maintainers)
 
-1. Fast TUI boot — ✅ batched bridge calls (5.9s → 2.5s), MCP/LSP deferred with `setImmediate`
-2. Stable streaming / transcript / tool rows in Ink
-3. Harden adapter + bridge + outbound queue
-4. Jac MCP as primary validate/run surface
-5. Port remaining polish per `docs/NANOCODER-PARITY.md`
+1. Roadmap N1 — custom Jac TUI foundation: terminal adapter, input parser, component interface, differential renderer, virtual-terminal tests
+2. Keep the TUI event loop responsive while model and tool work execute outside it
+3. Deepen the typed command/event seam; keep JSONL as an adapter rather than the interface
+4. Roadmap N2 — sessions, safety modes, approvals/diffs, Jac workflows, and `jac mcp` subprocess integration
+5. Keep `src/` + `templates/` runnable as a frozen parity reference until the N3 cutover gate
+6. Profile before adding native pins beyond small `app/core/` experiments
 
 ---
 

@@ -1,8 +1,11 @@
-# Jackal in the `na` codespace — exploration findings
+# Jackal all-Jac harness — exploration and decision record
 
-**Date:** 2026-08-16 · **Trigger:** plugin system dropped from jaclang → jac-ink / `jac tui` / `.cl.jac` all dead. **Decision:** pivot — write the whole harness in Jac, native-first.
+**Exploration:** 2026-08-16 · **Decisions:** 2026-08-17
+**Trigger:** jaclang removed the plugin system, so jac-ink / `jac tui` / `.cl.jac` are no longer a viable foundation.
 
-All claims below were verified live against the installed toolchain (spike in `/tmp/na-spike`), not read from stale docs.
+> **Decision:** pivot to an all-Jac harness. The agent brain and product TUI are written in Jac and run in the server codespace where needed. Native is reserved for measured hot-path kernels in `app/core/`; it is not the placement target for the whole harness.
+
+All toolchain claims below were verified against the installed Jac toolchain. The authoritative delivery sequence is in [`../ROADMAP.md`](../ROADMAP.md).
 
 ---
 
@@ -10,112 +13,232 @@ All claims below were verified live against the installed toolchain (spike in `/
 
 | Fact | Evidence |
 |---|---|
-| Plugin system **gone** | `jac tui` → invalid choice; jac-ink registered via `[project.entry-points."jac"]` which no longer loads |
-| `.sv.jac` / `.cl.jac` / `.na.jac` **retired** | `jac fix placement` strips markers + renames files; marker syntax is now a compile error |
-| Placement is **inferred, markerless** | JSX/npm imports → client; Python imports/graph archetypes/`::py::` → server; extern C → native; `[placement.pins]` in jac.toml overrides |
-| `na` is the **default codespace** for anchor-free modules | `[build] default_codespace = "native"` is the default under `jac run` |
-| `jac ai` + byllm are **built-in** | `import from jaclang.byllm.lib { Model }` — vendored in jaclang, no pip dep needed |
-| **No TUI client target** | `--client {web,pwa,static,mobile,desktop,cef,react-native}` — terminal is not a first-class target |
+| Plugin system **gone** | `jac tui` is no longer a valid command; jac-ink depended on the removed plugin entry point |
+| Markerless placement is preferred here | Placement is inferred; file markers are not needed for the target architecture |
+| Placement is inferred | JSX/npm imports → client; Python imports/graph archetypes/`::py::` → server; extern C → native; `[placement.pins]` can override |
+| Native is available to anchor-free modules | `[build] default_codespace = "native"` and placement pins can select machine code for pure kernels |
+| Jac can use Python and C ecosystems | Server Jac imports Python directly; native Jac can call C-ABI libraries |
+| No first-class terminal client target | Jac client targets cover web/desktop/mobile, not terminal applications |
 
-## 2. Spike results (all verified)
+## 2. Verified spike results
 
 ```bash
 $ jac nacompile tool.jac -o tool && ./tool Native
-Hello, Native!                       # 277 KB zero-dependency binary
+Hello, Native!
 
 $ jac check --placements mixed.jac
-hot.jac  [decided native]            # anchor-free module → native, free
-  diff_tokens (Ability)    native
+hot.jac  [decided native]
 mixed.jac
-  <entry> (ModuleCode)     server    # import os; anchors server
+  <entry> (ModuleCode)     server
 
 $ jac run mixed.jac
-cwd: /tmp/na-spike                   # server-side Python works
-native hot call: 2                   # native called from server, auto-bridged
-
-$ jac run bytest3.jac                # Model(model_name="mock") via
-model ok: True                       # jaclang.byllm.lib — LLM edge works
+cwd: /tmp/na-spike
+native hot call: 2
 ```
 
-## 3. What native (`na`) supports vs. blocks
+The repository now contains the first vertical slice:
 
-**Works natively** (per `jac-native` guide, subset verified by nacompile):
-collections/objects/enums/exceptions, `open/read/write` file I/O, `input`/`print`,
-str methods, `os.system`, `os.path` subset (join/exists/isdir/getsize…),
-`math`/`time`/`sys`/`random`, **C FFI** (`import from raylib { def InitWindow(...) -> None; }` — any `.so`),
-native→native IR-level imports, decl/impl split, mixed-file native sections
-auto-bridged both directions to Python.
+- `app/main.jac` — term and JSONL adapters
+- `app/agent/` — owned ReAct loop, injectable HTTP transport, tools, and prompt
+- `app/core/edit.jac` — pinned native edit kernel spike
+- `app/cordis/` — revertible-effect/reactive-coeffect composition spike
+- `tui/` — temporary Ink JSONL client used to exercise the UI seam
 
-**Blocked natively** (loud compile errors): `by llm()`, PyPI/litellm, `::py::`,
-walkers/nodes/edges, async, generators, `import json`, sockets, `os.listdir`,
-lambda captures (silently wrong!), `input` beyond line-oriented.
+## 3. Codespace policy
 
-**Consequences for a harness:**
-- LLM edge must live **server** (vendored byllm) — or, stretch, hand-rolled JSON + libcurl FFI.
-- `glob` tool needs FFI `opendir` or a server bridge.
-- bash output capture needs FFI `popen` or server `subprocess`.
-- Rich TUI = FFI termios/ncurses later; `input()`/`print` REPL works day one.
+### Server brain
 
-## 4. Ecosystem incompatibilities found (gotchas for the port)
+These concerns remain server-anchored because they need Python libraries, operating-system integration, blocking I/O, or dynamic runtime behavior:
 
-1. **Syntax drift**: module-level Jac-module imports take **no `;`**; Python imports keep `;`;
-   no `global` statement anymore (bare assignment rebinds `glob`s).
-2. **`reference/jaseci/.../ai_agent.jac` is legacy syntax** (old semicolons, `byllm.lib` import,
-   `ask()` API). Port patterns, not code. New Model API: `dispatch_streaming_with_tools`, `ainvoke`, …
-3. **pip `byllm` 0.6.x is broken** against current jac (removed `by postinit` markers in its own
-   `.jac` files). Use the vendored `jaclang.byllm.lib` only.
+- LLM HTTP/SSE transport
+- sessions and persistence
+- subprocess tools and `jac mcp`
+- authentication and provider integration
+- the TUI event loop and terminal lifecycle
+- file discovery, configuration, and orchestration
 
-## 5. Target architecture
+### Native kernels
 
-One Jac program. No Node, no TypeScript, no bridge, no plugin.
+Only small, anchor-free, measured kernels belong in `app/core/`, for example:
 
+- edit/diff algorithms
+- ANSI-aware line comparison
+- visible-width and wrapping calculations
+- token estimation or parsing loops
+
+A kernel is pinned native only when a benchmark shows a useful end-to-end improvement. Placement evidence is `jac check --placements`; placement alone is not a success metric.
+
+### Explicitly rejected
+
+- A mostly native agent loop
+- Reimplementing TLS/HTTP/SSE through C FFI
+- A single-binary requirement
+- A C terminal framework as the primary UI strategy
+- Native placement for code merely because it can compile there
+
+C FFI remains available for a narrow platform quirk or a measured kernel. It is not the default UI foundation.
+
+## 4. Product TUI decision
+
+The line REPL is a **debug adapter only**. It is not an accepted N0–N2 product experience.
+
+Jackal will build a small TUI framework directly in Jac, modeled on the architecture of `@earendil-works/pi-tui`. Pi's core renderer does not use Ink, React, ncurses, or a C rendering engine. Its useful design is:
+
+```text
+Component.render(width) -> lines
+Component.handle_input(data)
+Component.invalidate()
+
+component tree
+    -> width-bounded ANSI lines
+    -> overlay/focus composition
+    -> compare with previous frame
+    -> emit one synchronized ANSI update
 ```
-jackal/
-├── main.jac              # entry + REPL (server-anchored: byllm, subprocess, input())
-├── agent/
-│   ├── session.jac       # ReAct loop via Model.dispatch_streaming_with_tools,
-│   │                     #   StreamEvent render, history, usage accounting
-│   ├── tools.jac         # read_file, write_file, edit_file, bash, jac_check…
-│   └── system.jac        # system prompt + guide/skill grounding (sem strings)
-├── core/                 # anchor-free modules → compiled NATIVE by default
-│   ├── diff.jac          # edit/merge engine (hot path)
-│   ├── parse.jac         # file-mention, slash-command, frontmatter parsing
-│   ├── tokens.jac        # token estimation
-│   └── render.jac        # markdown → ANSI renderer
-└── jac.toml              # [project], [placement.pins] if inference is wrong
+
+### Jac TUI modules
+
+```text
+app/ui/
+├── terminal.jac       # raw mode, resize, stdin/stdout, restoration
+├── input.jac          # escape sequences, paste, Kitty keyboard protocol
+├── component.jac      # render / handle_input / invalidate interface
+├── renderer.jac       # frame scheduling and differential ANSI output
+├── width.jac          # ANSI and Unicode display width
+├── overlay.jac        # positioning, visibility, focus stack
+├── virtual_terminal.jac
+└── components/
+    ├── editor.jac
+    ├── transcript.jac
+    ├── markdown.jac
+    ├── tool_line.jac
+    └── select_list.jac
 ```
 
-Placement does the dogfooding for us: every `core/` module is anchor-free →
-`jac check --placements` must show `[decided native]`. That is the acceptance bar.
+Server Jac can use Python standard-library interop (`termios`, `tty`, `select`, `signal`, `threading`, `queue`, and `sys.stdin/stdout`) without adding a third-party TUI framework. Native kernels may accelerate width, wrapping, or diff code later if profiling justifies them.
 
-**TUI (Phase N3):** server codespace — a Python terminal library (e.g. rich/
-  textual) via Jac's Python interop. **Do NOT build a C FFI TUI** — terminal
-  Unicode/escape handling is a multi-year trap; that's why every real TUI
-  rides a mature library. **Single binary (old N4): CUT.** TLS/HTTP/SSE/JSON
-  over FFI buys distribution simplicity at the cost of stability + a
-  litellm-sized reimplementation treadmill. Native stays kernel-only.
+### Performance model
 
-## 6. Phased plan
+Performance comes from the renderer design, not from forcing the UI into native placement:
 
-| Phase | Deliverable | Acceptance |
-|---|---|---|
-| **N0** REPL loop | `main.jac` + `agent/` on server codespace: streaming turns, read/write/edit/bash tools, `/help` `/exit` | `jac run main.jac` completes a 3-turn session that edits a file |
-| **N1** Native core | `core/diff.jac`, `core/parse.jac`, `core/tokens.jac` | `--placements` shows each `[decided native]`; called from N0 loop |
-| **N2** Surface | sessions (jsonl persistence), slash commands, jac check/format integration, dev modes (yolo/safe) | restart restores session; `/fix` loop works |
-| **N3** TUI growth | Rich/textual (server) via Python interop — ANSI render helpers may pin native | live streaming render, tool timeline, Ctrl-C abort |
-| **N4** Native kernels | profiling-driven: pin only measured hot paths (diff, tokenize, render) | benchmarks show native kernels win where it counts; no FFI, no C deps |
+- cache component output until invalidated
+- coalesce render requests to a frame budget (target: at most one frame per 16 ms)
+- compare line arrays and update only the changed range
+- emit one stdout write per frame
+- use synchronized output (`CSI ? 2026 h/l`) where supported
+- avoid reparsing completed markdown on each token
+- test against a virtual terminal and PTY, not only string snapshots
 
-## 7. What dies / what gets re-ported
+### Renderer status
 
-- **Dies:** `src/` TS runtime (~13k LOC), `templates/*.cl.jac` (4.5k LOC), jac-ink dependency,
-  `.jac/tui` compile + all `postprocess_tui` workarounds, the Python stdio bridge + worker
-  (BRIDGE-REMOVAL-PLAN Phases 2–3 become moot — there is no second process to bridge).
-- **Re-ported progressively from TS:** session persistence, checkpoints, skills, subagents,
-  custom commands, permission modes, MCP (via `jac mcp` CLI subprocess), context compaction.
-- **Regression accepted initially:** Ink TUI → line-oriented REPL (N0–N2), TUI regrows in N3.
+- **Custom Jac TUI:** product direction
+- **JSONL Ink client in `tui/`:** temporary seam exerciser; not the long-term renderer
+- **Line REPL:** debug/recovery adapter
+- **Rich/Textual:** not the primary plan
+- **Bubble Tea/Ratatui:** not selected; they add a second implementation language
+- **Jac Desktop/web:** possible future adapter after terminal parity, not on the critical path
 
-## 8. Open questions (human)
+## 5. UI seam
 
-1. Accept line-oriented UX for N0–N2 while the TUI regrows, or is Rich a N0 requirement?
-2. Dual-track (keep TS Jackal runnable) during N0–N1, or hard pivot in-repo?
-3. MCP via `jac mcp` subprocess — acceptable, or push for an in-process surface?
+The durable interface is a typed command/event model owned by the brain. JSONL is one transport adapter, not the interface itself.
+
+Representative commands:
+
+```text
+session.open
+turn.submit
+turn.cancel
+approval.respond
+diff.respond
+session.command
+session.close
+```
+
+Representative events:
+
+```text
+session.ready / session.snapshot
+command.result
+turn.started
+assistant.delta
+tool.started / tool.finished
+approval.requested / approval.resolved
+diff.proposed / diff.resolved
+turn.finished
+protocol.error
+```
+
+Each envelope needs protocol version, request correlation, session/turn/tool identifiers, and monotonic sequence. The brain owns session, turn, tool, approval, and persistence truth. The renderer owns focus, selection, scroll position, layout, animation, and theme.
+
+Adapters:
+
+1. in-process Jac TUI adapter — product path
+2. JSONL stdio adapter — compatibility, testing, and disposable clients
+3. line adapter — diagnostics and recovery
+4. in-memory adapter — deterministic UI tests
+
+## 6. Runtime and concurrency
+
+The current all-Jac loop is synchronous. A high-quality TUI must remain responsive while the model streams and while tools block.
+
+The product path therefore requires:
+
+- one UI event loop that owns terminal input and rendering
+- agent turns executed outside that loop
+- a bounded command/event queue
+- cancellation that reaches the active model request and subprocess group
+- terminal restoration on normal exit, exception, interrupt, and suspend/resume
+- backpressure that may coalesce adjacent text deltas but never drops structural events
+
+Python `threading`/`queue` through server Jac is acceptable. Native async is not required.
+
+## 7. Migration policy
+
+### Soft dual-track
+
+The existing `src/` + `templates/` implementation remains runnable as parity reference until the all-Jac path reaches the cutover gate.
+
+Binding rules:
+
+1. New product features land in `app/` only.
+2. Do not expand the TypeScript runtime or continue the May bridge/LSP migration.
+3. Fix the legacy path only when required to keep it runnable during migration.
+4. Do not delete `src/` or `templates/` before session data, safety behavior, and daily workflows have migrated.
+5. The temporary Ink client may evolve only enough to exercise the typed UI seam; do not build a second product shell there.
+
+### MCP
+
+Use `jac mcp` as a subprocess from N2 onward. Revisit in-process MCP only after measuring startup or per-call overhead and showing it is material.
+
+### Cordis
+
+The Cordis core spike remains the owned composition model. Cordis prototyping may continue independently, but product integration must not block the TUI and daily-driver gates or freeze unstable interfaces prematurely. See [`CORDIS-DESIGN.md`](CORDIS-DESIGN.md).
+
+## 8. Decisions — 2026-08-17
+
+| Topic | Decision |
+|---|---|
+| Harness | All-Jac source under `app/` |
+| Brain placement | Server-anchored |
+| Native scope | Measured kernels only; no mostly-native harness |
+| Product UI | Custom Jac TUI framework using direct ANSI and differential rendering |
+| REPL | Debug/recovery adapter only |
+| Existing Ink client | Temporary UI-seam exerciser |
+| Existing TS runtime | Soft dual-track until all-Jac daily-driver parity |
+| New feature work | `app/` only |
+| MCP | `jac mcp` subprocess for N2+; measurement required to revisit |
+| Single binary | Not a goal |
+| C TUI library | Not required; narrow FFI remains an escape hatch |
+| Desktop/web | Deferred optional adapter after terminal parity |
+
+## 9. Superseded assumptions
+
+The following Aug 16 assumptions are no longer active:
+
+- “native-first” means most of the harness should compile native
+- a line-oriented interface is acceptable through N2
+- the product TUI should wait until a later Rich/Textual phase
+- a mature TUI requires a C rendering library
+- every anchor-free `core/*` module must be native regardless of benchmark value
+
+The current roadmap and acceptance gates are maintained in [`../ROADMAP.md`](../ROADMAP.md).

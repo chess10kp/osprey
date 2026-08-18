@@ -1,6 +1,8 @@
 # Jackal Consolidation Plan
 
-**Goal:** One runtime (`src/`), one Jac toolchain surface (MCP for LLM + host CLI for hooks), nanochat-style vertical slices — no duplicate Pi extension, no god-object adapter, no overlapping agent tools.
+> **Superseded on 2026-08-17.** This plan completed consolidation of the legacy TypeScript runtime, but it is not the forward architecture. The all-Jac `app/` pivot, custom Jac TUI, soft dual-track policy, and cutover gates are authoritative in [`../ROADMAP.md`](../ROADMAP.md) and [`NA-HARNESS-EXPLORATION.md`](NA-HARNESS-EXPLORATION.md). Do not extend the bridge migration described here.
+
+**Historical goal:** One runtime (`src/`), one Jac toolchain surface (MCP for LLM + host CLI for hooks), nanochat-style vertical slices — no duplicate Pi extension, no god-object adapter, no overlapping agent tools.
 
 **Inspired by:** [karpathy/nanochat](https://github.com/karpathy/nanochat) — single path, one copy of each idea, scripts/modules by concern, tests on hot paths.
 

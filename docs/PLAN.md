@@ -1,5 +1,7 @@
 # Plan: Jackal to Working TUI
 
+> **Historical jac-ink plan.** The runnable legacy shell remains a parity reference, but the forward TUI is the custom Jac differential renderer in [`../ROADMAP.md`](../ROADMAP.md) N1. Do not extend this plan with new product work.
+
 See also:
 - **[FEATURES.md](./FEATURES.md)** — full feature checklist with status
 - **[JAC-TUI.md](./JAC-TUI.md)** — jac-ink / jac-tui work (human-owned)

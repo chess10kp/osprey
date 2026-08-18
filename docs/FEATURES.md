@@ -1,5 +1,7 @@
 # Jackal — Required Features
 
+> **Historical legacy-runtime inventory (frozen 2026-08-17).** This document describes the runnable `src/` + jac-ink implementation used as migration reference. New product work targets the all-Jac `app/` harness and custom Jac TUI. Current sequencing and acceptance gates are in [`../ROADMAP.md`](../ROADMAP.md); the decision record is [`NA-HARNESS-EXPLORATION.md`](NA-HARNESS-EXPLORATION.md).
+
 Features needed for `./jackal.sh` to be a daily-usable Jac coding agent.
 
 **Not in scope for v1:** full IDE, replacing the Jac compiler/LSP, hosting models, cloud deployment.

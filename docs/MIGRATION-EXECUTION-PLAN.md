@@ -1,5 +1,7 @@
 # Jackal: Jac Core Migration — Execution Plan
 
+> **Superseded by the 2026-08-17 all-Jac pivot.** This bridge-oriented execution plan is retained for history only. Do not execute further phases; use [`../ROADMAP.md`](../ROADMAP.md).
+
 **Status:** Ready to execute Phase 0  
 **Last updated:** 2026-05-25  
 **Source:** [JAC-CORE-MIGRATION.md](./JAC-CORE-MIGRATION.md)  

@@ -1,5 +1,7 @@
 # Remaining TUI Plan
 
+> **Historical jac-ink milestone plan.** The legacy Ink shell is complete enough to serve as migration reference. New TUI work belongs to the all-Jac Roadmap N1 in [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Goal
 Ship a **daily-usable Ink shell** for Jackal via **jac-ink** (jac-tui repo), with
 reliable send/receive, auth/model UX, tool visibility, and session persistence.
@@ -17,11 +19,7 @@ reliable send/receive, auth/model UX, tool visibility, and session persistence.
 - **Do not** edit `~/repos/jac-tui/jac-ink`, jaclang, or jac_client
 - **Do not** write or edit shim scripts (`jac_pi_runtime_shim.mjs`, facades, emitted runtime shims)
 - When jac-ink or compiler changes are needed, **tell the human**: symptom, owning repo, recommended fix
-- Renderer/compiler lives in **`~/repos/jac-tui`**. Reference only:
-  [`pi-interop-plan.md`](../../jac-tui/docs/pi-interop-plan.md),
-  [`pi-interop-progress.md`](../../jac-tui/docs/pi-interop-progress.md),
-  [JAC-TUI.md](./JAC-TUI.md),
-  [`AGENTS.md`](../AGENTS.md)
+- Renderer/compiler lived in **`~/repos/jac-tui`**. Historical reference files `pi-interop-plan.md` and `pi-interop-progress.md` are no longer present there; use [JAC-TUI.md](./JAC-TUI.md) and [`AGENTS.md`](../AGENTS.md) for retained context.
 
 ## Milestone 1 — jac-ink shell boots with adapter
 1. `shell.cl.jac` exports `app()` and imports `@jac/pi`.

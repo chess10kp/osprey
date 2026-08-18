@@ -1,5 +1,7 @@
 # Jackal Roadmap — Master Game Plan
 
+> **Historical May 2026 plan.** P0–P8 below describe the completed legacy `src/` + Ink path. They are not the current phase numbers. The all-Jac N0–N5 roadmap is [`../ROADMAP.md`](../ROADMAP.md).
+
 **Started:** 2026-05-23  
 **Completed:** 2026-05-23 (P0–P8)  
 **Goal:** Complete ROADMAP.md P0–P8 and reach **nanocoder feature parity** on terminal agent foundation (Track A), then Jac differentiators (Track B).

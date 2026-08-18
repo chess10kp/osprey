@@ -1,5 +1,7 @@
 # Nanocoder Feature Parity — Jackal Scope
 
+> **Legacy parity matrix.** Use this as input to the all-Jac Roadmap N3 cutover checklist, not as the forward implementation plan. P0–P9 references below are historical; current phases are in [`../ROADMAP.md`](../ROADMAP.md).
+
 **Reference:** [`reference/nanocoder/`](../reference/nanocoder/) (vendored upstream)  
 **Last reviewed:** 2026-05-24
 

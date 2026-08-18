@@ -1,5 +1,7 @@
 # Jackal: TypeScript → Jac Core Migration Plan
 
+> **Superseded by the 2026-08-17 all-Jac pivot.** The `lib/jac/` bridge migration is historical and must not be expanded. Forward work lives in `app/`; see [`../ROADMAP.md`](../ROADMAP.md) and [`NA-HARNESS-EXPLORATION.md`](NA-HARNESS-EXPLORATION.md).
+
 **Status:** Phase 0–4 complete — all portable pure logic ported. Remaining 17 TS files have deep runtime deps (React, pi-agent-core, vscode-languageserver-protocol, Node child_process) that cannot be Python toolchain modules. Next step: jac-ink in-process agent support (human-owned).
 **Last updated:** 2026-05-26  
 **Decision (2026-05-24):** Hold full migration until feature-complete. Phase 0 spike + Phase 1 toolchain modules may proceed in parallel with TypeScript work.

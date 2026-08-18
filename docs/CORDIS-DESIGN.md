@@ -9,6 +9,8 @@ component model we own, written in Jac.
 
 **Status: core spike landed** — `app/cordis/core.jac` + 6 passing tests.
 
+> **Roadmap sequencing (2026-08-17):** C0 remains landed. Cordis research and reversible prototypes may continue, but product integration is Roadmap N4: first stabilize the custom Jac TUI and daily-driver interfaces, then componentize them. Cordis remains the selected composition model and must not block N1–N3 usability or make unstable interfaces permanent. See [`../ROADMAP.md`](../ROADMAP.md).
+
 ---
 
 ## 1. The paper's model (what we adopt)

@@ -4,6 +4,8 @@
 
 A Jac-native, terminal-first Jac coding agent that gives Jac developers the agentic workflow with better keyboard ergonomics, multimodal context, CLI/toolchain awareness, and Jac-specific project intelligence.
 
+> **Architecture transition (Aug 2026):** Jackal is moving to an all-Jac harness under `app/` with a custom Jac differential TUI. The current `src/` + Ink shell remains the runnable daily-driver and parity reference until the new path reaches the cutover gate. New product development targets `app/`. See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
+
 ---
 
 ## Running Jackal
