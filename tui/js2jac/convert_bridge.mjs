@@ -2478,9 +2478,12 @@ const JS_MATH_CALLS = {
 
 /** Python raw string literal for a regex pattern (quote-char aware). */
 function pyRawString(s) {
-  if (!s.includes('"')) return `r"${s}"`;
-  if (!s.includes("'")) return `r'${s}'`;
-  return `r"""${s}"""`;
+  const normalized = s
+    .replace(/\(\?<([A-Za-z_][A-Za-z0-9_]*)>/g, "(?P<$1>")
+    .replace(/\\k<([A-Za-z_][A-Za-z0-9_]*)>/g, "(?P=$1)");
+  if (!normalized.includes('"')) return `r"${normalized}"`;
+  if (!normalized.includes("'")) return `r'${normalized}'`;
+  return `r"""${normalized}"""`;
 }
 
 /** JS flag set -> imported Python flag idents (`I`/`M`/`S`), or "". Each use

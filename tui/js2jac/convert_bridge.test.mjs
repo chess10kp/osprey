@@ -480,3 +480,15 @@ test("fixed global regex replacement lowers without Python regex interop", () =>
   assert.doesNotMatch(result.jac, /import from re|\bsub\(/);
   assertJacChecks(result.jac);
 });
+
+test("JavaScript named regex groups lower to Python group syntax", () => {
+  const result = convert(`
+    export function hasWord(text: string): boolean {
+      return /(?<word>[a-z]+)\\k<word>/.test(text);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /\(\?P<word>\[a-z\]\+\)\(\?P=word\)/);
+  assert.doesNotMatch(result.jac, /\(\?<word>|\\k<word>/);
+  assertJacChecks(result.jac);
+});
