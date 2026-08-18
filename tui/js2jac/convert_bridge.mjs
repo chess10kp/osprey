@@ -2329,6 +2329,8 @@ function forLoopBinding(left, path, diags, ctx) {
 let REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
 // V2.12: `process.env` -> `os.environ` interop flag (import emission).
 let PROCESS_ENV_INTEROP = false;
+const KNOWN_AMBIENT_JS_NAMESPACES = new Set(["Intl"]);
+let AMBIENT_INTEROP_GLOBALS = new Set();
 // V2.12: per-file identifier renames — a JS local/param bound to a Jac
 // statement keyword (`match`, `entry`, ...) cannot appear bare in Jac source
 // (parser error). File-wide rename `<name>` -> `<name>_j` is applied at both
@@ -2567,6 +2569,27 @@ function emitExpr(node, path, diags, ctx = {}) {
           args.push(text);
         }
         return `${ctor}(${args.join(", ")})`;
+      }
+      if (node.callee?.type === "MemberExpression"
+        && !node.callee.optional && isStableRepeatableExpr(node.callee)) {
+        let root = node.callee.object;
+        while (root?.type === "MemberExpression") root = root.object;
+        if (root?.type === "Identifier" && KNOWN_AMBIENT_JS_NAMESPACES.has(root.name)) {
+          AMBIENT_INTEROP_GLOBALS.add(root.name);
+        }
+        const callee = emitExpr(node.callee, path, diags, ctx);
+        if (callee === null) return null;
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          if (arg.type === "SpreadElement") {
+            diags.push(diag("E7215", "Spread arguments in qualified constructors are not supported", path));
+            return null;
+          }
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return `${callee}(${args.join(", ")})`;
       }
     }
     if (kind === "NewExpression") {
@@ -4539,6 +4562,12 @@ function isModuleGlobalInit(node) {
       return false;
     // V2.16: collection constructors with zero/one pure iterable argument.
     case "NewExpression":
+      if (n.callee?.type === "MemberExpression") {
+        return !n.callee.optional && isStableRepeatableExpr(n.callee)
+          && (n.arguments ?? []).every(
+            (arg) => arg?.type !== "SpreadElement" && isModuleGlobalInit(arg),
+          );
+      }
       if (n.callee?.type !== "Identifier") return false;
       if (n.callee.name === "Map" && (n.arguments ?? []).length <= 1) {
         return (n.arguments ?? []).length === 0 || isModuleGlobalInit(n.arguments[0]);
@@ -4640,9 +4669,11 @@ function parseModuleGlobal(declarator, kind, exported, path) {
     typed = `: ${jacType}`;
   } else if (
     init?.type === "NewExpression"
-    && init.callee?.type === "Identifier"
-    && !LOCAL_CLASSES.has(init.callee.name)
-    && init.callee.name !== "Map" && init.callee.name !== "Set"
+    && (init.callee?.type === "MemberExpression" || (
+      init.callee?.type === "Identifier"
+      && !LOCAL_CLASSES.has(init.callee.name)
+      && init.callee.name !== "Map" && init.callee.name !== "Set"
+    ))
   ) {
     // Imported constructors have no local Jac type declaration. Mark the
     // boundary explicitly so downstream interop method calls do not become
@@ -4941,6 +4972,7 @@ function convertEnvelope(payload) {
   // V2.12: per-file reset of the regex-interop flag (mirrors HOLE_CTX).
   REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
   PROCESS_ENV_INTEROP = false;
+  AMBIENT_INTEROP_GLOBALS = new Set();
   IDENT_RENAMES = new Map();
   MATCH_LOCALS = new Set();
   if (payload.protocolVersion !== PROTOCOL_VERSION) {
@@ -5361,7 +5393,10 @@ function convertEnvelope(payload) {
     : [];
   const osImportLines = PROCESS_ENV_INTEROP ? ["import from os { environ }"] : [];
   const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines, ...regexImportLines, ...osImportLines];
-  const bodyParts = kept.map((o) => o.jac.trimEnd());
+  const ambientInteropLines = [...AMBIENT_INTEROP_GLOBALS]
+    .sort()
+    .map((name) => `glob ${name}: any = None;`);
+  const bodyParts = [...ambientInteropLines, ...kept.map((o) => o.jac.trimEnd())];
   // Hole mode: append each skipped top-level decl's original JS as a trailing
   // commented block, so an LLM cleanup pass sees the whole file's intent (the
   // converted scaffold above + the unconverted holes below) without re-fetching

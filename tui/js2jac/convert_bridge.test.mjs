@@ -365,7 +365,7 @@ test("fail-open class members are emitted as explicit holes", () => {
     }
   `, "partial.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /JS2JAC-HOLE\[E7215\] `new` expressions are not supported/);
+  assert.match(result.jac, /has segmenter: any = Intl\.Segmenter\(\);/);
   assert.match(result.jac, /JS2JAC-HOLE\[E7205\] Generator class methods are not supported/);
   assert.match(result.jac, /def ok\(\) -> str/);
 });
@@ -432,5 +432,16 @@ test("typed uninitialized local lets remain declarations", () => {
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /result: str;/);
+  assertJacChecks(result.jac);
+});
+
+test("qualified constructors lower as explicit interop globals", () => {
+  const result = convert(`
+    export const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob Intl: any = None;/);
+  assert.match(result.jac, /glob:pub segmenter: any = Intl\.Segmenter\(None, \{"granularity": "word"\}\);/);
+  assert.equal(result.droppedCount, 0);
   assertJacChecks(result.jac);
 });
