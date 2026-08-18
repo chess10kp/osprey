@@ -332,3 +332,26 @@ test("for-of flat destructuring binds through a synthetic item", () => {
   assert.match(result.jac, /value = _jx_item0\[1\];/);
   assertJacChecks(result.jac);
 });
+
+test("function-valued object globals preserve helper lambdas", () => {
+  const result = convert(`
+    export const Key = {
+      escape: "escape",
+      ctrl: <K extends string>(key: K): string => ` + "`ctrl+${key}`" + `,
+    } as const;
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob:pub Key = \{/);
+  assert.match(result.jac, /"ctrl": lambda \(key: any\)/);
+});
+
+test("identifier-based external constructors lower as interop calls", () => {
+  const result = convert(`
+    import { Parser } from "parser";
+    const parser = new Parser("strict");
+    export function current(): any { return parser; }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob parser: any = Parser\("strict"\);/);
+  assertJacChecks(result.jac);
+});

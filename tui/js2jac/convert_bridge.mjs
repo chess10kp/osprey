@@ -2537,6 +2537,19 @@ function emitExpr(node, path, diags, ctx = {}) {
         }
         return `${ctor}(${args.join(", ")})`;
       }
+      // Imported/server constructor boundary (`new Marked()`, `new
+      // StdinBuffer(...)`) -> Jac call construction. Qualified constructors
+      // remain fail-closed until their namespace interop is modeled.
+      if (ctor) {
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          if (arg.type === "SpreadElement") return null;
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return `${ctor}(${args.join(", ")})`;
+      }
     }
     if (kind === "NewExpression") {
       diags.push(diag("E7215", "`new` expressions are not supported (preserve as a plain call or interop)", path));
@@ -4463,6 +4476,8 @@ function isModuleGlobalInit(node) {
     case "TaggedTemplateExpression":
     case "ArrowFunctionExpression":
     case "FunctionExpression":
+      // Creating a function value is pure; its body executes only when called.
+      return !n.async && !n.generator;
     case "ClassExpression":
       return false;
     // V2.16: collection constructors with zero/one pure iterable argument.
@@ -4477,7 +4492,9 @@ function isModuleGlobalInit(node) {
       // A locally-declared class lowers to a call construction — sound at
       // module scope because the archetype is defined in this file.
       if (LOCAL_CLASSES.has(n.callee.name)) return true;
-      return false;
+      return (n.arguments ?? []).every(
+        (arg) => arg?.type !== "SpreadElement" && isModuleGlobalInit(arg),
+      );
     // The vendored parser emits ESTree `Literal`; keep the Babel-specific names
     // too since the rest of the bridge accepts both forms defensively.
     case "Literal":
@@ -4564,6 +4581,16 @@ function parseModuleGlobal(declarator, kind, exported, path) {
     const jacType = tsTypeToJac(ann, path, probe);
     if (!jacType || probe.length) return null;
     typed = `: ${jacType}`;
+  } else if (
+    init?.type === "NewExpression"
+    && init.callee?.type === "Identifier"
+    && !LOCAL_CLASSES.has(init.callee.name)
+    && init.callee.name !== "Map" && init.callee.name !== "Set"
+  ) {
+    // Imported constructors have no local Jac type declaration. Mark the
+    // boundary explicitly so downstream interop method calls do not become
+    // hard checker errors on an inferred Unknown value.
+    typed = ": any";
   }
   const name = declarator.id.name;
   const head = exported ? "glob:pub" : "glob";
