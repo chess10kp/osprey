@@ -383,6 +383,16 @@
       "priority": 20
     },
     {
+      "rule_id": "ts.module.type-erasure.v1",
+      "mapping_class": "exact",
+      "category": "module",
+      "description": "Erase a module containing only TypeScript type declarations and type-only imports",
+      "nsir_kinds": ["module"],
+      "guards": ["type-only-runtime-empty"],
+      "enabled": true,
+      "priority": 19
+    },
+    {
       "rule_id": "catch-all.unsupported-top-level.v1",
       "mapping_class": "rejected",
       "category": "catch-all",

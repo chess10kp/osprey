@@ -1594,6 +1594,15 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
       return `sub(${patText}, ${repl}, ${recv}${flagArg})`;
     }
   }
+  // V2.13: `s.repeat(n)` -> `(s * int(n))`. TS `number` maps to Jac float,
+  // while sequence multiplication requires an integer count.
+  if (method === "repeat" && (node.arguments ?? []).length === 1) {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    const n = emitExpr(node.arguments[0], path, diags, ctx);
+    if (n === null) return null;
+    return `(${recv} * int(${n}))`;
+  }
   if (method === "includes" && (node.arguments ?? []).length === 1) {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
@@ -1601,14 +1610,46 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     if (val === null) return null;
     return `(${val} in ${recv})`;
   }
-  // V2.12: `s.indexOf(x)` -> `s.find(x)` (str.find; list.index raises on miss
-  // where JS returns -1 — only the string form lowers).
+  // V2.13: preserve JS's -1-on-miss behavior. The conditional repeats its
+  // operands, so accept only stable expressions; calls/updates fail closed.
   if (method === "indexOf" && (node.arguments ?? []).length === 1) {
+    if (!isStableRepeatableExpr(node.callee.object) || !isStableRepeatableExpr(node.arguments[0])) {
+      diags.push(diag("E7215", "indexOf receiver and value must be side-effect-free", path));
+      return null;
+    }
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
     const val = emitExpr(node.arguments[0], path, diags, ctx);
     if (val === null) return null;
-    return `${recv}.find(${val})`;
+    return `(-1 if ${val} not in ${recv} else ${recv}.index(${val}))`;
+  }
+  // `splice` returns the removed elements in JS, so it cannot lower as a Jac
+  // expression. emitStatement handles the discard-result two-argument form.
+  if (method === "splice") {
+    diags.push(diag("E7215", "splice is supported only as a discard-result statement", path));
+    return null;
+  }
+  // V2.12: `xs.filter(cb)` -> `[x for x in xs if cb(x)]` (single-param inline
+  // arrow, expression or single-return body).
+  if (method === "filter" && (node.arguments ?? []).length === 1) {
+    const cb = node.arguments[0];
+    if (cb?.type === "ArrowFunctionExpression" && !cb.async && !cb.generator
+      && (cb.params ?? []).length === 1 && cb.params[0]?.type === "Identifier") {
+      let bodyExpr = cb.body?.type === "BlockStatement" ? null : cb.body;
+      if (cb.body?.type === "BlockStatement") {
+        const stmts = cb.body.body ?? [];
+        if (stmts.length === 1 && stmts[0].type === "ReturnStatement" && stmts[0].argument) {
+          bodyExpr = stmts[0].argument;
+        }
+      }
+      if (bodyExpr) {
+        const recv = emitExpr(node.callee.object, path, diags, ctx);
+        if (recv === null) return null;
+        const cond = emitExpr(bodyExpr, path, diags, ctx);
+        if (cond === null) return null;
+        return `[${identText(cb.params[0].name)} for ${identText(cb.params[0].name)} in ${recv} if ${cond}]`;
+      }
+    }
   }
   if (method === "push") {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
@@ -1641,6 +1682,17 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     return `${recv}.${jacMethod}(${args.join(", ")})`;
   }
   return undefined;
+}
+
+/** Expressions safe to repeat in a conditional lowering without changing JS
+ * evaluation count. Calls, updates, assignments, and optional reads are not. */
+function isStableRepeatableExpr(node) {
+  return node?.type === "Identifier" || node?.type === "ThisExpression"
+    || node?.type === "Literal"
+    || ((node?.type === "MemberExpression" || node?.type === "OptionalMemberExpression")
+      && !node.optional
+      && isStableRepeatableExpr(node.object)
+      && (!node.computed || isStableRepeatableExpr(node.property)));
 }
 
 /** V2.4: emit a member access, supporting `a.b` and computed `a[expr]`. Optional
@@ -1857,6 +1909,23 @@ function emitStatement(stmt, ctx) {
 
   if (kind === "ExpressionStatement") {
     const expr = stmt.expression;
+    // V2.13: `xs.splice(i, n);` -> `del xs[i:i+n];`. This mapping is confined
+    // to statement position because JS returns the removed slice. Insert forms
+    // and expression-valued uses remain unsupported.
+    if (
+      expr?.type === "CallExpression" && !expr.optional
+      && expr.callee?.type === "MemberExpression" && !expr.callee.computed
+      && expr.callee.property?.name === "splice"
+      && (expr.arguments ?? []).length === 2
+    ) {
+      const recv = emitExpr(expr.callee.object, path, diags, ctx);
+      const start = emitExpr(expr.arguments[0], path, diags, ctx);
+      const count = emitExpr(expr.arguments[1], path, diags, ctx);
+      if (recv === null || start === null || count === null) return null;
+      return count === "1"
+        ? [`del ${recv}[${start}];`]
+        : [`del ${recv}[${start}:(${start}) + (${count})];`];
+    }
     if (expr?.type === "UpdateExpression") {
       const arg = emitExpr(expr.argument, path, diags, ctx);
       if (arg === null) return null;
@@ -2245,6 +2314,12 @@ const JAC_RESERVED_LOCALS = new Set([
   "match", "with", "entry", "has", "glob", "del", "edge", "node", "graph",
   "walker", "spawn", "visit", "report", "disengage", "skip", "take",
   "ignore", "ability", "import", "await", "defer",
+  // Python/Jac builtins a JS local can shadow — a shadowed builtin breaks the
+  // lowered call sites (e.g. a `max` param makes `max(...)` resolve to it).
+  "min", "max", "len", "abs", "all", "any", "round", "sum", "sorted",
+  "next", "ord", "chr", "print", "type", "id", "hash", "iter",
+  "range", "filter", "map", "int", "float", "str", "bool", "list",
+  "dict", "set", "tuple", "compile", "search", "sub",
 ]);
 
 /** Apply the per-file reserved-name rename to a binding/reference identifier. */
@@ -2304,8 +2379,8 @@ function collectLocalRenames(body) {
 /** JS numeric-builtin call table -> Python. Values are arg-index templates;
  * `null` marks impure/unmodeled members (fail closed upstream). */
 const JS_MATH_CALLS = {
-  max: (args) => `max(${args.join(", ")})`,
-  min: (args) => `min(${args.join(", ")})`,
+  max: (args) => `max(${args.map((arg) => `float(${arg})`).join(", ")})`,
+  min: (args) => `min(${args.map((arg) => `float(${arg})`).join(", ")})`,
   abs: (args) => `abs(${args.join(", ")})`,
   round: (args) => `round(${args[0]} as float)`,
   floor: (args) => `int((${args[0]}) // 1)`,
@@ -2459,6 +2534,11 @@ function emitExpr(node, path, diags, ctx = {}) {
     ) {
       const fn = JS_MATH_CALLS[node.callee.property.name];
       if (fn) {
+        if ((node.callee.property.name === "max" || node.callee.property.name === "min")
+          && (node.arguments ?? []).length === 0) {
+          diags.push(diag("E7215", `Math.${node.callee.property.name}() with no arguments is not supported`, path));
+          return null;
+        }
         const args = [];
         for (const arg of node.arguments ?? []) {
           const text = emitExpr(arg, path, diags, ctx);
@@ -2611,9 +2691,20 @@ function emitExpr(node, path, diags, ctx = {}) {
     return `(${left} ${op} ${right})`;
   }
   if (kind === "LogicalExpression") {
+    if (node.operator === "??") {
+      if (!isStableRepeatableExpr(node.left)) {
+        diags.push(diag("E7215", "nullish-coalescing left operand must be side-effect-free", path));
+        return null;
+      }
+      const left = emitExpr(node.left, path, diags, ctx);
+      if (left === null) return null;
+      const right = emitExpr(node.right, path, diags, ctx);
+      if (right === null) return null;
+      return `(${left} if ${left} is not None else ${right})`;
+    }
     const op = LOGICAL_OPS[node.operator];
     if (op === undefined) {
-      diags.push(diag("E7215", `Unsupported logical operator: ${node.operator} (nullish coalescing ?? is deferred)`, path));
+      diags.push(diag("E7215", `Unsupported logical operator: ${node.operator}`, path));
       return null;
     }
     const left = emitExpr(node.left, path, diags, ctx);
@@ -3991,22 +4082,26 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
     return null;
   }
   const memberLines = [];
+  const syntheticFieldLines = [];
   // V2.12: synthesize `has X: any;` stubs for `this.X` accesses the class
   // never declares — inherited-from-interop-base members (EventEmitter.emit)
   // and method-introduced state. Without the stub `self.X` is E1030 and the
   // file sinks. Stub fields are required (no default) so they sort first.
   {
     const declared = new Set();
+    for (const f of fieldLines) {
+      const m = /^has ([A-Za-z_$][A-Za-z0-9_$]*):/.exec(f.line);
+      if (m) declared.add(m[1]);
+    }
     for (const member of decl.body?.body ?? []) {
-      const key = member.key?.name;
-      if (key && (isClassFieldMember(member) || isClassMethodMember(member))) declared.add(key);
+      if (isClassMethodMember(member) && member.key?.name) declared.add(member.key.name);
     }
     const stubbed = new Set();
     const seenSelf = new Set();
-    const walkSelf = (n) => {
+    const walkSelf = (n, parent = null) => {
       if (!n || typeof n !== "object" || seenSelf.has(n)) return;
       seenSelf.add(n);
-      if (Array.isArray(n)) { for (const x of n) walkSelf(x); return; }
+      if (Array.isArray(n)) { for (const x of n) walkSelf(x, parent); return; }
       if (
         (n.type === "MemberExpression" || n.type === "OptionalMemberExpression")
         && !n.computed
@@ -4015,19 +4110,27 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
         && n.property?.type === "Identifier"
       ) {
         const p = n.property.name;
-        if (!declared.has(p) && !stubbed.has(p)) stubbed.add(p);
+        // An undeclared `this.method()` on a derived class is most likely an
+        // inherited method (EventEmitter.emit in pi-tui), not mutable state.
+        // Do not synthesize a field that masks it.
+        const inheritedCall = Boolean(
+          baseName && LOCAL_CLASSES.has(baseName)
+          && parent?.type === "CallExpression" && parent.callee === n
+        );
+        if (!inheritedCall && !declared.has(p) && !stubbed.has(p)) stubbed.add(p);
       }
       for (const k of Object.keys(n)) {
         if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
           || k.endsWith("Comments")) continue;
         const v = n[k];
-        if (v && typeof v === "object") walkSelf(v);
+        if (v && typeof v === "object") walkSelf(v, n);
       }
     };
     walkSelf(decl.body);
-    for (const p of [...stubbed].sort()) memberLines.push(`has ${p}: any;`);
+    for (const p of [...stubbed].sort()) syntheticFieldLines.push(`has ${p}: any = None;`);
   }
   for (const f of fieldLines.filter((f) => !f.hasDefault)) memberLines.push(f.line);
+  memberLines.push(...syntheticFieldLines);
   for (const f of fieldLines.filter((f) => f.hasDefault)) memberLines.push(f.line);
   for (const member of methodMembers) {
     const localDiags = [];
@@ -4045,7 +4148,13 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
   }
   const head = exported ? "obj:pub" : "obj";
   const extendsPart = baseName ? `(${baseName})` : "";
-  const objBlock = `${head} ${name}${extendsPart} {\n${memberLines.map((l) => `    ${l}`).join("\n")}\n}`;
+  // A method is represented as one multiline string. Indent every physical
+  // line under the object, not just the `def` line; otherwise method bodies
+  // and closing braces escape the object block in the emitted Jac.
+  const indentedMembers = memberLines.flatMap((memberText) =>
+    memberText.split("\n").map((line) => `    ${line}`)
+  );
+  const objBlock = `${head} ${name}${extendsPart} {\n${indentedMembers.join("\n")}\n}`;
   const jac = preamble.length
     ? `${preamble.join("\n")}\n\n${objBlock}`
     : objBlock;
@@ -4982,6 +5091,26 @@ function convertEnvelope(payload) {
       names: [],
       refs: entryRefs,
       droppedStatements: entryDrops,
+    });
+  }
+  // A module containing only erased TypeScript surface (interfaces/type aliases
+  // and type-only imports) is a successful conversion with an empty runtime
+  // body, not an E7200 hard reject. Keep an explicit mapping so project reports
+  // distinguish intentional erasure from an unsupported declaration drop.
+  const typeOnlyModule = body.length > 0 && body.every((item) =>
+    item.type === "ImportDeclaration" || isSkippableTypeDeclaration(item)
+  );
+  if (!outputs.length && !skips.length && !reExportLines.length && typeOnlyModule) {
+    outputs.push({
+      jac: "",
+      mappings: [{
+        rule_id: "ts.module.type-erasure.v1",
+        mapping_class: "exact",
+        target: "type-only module -> empty Jac runtime module",
+      }],
+      names: [],
+      refs: new Set(),
+      droppedStatements: [],
     });
   }
   // Fail-open reference safety: a kept declaration that references a name bound
