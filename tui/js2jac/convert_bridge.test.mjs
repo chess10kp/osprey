@@ -513,7 +513,21 @@ test("named match groups lower through Python groupdict", () => {
     }
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /match_j\.groupdict\(\)\.get\("digits"\)/);
+  assert.match(result.jac, /match_j\.groupdict\(\)\.get\('digits'\)/);
   assert.doesNotMatch(result.jac, /\.groups\.digits/);
+  assertJacChecks(result.jac);
+});
+
+test("numeric locals widen when fractional compound updates require it", () => {
+  const result = convert(`
+    export function score(text: string): number {
+      let score = 0;
+      for (let i = 0; i < text.length; i++) score += i * 0.1;
+      return score;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /score: float = 0;/);
+  assert.match(result.jac, /i: int = 0;/);
   assertJacChecks(result.jac);
 });

@@ -1412,6 +1412,7 @@ function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx =
     allowReturn: true,
     failOpen: parentCtx.failOpen ?? false,
     droppedStatements: parentCtx.droppedStatements ?? [],
+    floatLocals: collectFloatLocals(node.body),
   };
   const paramParts = [];
   for (const param of node.params ?? []) {
@@ -1778,7 +1779,7 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     && node.object.object?.type === "Identifier"
     && MATCH_LOCALS.has(identText(node.object.object.name))) {
     const matchName = identText(node.object.object.name);
-    return `(${matchName}.groupdict().get("${node.property.name}") as str)`;
+    return `(${matchName}.groupdict().get('${node.property.name}') as str)`;
   }
   if (node.optional) {
     if (!isStableRepeatableExpr(node.object)) {
@@ -2004,6 +2005,8 @@ function emitStatement(stmt, ctx) {
         const jacType = tsTypeToJac(ann, path, diags);
         if (!jacType) return null;
         prefix = `${name}: ${jacType} = `;
+      } else if (ctx.floatLocals?.has(d.id.name)) {
+        prefix = `${name}: float = `;
       }
       out.push(`${prefix}${val};`);
     }
@@ -3957,6 +3960,50 @@ function inferExprType(node, path, diags) {
   return null;
 }
 
+function collectFloatLocals(body) {
+  const numericLocals = new Set();
+  const floatLocals = new Set();
+  const walk = (node, visit) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const item of node) walk(item, visit); return; }
+    if (node !== body && (node.type === "FunctionDeclaration" || node.type === "FunctionExpression"
+      || node.type === "ArrowFunctionExpression")) return;
+    visit(node);
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "range" || key === "start" || key === "end") continue;
+      walk(value, visit);
+    }
+  };
+  walk(body, (node) => {
+    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier" || node.id.typeAnnotation) return;
+    const init = unwrapTsValue(node.init);
+    if ((init?.type === "Literal" && typeof init.value === "number") || init?.type === "NumericLiteral") {
+      numericLocals.add(node.id.name);
+    }
+  });
+  const suggestsFloat = (node) => {
+    const value = unwrapTsValue(node);
+    if (!value) return false;
+    if ((value.type === "Literal" && typeof value.value === "number") || value.type === "NumericLiteral") {
+      return !Number.isInteger(value.value);
+    }
+    if (value.type === "CallExpression") return true;
+    if (value.type === "MemberExpression" || value.type === "OptionalMemberExpression") {
+      return value.computed || value.property?.name !== "length";
+    }
+    if (value.type === "BinaryExpression" || value.type === "LogicalExpression") {
+      return suggestsFloat(value.left) || suggestsFloat(value.right);
+    }
+    if (value.type === "UnaryExpression") return suggestsFloat(value.argument);
+    return false;
+  };
+  walk(body, (node) => {
+    if (node.type !== "AssignmentExpression" || node.left?.type !== "Identifier") return;
+    if (numericLocals.has(node.left.name) && suggestsFloat(node.right)) floatLocals.add(node.left.name);
+  });
+  return floatLocals;
+}
+
 function inferReturnTypeFromBody(body, path, diags) {
   if (!body) return null;
   if (body.type !== "BlockStatement") return inferExprType(body, path, diags);
@@ -4183,6 +4230,7 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     allowReturn: true,
     failOpen: stmtFailOpen,
     droppedStatements: classCtx.droppedStatements ?? [],
+    floatLocals: collectFloatLocals(member.body),
   };
   const bodyLines = [];
   const body = member.body;
@@ -4473,7 +4521,15 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
     // whole declaration. Previously this path failed closed with E7233.
     retType = inferReturnTypeFromBody(body, path, diags) ?? "any";
   }
-  const ctx = { path, diags, allowReturn: true, dictBindings: new Set(), failOpen, droppedStatements: [] };
+  const ctx = {
+    path,
+    diags,
+    allowReturn: true,
+    dictBindings: new Set(),
+    failOpen,
+    droppedStatements: [],
+    floatLocals: collectFloatLocals(body),
+  };
   // V2.12: cast-at-sink support — untyped locals returned against a concrete
   // declared return type lower as `return (x as T);` (interop-sourced values).
   if (retType && retType !== "any" && retType !== "None" && body?.type === "BlockStatement") {
