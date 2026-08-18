@@ -420,3 +420,17 @@ test("non-null assertions permit access through nullable class fields", () => {
   assert.match(result.jac, /\(self\.value as any\)\.lines/);
   assertJacChecks(result.jac);
 });
+
+test("typed uninitialized local lets remain declarations", () => {
+  const result = convert(`
+    export function choose(flag: boolean): string {
+      let result: string;
+      if (flag) result = "yes";
+      else result = "no";
+      return result;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /result: str;/);
+  assertJacChecks(result.jac);
+});

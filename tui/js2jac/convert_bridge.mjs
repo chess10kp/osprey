@@ -1909,8 +1909,15 @@ function emitStatement(stmt, ctx) {
         return null;
       }
       if (d.init === null || d.init === undefined) {
-        diags.push(diag("E7231", "Variable declarations must have an initializer", path));
-        return null;
+        const ann = d.id.typeAnnotation?.typeAnnotation;
+        if (stmt.kind !== "let" || !ann) {
+          diags.push(diag("E7231", "Uninitialized variables require an explicit type annotation", path));
+          return null;
+        }
+        const jacType = tsTypeToJac(ann, path, diags);
+        if (!jacType) return null;
+        out.push(`${identText(d.id.name)}: ${jacType};`);
+        continue;
       }
       const val = emitExpr(d.init, path, diags, ctx);
       if (val === null) return null;
