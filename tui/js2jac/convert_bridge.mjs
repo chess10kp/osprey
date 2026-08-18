@@ -572,6 +572,37 @@ function escapeJsxString(value) {
     .replace(/\u2029/g, "\\u2029");
 }
 
+function fixedStringFromRegex(regex) {
+  if (!regex || /[^guv]/.test(regex.flags ?? "")) return null;
+  const pattern = regex.pattern ?? "";
+  let out = "";
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i];
+    if (ch !== "\\") {
+      if (".^$*+?()[]{}|".includes(ch)) return null;
+      out += ch;
+      continue;
+    }
+    const next = pattern[++i];
+    if (next === undefined) return null;
+    const controls = { t: "\t", n: "\n", r: "\r", f: "\f", v: "\v", 0: "\0" };
+    if (Object.prototype.hasOwnProperty.call(controls, next)) {
+      out += controls[next];
+    } else if (next === "x" && /^[0-9A-Fa-f]{2}$/.test(pattern.slice(i + 1, i + 3))) {
+      out += String.fromCodePoint(Number.parseInt(pattern.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else if (next === "u" && /^[0-9A-Fa-f]{4}$/.test(pattern.slice(i + 1, i + 5))) {
+      out += String.fromCodePoint(Number.parseInt(pattern.slice(i + 1, i + 5), 16));
+      i += 4;
+    } else if ("\\/.^$*+?()[]{}|-".includes(next)) {
+      out += next;
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
 function isJsxNode(n) {
   return n?.type === "JSXElement" || n?.type === "JSXFragment";
 }
@@ -1584,6 +1615,22 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
   // arg (replace-all vs first-only) diverges and stays unsupported.
   if (method === "replace" && (node.arguments ?? []).length === 2) {
     const a0 = node.arguments[0];
+    const replacement = node.arguments[1];
+    const replacementValue = replacement?.type === "Literal" || replacement?.type === "StringLiteral"
+      ? replacement.value
+      : null;
+    const fixed = a0?.type === "Literal" && a0.regex
+      ? fixedStringFromRegex(a0.regex)
+      : null;
+    if (fixed !== null && typeof replacementValue === "string" && !replacementValue.includes("$")) {
+      const recv = emitExpr(node.callee.object, path, diags, ctx);
+      if (recv === null) return null;
+      const oldText = `"${escapeJsxString(fixed)}"`;
+      const replText = `"${escapeJsxString(replacementValue)}"`;
+      return a0.regex.flags?.includes("g")
+        ? `${recv}.replace(${oldText}, ${replText})`
+        : `${recv}.replace(${oldText}, ${replText}, 1)`;
+    }
     const isRegex = (a0?.type === "Literal" && a0.regex)
       || (a0?.type === "Identifier" && REGEX_CONSTS.has(a0.name));
     if (isRegex) {

@@ -468,3 +468,15 @@ test("callback parameters apply reserved-name renames at binding sites", () => {
   assert.match(result.jac, /len\(match_j\) > code/);
   assert.doesNotMatch(result.jac, /lambda \(match:/);
 });
+
+test("fixed global regex replacement lowers without Python regex interop", () => {
+  const result = convert(`
+    export function expandTabs(text: string): string {
+      return text.replace(/\\t/g, "   ");
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.ok(result.jac.includes(String.raw`text.replace("\t", "   ")`));
+  assert.doesNotMatch(result.jac, /import from re|\bsub\(/);
+  assertJacChecks(result.jac);
+});
