@@ -504,3 +504,16 @@ test("regex string splitting lowers through Python regex interop", () => {
   assert.match(result.jac, /split\(r"\[\\s\/\]\+", query\)/);
   assertJacChecks(result.jac);
 });
+
+test("named match groups lower through Python groupdict", () => {
+  const result = convert(`
+    export function digits(value: string): string {
+      const match = value.match(/(?<digits>[0-9]+)/);
+      return match ? match.groups?.digits ?? "" : "";
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /match_j\.groupdict\(\)\.get\("digits"\)/);
+  assert.doesNotMatch(result.jac, /\.groups\.digits/);
+  assertJacChecks(result.jac);
+});

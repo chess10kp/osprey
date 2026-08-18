@@ -1769,6 +1769,17 @@ function isStableRepeatableExpr(node) {
  * map cleanly to a plain Jac member access. Returns the source or null.
  */
 function emitMemberAccess(node, path, diags, ctx = {}) {
+  if (!node.computed
+    && node.property?.type === "Identifier"
+    && (node.object?.type === "MemberExpression" || node.object?.type === "OptionalMemberExpression")
+    && !node.object.computed
+    && node.object.property?.type === "Identifier"
+    && node.object.property.name === "groups"
+    && node.object.object?.type === "Identifier"
+    && MATCH_LOCALS.has(identText(node.object.object.name))) {
+    const matchName = identText(node.object.object.name);
+    return `(${matchName}.groupdict().get("${node.property.name}") as str)`;
+  }
   if (node.optional) {
     if (!isStableRepeatableExpr(node.object)) {
       diags.push(diag("E7215", "Optional member receiver must be side-effect-free", path));
