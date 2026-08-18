@@ -1998,13 +1998,17 @@ function emitStatement(stmt, ctx) {
       diags.push(diag("E7230", "for-await-of loops are not supported", path));
       return null;
     }
-    const leftName = forLoopVarName(stmt.left, path, diags);
-    if (leftName === null) return null;
+    const binding = forLoopBinding(stmt.left, path, diags, ctx);
+    if (binding === null) return null;
     const right = emitExpr(stmt.right, path, diags, ctx);
     if (right === null) return null;
     const bodyLines = emitStatement(stmt.body, ctx);
     if (bodyLines === null) return null;
-    return [`for ${identText(leftName)} in ${right} {`, ...indentBlock(bodyLines), "}"];
+    return [
+      `for ${identText(binding.loopVar)} in ${right} {`,
+      ...indentBlock([...binding.preamble, ...bodyLines]),
+      "}",
+    ];
   }
 
   if (kind === "ForInStatement") {
@@ -2286,20 +2290,25 @@ function emitIfChain(stmt, ctx, INDENT) {
   return out;
 }
 
-/** Resolve the bound variable name of a for-loop left-hand side. */
-function forLoopVarName(left, path, diags) {
-  if (left?.type === "Identifier") return left.name;
+/** Resolve/lower a for-loop binding. Flat destructuring binds through a stable
+ * synthetic iteration variable before the original loop body. */
+function forLoopBinding(left, path, diags, ctx) {
+  if (left?.type === "Identifier") return { loopVar: left.name, preamble: [] };
   if (left?.type === "VariableDeclaration") {
     if ((left.declarations ?? []).length !== 1) {
       diags.push(diag("E7230", "for...of must bind a single variable", path));
       return null;
     }
     const id = left.declarations[0].id;
-    if (id?.type !== "Identifier") {
-      diags.push(diag("E7230", "for...of destructuring is not supported", path));
-      return null;
+    if (id?.type === "Identifier") return { loopVar: id.name, preamble: [] };
+    if (id?.type === "ArrayPattern" || id?.type === "ObjectPattern") {
+      const index = (ctx.__forTmp = (ctx.__forTmp ?? -1) + 1);
+      const loopVar = `_jx_item${index}`;
+      const lowered = lowerFlatPattern(id, loopVar, true, ctx);
+      if (lowered !== null) return { loopVar, preamble: lowered.lines };
     }
-    return id.name;
+    diags.push(diag("E7230", "for...of destructuring must use a flat array/object pattern", path));
+    return null;
   }
   diags.push(diag("E7230", `Unsupported for...of left-hand side: ${left?.type}`, path));
   return null;
@@ -2501,13 +2510,15 @@ function emitExpr(node, path, diags, ctx = {}) {
       diags.push(diag("E7215", "Optional call expressions are not supported", path));
       return null;
     }
-    // V2.12: `new Map()` -> `{}` (dict), `new Set()`/`new Set([...])` ->
-    // `set(...)` — the empty-collection construction idioms. `new Map(entries)`
-    // is not modeled (dict(iterable-of-pairs) diverges); other `new` forms keep
-    // the fail-closed reject below.
+    // V2.16: collection constructors map to their Jac/Python equivalents.
     if (kind === "NewExpression") {
       const ctor = node.callee?.type === "Identifier" ? node.callee.name : null;
-      if (ctor === "Map" && (node.arguments ?? []).length === 0) return "{}";
+      if (ctor === "Map" && (node.arguments ?? []).length <= 1) {
+        if ((node.arguments ?? []).length === 0) return "{}";
+        const arg = emitExpr(node.arguments[0], path, diags, ctx);
+        if (arg === null) return null;
+        return `dict(${arg})`;
+      }
       if (ctor === "Set" && (node.arguments ?? []).length <= 1) {
         if ((node.arguments ?? []).length === 0) return "set()";
         const arg = emitExpr(node.arguments[0], path, diags, ctx);
@@ -2727,6 +2738,12 @@ function emitExpr(node, path, diags, ctx = {}) {
     if (left === null) return null;
     const right = emitExpr(node.right, path, diags, ctx);
     if (right === null) return null;
+    if (["&", "|", "^", "<<", ">>"].includes(node.operator)) {
+      // JavaScript coerces bitwise operands to int32 but still exposes the
+      // result as `number`; Jac's integer operators need explicit narrowing and
+      // the surrounding float restores the TS-number contract.
+      return `float(int(${left}) ${op} int(${right}))`;
+    }
     return `(${left} ${op} ${right})`;
   }
   if (kind === "LogicalExpression") {
@@ -2760,6 +2777,7 @@ function emitExpr(node, path, diags, ctx = {}) {
     }
     const arg = emitExpr(node.argument, path, diags, ctx);
     if (arg === null) return null;
+    if (node.operator === "~") return `float(~int(${arg}))`;
     return `${op}${arg}`;
   }
   if (kind === "ConditionalExpression") {
@@ -3081,6 +3099,7 @@ function lowerReExport(item) {
 
 const BINARY_OPS = {
   "+": "+", "-": "-", "*": "*", "/": "/", "%": "%", "**": "**",
+  "&": "&", "|": "|", "^": "^", "<<": "<<", ">>": ">>",
   "==": "==", "!=": "!=",
   "===": "==", "!==": "!=",
   ">": ">", "<": "<", ">=": ">=", "<=": "<=",
@@ -3093,6 +3112,7 @@ const UNARY_OPS = {
   "!": "not ",
   "-": "-",
   "+": "+",
+  "~": "~",
 };
 
 // JS `typeof X === 'string'` runtime type-guard idiom -> Jac `isinstance`. Only
@@ -4445,12 +4465,15 @@ function isModuleGlobalInit(node) {
     case "FunctionExpression":
     case "ClassExpression":
       return false;
-    // V2.12: `new Map()` / `new Set()` are collection constructors with a
-    // clean Jac form ({} / set()) — the ONLY `new` lowered at module scope.
+    // V2.16: collection constructors with zero/one pure iterable argument.
     case "NewExpression":
       if (n.callee?.type !== "Identifier") return false;
-      if (n.callee.name === "Map" && (n.arguments ?? []).length === 0) return true;
-      if (n.callee.name === "Set" && (n.arguments ?? []).length === 0) return true;
+      if (n.callee.name === "Map" && (n.arguments ?? []).length <= 1) {
+        return (n.arguments ?? []).length === 0 || isModuleGlobalInit(n.arguments[0]);
+      }
+      if (n.callee.name === "Set" && (n.arguments ?? []).length <= 1) {
+        return (n.arguments ?? []).length === 0 || isModuleGlobalInit(n.arguments[0]);
+      }
       // A locally-declared class lowers to a call construction — sound at
       // module scope because the archetype is defined in this file.
       if (LOCAL_CLASSES.has(n.callee.name)) return true;

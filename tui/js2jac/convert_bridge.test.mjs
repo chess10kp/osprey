@@ -292,3 +292,43 @@ test("native module patterns emit a reviewable fail-open floor", () => {
   assert.match(result.jac, /JS2JAC-HOLE\[E7200\] Declaration produced no output/);
   assert.match(result.jac, /try \{ return helper\.run\(value\); \} catch/);
 });
+
+test("module Set and Map constructors lower iterable initializers", () => {
+  const result = convert(`
+    export const names = new Set(["a", "b"]);
+    export const aliases = new Map([["a", "alpha"], ["b", "beta"]]);
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /glob:pub names = set\(\["a", "b"\]\);/);
+  assert.match(result.jac, /glob:pub aliases = dict\(\[\["a", "alpha"\], \["b", "beta"\]\]\);/);
+  assertJacChecks(result.jac);
+});
+
+test("bitwise operators preserve masks and shifts", () => {
+  const result = convert(`
+    export function masked(value: number, lock: number): number {
+      return (value & ~lock) | (1 << 4);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /float\(int\(value\) & int\(float\(~int\(lock\)\)\)\)/);
+  assert.match(result.jac, /float\(int\(1\) << int\(4\)\)/);
+  assertJacChecks(result.jac);
+});
+
+test("for-of flat destructuring binds through a synthetic item", () => {
+  const result = convert(`
+    export function joinPairs(pairs: [string, string][]): string {
+      let output = "";
+      for (const [key, value] of pairs) {
+        output += key + value;
+      }
+      return output;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /for _jx_item0 in pairs \{/);
+  assert.match(result.jac, /key = _jx_item0\[0\];/);
+  assert.match(result.jac, /value = _jx_item0\[1\];/);
+  assertJacChecks(result.jac);
+});
