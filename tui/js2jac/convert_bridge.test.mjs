@@ -408,3 +408,15 @@ test("class parameters infer types from literal defaults", () => {
   assert.match(result.jac, /enabled: bool = True/);
   assertJacChecks(result.jac);
 });
+
+test("non-null assertions permit access through nullable class fields", () => {
+  const result = convert(`
+    export class Cache {
+      private value?: { lines: string[] };
+      lines(): string[] { return this.value!.lines; }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /\(self\.value as any\)\.lines/);
+  assertJacChecks(result.jac);
+});

@@ -2474,8 +2474,16 @@ function emitExpr(node, path, diags, ctx = {}) {
   // object's `[[..]] as [LngLatLike, LngLatLike]`) emits its inner value instead
   // of sinking the whole declaration. `unwrapTsValue` already strips the *top*
   // wrapper; this handles arbitrarily nested ones.
+  if (kind === "TSNonNullExpression") {
+    const inner = emitExpr(node.expression, path, diags, ctx);
+    if (inner === null) return null;
+    // Jac does not carry TypeScript's postfix non-null assertion. Casting the
+    // already-evaluated value to `any` removes None from checker-visible access
+    // while retaining the same runtime failure behavior if the assertion lied.
+    return `(${inner} as any)`;
+  }
   if (kind === "TSAsExpression" || kind === "TSSatisfiesExpression"
-    || kind === "TSTypeAssertion" || kind === "TSNonNullExpression") {
+    || kind === "TSTypeAssertion") {
     return emitExpr(node.expression, path, diags, ctx);
   }
   if (kind === "MemberExpression") return emitMemberAccess(node, path, diags, ctx);
