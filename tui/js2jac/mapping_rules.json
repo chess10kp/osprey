@@ -1,0 +1,481 @@
+{
+  "rule_set_version": "js2jac-client-v1",
+  "schema_version": 1,
+  "rules": [
+    {
+      "rule_id": "react.component.export-function.v1",
+      "mapping_class": "exact",
+      "category": "react.component",
+      "description": "Exported function component -> def:pub with JsxElement return",
+      "nsir_kinds": ["export_function"],
+      "guards": [],
+      "enabled": true,
+      "priority": 10
+    },
+    {
+      "rule_id": "js.function.component.v2",
+      "mapping_class": "exact",
+      "category": "react.component",
+      "description": "Non-exported function component (JSX return) -> def without pub",
+      "nsir_kinds": ["export_function"],
+      "guards": ["jsx-return"],
+      "enabled": true,
+      "priority": 11
+    },
+    {
+      "rule_id": "js.function.declaration.v2",
+      "mapping_class": "guarded",
+      "category": "js.function",
+      "description": "Local helper function/arrow without JSX return -> Jac def",
+      "nsir_kinds": ["export_function"],
+      "guards": ["no-jsx-return", "inferrable-types"],
+      "enabled": true,
+      "priority": 20
+    },
+    {
+      "rule_id": "react.component.fc-strip.v1",
+      "mapping_class": "guarded",
+      "category": "react.component",
+      "description": "Strip React.FC / FunctionComponent wrapper; use generic props type",
+      "nsir_kinds": ["export_function"],
+      "guards": ["fc-type-arg-or-inline-props"],
+      "enabled": true,
+      "priority": 15
+    },
+    {
+      "rule_id": "react.component.forward-ref-strip.v1",
+      "mapping_class": "guarded",
+      "category": "react.component",
+      "description": "Strip forwardRef HOC; emit trailing ref: Ref[T] parameter",
+      "nsir_kinds": ["export_function"],
+      "guards": ["arrow-callback", "trailing-ref-param"],
+      "enabled": true,
+      "priority": 15
+    },
+    {
+      "rule_id": "react.component.memo-strip.v1",
+      "mapping_class": "guarded",
+      "category": "react.component",
+      "description": "Strip React.memo wrapper; lower inner component",
+      "nsir_kinds": ["export_function"],
+      "guards": ["no-custom-comparator"],
+      "enabled": true,
+      "priority": 15
+    },
+    {
+      "rule_id": "react.component.props-destructure.v1",
+      "mapping_class": "guarded",
+      "category": "react.component",
+      "description": "Props destructuring or bag decomposition -> named Jac parameters",
+      "nsir_kinds": ["parameter", "export_function"],
+      "guards": ["no-rest-rename-nested"],
+      "enabled": true,
+      "priority": 12
+    },
+    {
+      "rule_id": "react.component.children-prop.v1",
+      "mapping_class": "exact",
+      "category": "react.component",
+      "description": "ReactNode / JSX.Element children prop -> children: any",
+      "nsir_kinds": ["parameter", "type_property"],
+      "guards": [],
+      "enabled": true,
+      "priority": 12
+    },
+    {
+      "rule_id": "react.state.usestate.v1",
+      "mapping_class": "guarded",
+      "category": "react.state",
+      "description": "useState two-name destructure -> component-local has + direct setter",
+      "nsir_kinds": ["export_function"],
+      "guards": ["hook-order", "no-setter-escape", "eager-init"],
+      "enabled": true,
+      "priority": 30
+    },
+    {
+      "rule_id": "react.ref.useref.v1",
+      "mapping_class": "guarded",
+      "category": "react.ref",
+      "description": "useRef -> has r: Ref[T] = Ref(initial)",
+      "nsir_kinds": ["export_function"],
+      "guards": ["unique-ref-type", "no-callback-ref"],
+      "enabled": true,
+      "priority": 30
+    },
+    {
+      "rule_id": "react.effect.useeffect-mount.v1",
+      "mapping_class": "guarded",
+      "category": "react.effect",
+      "description": "Mount-only useEffect -> can with entry",
+      "nsir_kinds": ["export_function"],
+      "guards": ["mount-only-deps"],
+      "enabled": true,
+      "priority": 30
+    },
+    {
+      "rule_id": "react.effect.useeffect-deps.v1",
+      "mapping_class": "guarded",
+      "category": "react.effect",
+      "description": "useEffect with dependency array -> can with [deps] entry",
+      "nsir_kinds": ["export_function"],
+      "guards": ["approved-dep-names"],
+      "enabled": true,
+      "priority": 30
+    },
+    {
+      "rule_id": "react.hook.usememo.interop.v1",
+      "mapping_class": "interop",
+      "category": "react.hook",
+      "description": "Preserve useMemo as React interop call",
+      "nsir_kinds": ["export_function"],
+      "guards": ["pre-body-hook"],
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "rule_id": "react.hook.usecallback.interop.v1",
+      "mapping_class": "interop",
+      "category": "react.hook",
+      "description": "Preserve useCallback as React interop call",
+      "nsir_kinds": ["export_function"],
+      "guards": ["pre-body-hook"],
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "rule_id": "jsx.element.intrinsic.v1",
+      "mapping_class": "exact",
+      "category": "jsx",
+      "description": "Intrinsic/component JSX element -> Jac JsxElement",
+      "nsir_kinds": ["jsx_element"],
+      "guards": [],
+      "enabled": true,
+      "priority": 5
+    },
+    {
+      "rule_id": "jsx.list.map-comprehension.v1",
+      "mapping_class": "guarded",
+      "category": "jsx",
+      "description": "Single-param .map(x => <el>) in JSX child -> list comprehension",
+      "nsir_kinds": ["jsx_element"],
+      "guards": ["w3042-single-param", "jsx-body"],
+      "enabled": true,
+      "priority": 25
+    },
+    {
+      "rule_id": "jsx.conditional.ternary.v2",
+      "mapping_class": "guarded",
+      "category": "jsx",
+      "description": "JSX ternary conditional -> Jac if expression",
+      "nsir_kinds": ["jsx_element"],
+      "guards": ["jsx-branches"],
+      "enabled": true,
+      "priority": 25
+    },
+    {
+      "rule_id": "jsx.conditional.ternary-null.v2",
+      "mapping_class": "guarded",
+      "category": "jsx",
+      "description": "JSX ternary with null alternate -> and/or idiom",
+      "nsir_kinds": ["jsx_element"],
+      "guards": ["null-alternate"],
+      "enabled": true,
+      "priority": 25
+    },
+    {
+      "rule_id": "jsx.conditional.and.v2",
+      "mapping_class": "guarded",
+      "category": "jsx",
+      "description": "JSX && conditional rendering",
+      "nsir_kinds": ["jsx_element"],
+      "guards": ["jsx-right"],
+      "enabled": true,
+      "priority": 25
+    },
+    {
+      "rule_id": "jsx.conditional.or.v2",
+      "mapping_class": "guarded",
+      "category": "jsx",
+      "description": "JSX || conditional rendering",
+      "nsir_kinds": ["jsx_element"],
+      "guards": ["jsx-right"],
+      "enabled": true,
+      "priority": 25
+    },
+    {
+      "rule_id": "js.import.interop.v2",
+      "mapping_class": "interop",
+      "category": "js.module",
+      "description": "Non-react ESM import preserved as interop import comment",
+      "nsir_kinds": ["module"],
+      "guards": [],
+      "enabled": true,
+      "priority": 50
+    },
+    {
+      "rule_id": "js.module.const-global.v1",
+      "mapping_class": "guarded",
+      "category": "js.module",
+      "description": "Top-level value const/let -> Jac module global (glob)",
+      "nsir_kinds": ["module"],
+      "guards": ["value-initializer", "single-identifier"],
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "rule_id": "js.module.enum.v1",
+      "mapping_class": "guarded",
+      "category": "js.module",
+      "description": "Top-level TS enum -> Jac enum",
+      "nsir_kinds": ["module"],
+      "guards": ["identifier-members"],
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "rule_id": "js.module.decl-skip.v1",
+      "mapping_class": "rejected",
+      "category": "js.module",
+      "description": "Fail-open: drop an unsupported top-level declaration (and its dependents) but keep the rest of the file",
+      "nsir_kinds": ["module"],
+      "guards": ["reference-safe-drop"],
+      "enabled": true,
+      "priority": 900
+    },
+    {
+      "rule_id": "js.stmt.fail-open.v1",
+      "mapping_class": "rejected",
+      "category": "js.stmt",
+      "description": "Statement-level fail-open: drop an unsupported statement (and its intra-block dependents) but keep the rest of the declaration",
+      "nsir_kinds": ["statement"],
+      "guards": ["reference-safe-drop", "return-path-preserving"],
+      "enabled": true,
+      "priority": 901
+    },
+    {
+      "rule_id": "js.module.reexport.v1",
+      "mapping_class": "interop",
+      "category": "js.module",
+      "description": "Fail-open: lower a re-export barrel form (export { A } from '...' / export * from '...') to a Jac import",
+      "nsir_kinds": ["module"],
+      "guards": ["identity-or-alias-specifiers"],
+      "enabled": true,
+      "priority": 50
+    },
+    {
+      "rule_id": "js.module.directive-prologue.v1",
+      "mapping_class": "guarded",
+      "category": "js.module",
+      "description": "Drop directive-prologue statements ('use client'/'use server'/'use strict') -> no-op",
+      "nsir_kinds": ["module"],
+      "guards": ["estree-directive-marker"],
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "rule_id": "js.list.push-append.v2",
+      "mapping_class": "guarded",
+      "category": "js.list",
+      "description": "Array.push -> list.append",
+      "nsir_kinds": ["block"],
+      "guards": ["list-receiver"],
+      "enabled": true,
+      "priority": 35
+    },
+    {
+      "rule_id": "js.list.join-reverse.v2",
+      "mapping_class": "guarded",
+      "category": "js.list",
+      "description": "arr.join(sep) -> sep.join(arr)",
+      "nsir_kinds": ["block"],
+      "guards": ["separator-first"],
+      "enabled": true,
+      "priority": 35
+    },
+    {
+      "rule_id": "js.list.map-comprehension-expr.v2",
+      "mapping_class": "guarded",
+      "category": "js.list",
+      "description": "Expression .map(x => expr) -> [expr for x in arr]",
+      "nsir_kinds": ["block"],
+      "guards": ["single-param", "non-jsx-body"],
+      "enabled": true,
+      "priority": 35
+    },
+    {
+      "rule_id": "js.string.method.v2",
+      "mapping_class": "guarded",
+      "category": "js.string",
+      "description": "Common JS string methods -> Jac spellings (upper, strip, ...)",
+      "nsir_kinds": ["block"],
+      "guards": ["known-method-table"],
+      "enabled": true,
+      "priority": 35
+    },
+    {
+      "rule_id": "js.dict.bracket-access.v2",
+      "mapping_class": "guarded",
+      "category": "js.dict",
+      "description": "Dict literal / tracked dict .key -> bracket access",
+      "nsir_kinds": ["block"],
+      "guards": ["dict-binding"],
+      "enabled": true,
+      "priority": 35
+    },
+    {
+      "rule_id": "ts.type.inline-object.v1",
+      "mapping_class": "guarded",
+      "category": "ts.type",
+      "description": "Inline object type literal -> Jac named parameter types",
+      "nsir_kinds": ["object_type", "type_property"],
+      "guards": ["no-computed-keys"],
+      "enabled": true,
+      "priority": 8
+    },
+    {
+      "rule_id": "ts.type.alias-resolve.v2",
+      "mapping_class": "guarded",
+      "category": "ts.type",
+      "description": "Resolve module type/interface alias for props annotation",
+      "nsir_kinds": ["object_type"],
+      "guards": ["resolvable-alias"],
+      "enabled": true,
+      "priority": 8
+    },
+    {
+      "rule_id": "ts.type.array-tuple.v1",
+      "mapping_class": "guarded",
+      "category": "ts.type",
+      "description": "TS array/tuple types -> list/tuple Jac types",
+      "nsir_kinds": ["object_type", "type_property"],
+      "guards": ["no-rest-tuple"],
+      "enabled": true,
+      "priority": 8
+    },
+    {
+      "rule_id": "ts.type.union-optional.v1",
+      "mapping_class": "guarded",
+      "category": "ts.type",
+      "description": "Union and optional TS types -> Jac union / None",
+      "nsir_kinds": ["type_property"],
+      "guards": [],
+      "enabled": true,
+      "priority": 8
+    },
+    {
+      "rule_id": "catch-all.unsupported-top-level.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported top-level module forms (re-export, default export, etc.)",
+      "nsir_kinds": ["module"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    },
+    {
+      "rule_id": "catch-all.unsupported-type.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported TypeScript type forms (E7201 family)",
+      "nsir_kinds": ["object_type", "type_property", "string_type"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    },
+    {
+      "rule_id": "catch-all.unsupported-hook.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported React hooks beyond approved set (E7208)",
+      "nsir_kinds": ["export_function"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    },
+    {
+      "rule_id": "catch-all.unsupported-jsx.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported JSX patterns (optional chaining, dynamic tags, etc.)",
+      "nsir_kinds": ["jsx_element"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    },
+    {
+      "rule_id": "catch-all.unsupported-statement.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported statements in component/helper bodies (E7230 family)",
+      "nsir_kinds": ["block", "return"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    },
+    {
+      "rule_id": "catch-all.unsupported-expression.v1",
+      "mapping_class": "rejected",
+      "category": "catch-all",
+      "description": "Unsupported expressions (new, optional chain, etc.)",
+      "nsir_kinds": ["block", "return"],
+      "guards": [],
+      "enabled": true,
+      "priority": 1000
+    }
+  ],
+  "nsir_kind_coverage": {
+    "module": ["catch-all.unsupported-top-level.v1", "js.import.interop.v2", "js.module.const-global.v1", "js.module.enum.v1", "js.module.directive-prologue.v1", "js.module.decl-skip.v1", "js.module.reexport.v1"],
+    "export_function": [
+      "react.component.export-function.v1",
+      "js.function.component.v2",
+      "js.function.declaration.v2",
+      "react.component.fc-strip.v1",
+      "react.component.forward-ref-strip.v1",
+      "react.component.memo-strip.v1",
+      "react.component.props-destructure.v1",
+      "react.state.usestate.v1",
+      "react.ref.useref.v1",
+      "react.effect.useeffect-mount.v1",
+      "react.effect.useeffect-deps.v1",
+      "react.hook.usememo.interop.v1",
+      "react.hook.usecallback.interop.v1",
+      "catch-all.unsupported-hook.v1"
+    ],
+    "parameter": ["react.component.props-destructure.v1", "react.component.children-prop.v1"],
+    "block": [
+      "js.function.declaration.v2",
+      "js.list.push-append.v2",
+      "js.list.join-reverse.v2",
+      "js.list.map-comprehension-expr.v2",
+      "js.string.method.v2",
+      "js.dict.bracket-access.v2",
+      "catch-all.unsupported-statement.v1",
+      "catch-all.unsupported-expression.v1"
+    ],
+    "return": ["catch-all.unsupported-statement.v1", "catch-all.unsupported-expression.v1"],
+    "jsx_element": [
+      "jsx.element.intrinsic.v1",
+      "jsx.list.map-comprehension.v1",
+      "jsx.conditional.ternary.v2",
+      "jsx.conditional.ternary-null.v2",
+      "jsx.conditional.and.v2",
+      "jsx.conditional.or.v2",
+      "catch-all.unsupported-jsx.v1"
+    ],
+    "jsx_member_access": ["jsx.element.intrinsic.v1"],
+    "object_type": [
+      "ts.type.inline-object.v1",
+      "ts.type.alias-resolve.v2",
+      "ts.type.array-tuple.v1",
+      "catch-all.unsupported-type.v1"
+    ],
+    "type_property": [
+      "react.component.children-prop.v1",
+      "ts.type.inline-object.v1",
+      "ts.type.array-tuple.v1",
+      "ts.type.union-optional.v1",
+      "catch-all.unsupported-type.v1"
+    ],
+    "string_type": ["catch-all.unsupported-type.v1"]
+  }
+}
