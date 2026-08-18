@@ -566,7 +566,10 @@ function tsForwardedRefElementToJac(typeNode, path, diags) {
 }
 
 function escapeJsxString(value) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return JSON.stringify(String(value))
+    .slice(1, -1)
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 function isJsxNode(n) {

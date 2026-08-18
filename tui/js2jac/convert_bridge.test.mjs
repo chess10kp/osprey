@@ -369,3 +369,15 @@ test("fail-open class members are emitted as explicit holes", () => {
   assert.match(result.jac, /JS2JAC-HOLE\[E7205\] Generator class methods are not supported/);
   assert.match(result.jac, /def ok\(\) -> str/);
 });
+
+test("string literals escape control characters in emitted Jac", () => {
+  const result = convert(`
+    export function newlineIndex(value: string): number {
+      return value.indexOf("\\n");
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.ok(result.jac.includes(String.raw`"\n"`));
+  assert.doesNotMatch(result.jac, /"\n"/);
+  assertJacChecks(result.jac);
+});
