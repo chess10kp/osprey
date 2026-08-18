@@ -3125,6 +3125,9 @@ function lowerReExport(item) {
   const src = jacModulePath(item.source?.value);
   if (typeof src !== "string" || !src) return null;
   const exportedNames = [];
+  if (item.exportKind === "type" || item.exportKind === "typeof") {
+    return { line: null, exportedNames };
+  }
   if (item.type === "ExportAllDeclaration") {
     const ns = item.exported?.name ?? item.exported?.value;
     if (ns) { exportedNames.push(ns); return { line: `import from "${src}" { * as ${ns} }`, exportedNames }; }
@@ -3132,6 +3135,7 @@ function lowerReExport(item) {
   }
   const parts = [];
   for (const spec of item.specifiers ?? []) {
+    if (spec.exportKind === "type" || spec.exportKind === "typeof") continue;
     if (spec.type === "ExportSpecifier") {
       const local = spec.local?.name ?? spec.local?.value;
       const exp = spec.exported?.name ?? spec.exported?.value;
@@ -3147,7 +3151,7 @@ function lowerReExport(item) {
       return null;
     }
   }
-  if (!parts.length) return null;
+  if (!parts.length) return { line: null, exportedNames };
   return { line: `import from "${src}" { ${parts.join(", ")} }`, exportedNames };
 }
 
@@ -5155,7 +5159,7 @@ function convertEnvelope(payload) {
           // through to the strict diagnostic in both modes.
           const lowered = failOpen ? lowerReExport(item) : null;
           if (lowered) {
-            reExportLines.push(lowered.line);
+            if (lowered.line) reExportLines.push(lowered.line);
             for (const n of lowered.exportedNames) publicNames.add(n);
             continue;
           }
@@ -5206,7 +5210,7 @@ function convertEnvelope(payload) {
       // re-export. Fail-open lowers to a Jac wildcard import; strict keeps E7205.
       const lowered = failOpen ? lowerReExport(item) : null;
       if (lowered) {
-        reExportLines.push(lowered.line);
+        if (lowered.line) reExportLines.push(lowered.line);
         for (const n of lowered.exportedNames) publicNames.add(n);
         continue;
       }

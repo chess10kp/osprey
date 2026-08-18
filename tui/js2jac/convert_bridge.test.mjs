@@ -445,3 +445,14 @@ test("qualified constructors lower as explicit interop globals", () => {
   assert.equal(result.droppedCount, 0);
   assertJacChecks(result.jac);
 });
+
+test("re-exports erase type-only specifiers from runtime imports", () => {
+  const result = convert(`
+    export { type Shape, Runtime, type Config as RuntimeConfig } from "./values.ts";
+    export type { OnlyType } from "./types.ts";
+  `, "index.ts", { failOpen: true, emitHoles: true });
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import from "\.\/values\.jac" \{ Runtime \}/);
+  assert.doesNotMatch(result.jac, /Shape|Config|OnlyType|types\.jac/);
+  assert.equal(result.droppedCount, 0);
+});
