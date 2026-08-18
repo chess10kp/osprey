@@ -425,7 +425,11 @@ function tsTypeToJac(typeNode, path, diags) {
     return joinUnionTypes(parts);
   }
   if (kind === "TSTypeLiteral") {
-    const props = [];
+    // V2.12: Jac has no record/struct type — `{a: T, b: U}` in TYPE position
+    // parses as a dict type with surprising key inference. Emit the explicit
+    // dict type `dict[str, T | U]`; field access on dict-shaped values lowers to
+    // subscripts (see noteDictBinding / usesDictBracketAccess).
+    const valueTypes = [];
     for (const member of typeNode.members ?? []) {
       if (member.type !== "TSPropertySignature") {
         diags.push(diag("E7201", `Unsupported TypeScript property form: ${member.type}`, path));
@@ -443,10 +447,10 @@ function tsTypeToJac(typeNode, path, diags) {
       }
       const fieldType = tsTypeToJac(ann, path, diags);
       if (!fieldType) return null;
-      const finalType = member.optional ? withOptionalJacType(fieldType) : fieldType;
-      props.push(`${keyName}: ${finalType}`);
+      valueTypes.push(member.optional ? withOptionalJacType(fieldType) : fieldType);
     }
-    return `{${props.join(", ")}}`;
+    const uniq = [...new Set(valueTypes)];
+    return `dict[str, ${uniq.join(" | ")}]`;
   }
   if (kind === "TSArrayType") {
     const elem = tsTypeToJac(typeNode.elementType, path, diags);
@@ -1435,6 +1439,12 @@ function noteDictBinding(name, init, ann, ctx) {
     return;
   }
   if (ann?.type === "TSTypeLiteral") ctx.dictBindings.add(name);
+  // V2.12: a call to a function whose TS return type is an object literal type
+  // produces a dict value (see DICT_RETURNING_FUNCS).
+  if (init?.type === "CallExpression" && init.callee?.type === "Identifier"
+    && DICT_RETURNING_FUNCS.has(init.callee.name)) {
+    ctx.dictBindings.add(name);
+  }
 }
 
 function isDictBinding(name, ctx) {
@@ -1445,6 +1455,9 @@ function usesDictBracketAccess(node, ctx) {
   if (node.computed) return false;
   if (node.object?.type === "ObjectExpression") return true;
   if (node.object?.type === "Identifier" && isDictBinding(node.object.name, ctx)) return true;
+  // V2.12: direct member access on a dict-returning call: `f().field`.
+  if (node.object?.type === "CallExpression" && node.object.callee?.type === "Identifier"
+    && DICT_RETURNING_FUNCS.has(node.object.callee.name)) return true;
   return false;
 }
 
@@ -1512,6 +1525,44 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     if (idx === null) return null;
     return `${recv}[${idx}]`;
   }
+  // V2.12: `s.charCodeAt(i)` / `s.codePointAt(i)` -> `ord(s[i])` (codePointAt
+  // surrogate-pair semantics are not modeled; mapping note).
+  if ((method === "charCodeAt" || method === "codePointAt")
+      && (node.arguments ?? []).length <= 1) {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    let idx = "0";
+    if ((node.arguments ?? []).length === 1) {
+      idx = emitExpr(node.arguments[0], path, diags, ctx);
+      if (idx === null) return null;
+    }
+    return `ord(${recv}[${idx}])`;
+  }
+  // V2.12: `xs.every(cb)` / `xs.some(cb)` -> `all(...)` / `any(...)` over a
+  // generator expression, for single-param inline arrows (expression body or
+  // single-return block) — mirroring the `.map` comprehension guard set.
+  if ((method === "every" || method === "some") && (node.arguments ?? []).length === 1) {
+    const cb = node.arguments[0];
+    if (cb?.type === "ArrowFunctionExpression" && !cb.async && !cb.generator
+      && (cb.params ?? []).length === 1 && cb.params[0]?.type === "Identifier") {
+      const itemName = cb.params[0].name;
+      let bodyExpr = cb.body?.type === "BlockStatement" ? null : cb.body;
+      if (cb.body?.type === "BlockStatement") {
+        const stmts = cb.body.body ?? [];
+        if (stmts.length === 1 && stmts[0].type === "ReturnStatement" && stmts[0].argument) {
+          bodyExpr = stmts[0].argument;
+        }
+      }
+      if (bodyExpr) {
+        const recv = emitExpr(node.callee.object, path, diags, ctx);
+        if (recv === null) return null;
+        const cond = emitExpr(bodyExpr, path, diags, ctx);
+        if (cond === null) return null;
+        const fn = method === "every" ? "all" : "any";
+        return `${fn}(${cond} for ${identText(itemName)} in ${recv})`;
+      }
+    }
+  }
   if ((method === "slice" || method === "substring")
       && (node.arguments ?? []).length >= 1 && node.arguments.length <= 2) {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
@@ -1525,12 +1576,39 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     }
     return `${recv}[${a}:${b}]`;
   }
+  // V2.12: `s.replace(regexOrRegexConst, repl)` -> `sub(pat, repl, s)`. Only
+  // the regex first-arg form (literal or module regex-const); a string first
+  // arg (replace-all vs first-only) diverges and stays unsupported.
+  if (method === "replace" && (node.arguments ?? []).length === 2) {
+    const a0 = node.arguments[0];
+    const isRegex = (a0?.type === "Literal" && a0.regex)
+      || (a0?.type === "Identifier" && REGEX_CONSTS.has(a0.name));
+    if (isRegex) {
+      const patText = a0.type === "Literal" ? pyRawString(a0.regex.pattern ?? "") : a0.name;
+      const flagArg = a0.type === "Literal" ? pyRegexFlagsArg(a0.regex.flags) : "";
+      const recv = emitExpr(node.callee.object, path, diags, ctx);
+      if (recv === null) return null;
+      const repl = emitExpr(node.arguments[1], path, diags, ctx);
+      if (repl === null) return null;
+      REGEX_INTEROP.sub = true;
+      return `sub(${patText}, ${repl}, ${recv}${flagArg})`;
+    }
+  }
   if (method === "includes" && (node.arguments ?? []).length === 1) {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
     const val = emitExpr(node.arguments[0], path, diags, ctx);
     if (val === null) return null;
     return `(${val} in ${recv})`;
+  }
+  // V2.12: `s.indexOf(x)` -> `s.find(x)` (str.find; list.index raises on miss
+  // where JS returns -1 — only the string form lowers).
+  if (method === "indexOf" && (node.arguments ?? []).length === 1) {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    const val = emitExpr(node.arguments[0], path, diags, ctx);
+    if (val === null) return null;
+    return `${recv}.find(${val})`;
   }
   if (method === "push") {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
@@ -1574,6 +1652,40 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     diags.push(diag("E7215", "Optional chaining (?.) is not supported", path));
     return null;
   }
+  // V2.12: `process.env.NAME` / `process.env["NAME"]` -> `environ.get("NAME")`
+  // via `import from os { environ }` (str | None, matching JS string|undefined).
+  if (
+    !node.computed
+    && node.object?.type === "MemberExpression"
+    && !node.object.computed
+    && node.object.object?.type === "Identifier"
+    && node.object.object.name === "process"
+    && node.object.property?.name === "env"
+    && node.property?.type === "Identifier"
+  ) {
+    PROCESS_ENV_INTEROP = true;
+    return `environ.get("${node.property.name}")`;
+  }
+  if (
+    node.computed
+    && node.object?.type === "MemberExpression"
+    && !node.object.computed
+    && node.object.object?.type === "Identifier"
+    && node.object.object.name === "process"
+    && node.object.property?.name === "env"
+  ) {
+    const key = emitExpr(node.property, path, diags, ctx);
+    if (key === null) return null;
+    PROCESS_ENV_INTEROP = true;
+    return `environ.get(${key})`;
+  }
+  // `super.m()` — Jac's sanctioned form calls `super()` (parent instance)
+  // before attribute access; bare `super.m` type-checks as Unknown (E1032).
+  if (!node.computed && node.object?.type === "Super") {
+    const sprop = emitExpr(node.property, path, diags, ctx);
+    if (sprop === null) return null;
+    return `super().${sprop}`;
+  }
   if (!node.computed
     && node.object?.type === "Identifier"
     && node.property?.type === "Identifier"
@@ -1591,6 +1703,12 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     }
     const idx = emitExpr(node.property, path, diags, ctx);
     if (idx === null) return null;
+    // V2.12: a subscript on a Match-shape local is a capture-group read in JS
+    // (`match[1]`); Python's Match exposes `.group(n)`.
+    if (node.object?.type === "Identifier" && MATCH_LOCALS.has(identText(node.object.name))
+      && node.property?.type === "Literal" && typeof node.property.value === "number") {
+      return `${obj}.group(${node.property.value})`;
+    }
     return `${obj}[${idx}]`;
   }
   if (node.property?.type !== "Identifier") {
@@ -1725,11 +1843,12 @@ function emitStatement(stmt, ctx) {
       // Preserve a TS type annotation when present (lossless; keeps JS `number`
       // mapped to Jac `float` rather than letting `0` infer to `int`).
       const ann = d.id.typeAnnotation?.typeAnnotation;
-      let prefix = `${d.id.name} = `;
+      const name = identText(d.id.name);
+      let prefix = `${name} = `;
       if (ann) {
         const jacType = tsTypeToJac(ann, path, diags);
         if (!jacType) return null;
-        prefix = `${d.id.name}: ${jacType} = `;
+        prefix = `${name}: ${jacType} = `;
       }
       out.push(`${prefix}${val};`);
     }
@@ -1770,6 +1889,14 @@ function emitStatement(stmt, ctx) {
     if (stmt.argument === null || stmt.argument === undefined) return ["return;"];
     const val = emitExpr(stmt.argument, path, diags, ctx);
     if (val === null) return null;
+    // V2.12: returning an untyped local (assigned from interop/Unknown calls)
+    // against a concrete declared return type draws E1002; cast at the sink.
+    if (
+      ctx.retTypeCast && stmt.argument.type === "Identifier"
+      && (ctx.untypedLocals?.has(stmt.argument.name))
+    ) {
+      return [`return (${val} as ${ctx.retTypeCast});`];
+    }
     return [`return ${val};`];
   }
 
@@ -1788,7 +1915,7 @@ function emitStatement(stmt, ctx) {
     if (right === null) return null;
     const bodyLines = emitStatement(stmt.body, ctx);
     if (bodyLines === null) return null;
-    return [`for ${leftName} in ${right} {`, ...indentBlock(bodyLines), "}"];
+    return [`for ${identText(leftName)} in ${right} {`, ...indentBlock(bodyLines), "}"];
   }
 
   if (kind === "ForInStatement") {
@@ -1833,7 +1960,76 @@ function emitStatement(stmt, ctx) {
     return ["continue;"];
   }
 
-  if (kind === "ThrowStatement" || kind === "TryStatement" || kind === "SwitchStatement"
+  if (kind === "SwitchStatement") {
+    // V2.12: `switch (d) { case a: ...; break; ... default: ... }` -> an
+    // if/elif/else chain over a scrutinee temp. Sound only without fallthrough:
+    // every case body must end in break/return/continue/throw (or be the final
+    // case). Consecutive empty-body cases group into one multi-test branch.
+    const disc = emitExpr(stmt.discriminant, path, diags, ctx);
+    if (disc === null) return null;
+    const groups = [];
+    let defaultGroup = null;
+    for (const c of stmt.cases ?? []) {
+      if (c.test === null || c.test === undefined) {
+        if (defaultGroup) {
+          diags.push(diag("E7230", "Multiple switch defaults are not supported", path));
+          return null;
+        }
+        defaultGroup = { body: c.consequent ?? [] };
+        continue;
+      }
+      if ((c.consequent ?? []).length === 0 && groups.length
+        && !groups[groups.length - 1].sealed) {
+        groups[groups.length - 1].tests.push(c.test);
+        continue;
+      }
+      groups.push({ tests: [c.test], body: c.consequent ?? [], sealed: false });
+    }
+    const endsWithJump = (body) => {
+      const last = body[body.length - 1];
+      if (!last) return false;
+      if (last.type === "BreakStatement" || last.type === "ContinueStatement"
+        || last.type === "ReturnStatement" || last.type === "ThrowStatement") return true;
+      if (last.type === "BlockStatement") return endsWithJump(last.body ?? []);
+      return false;
+    };
+    const allGroups = [...groups];
+    if (defaultGroup) allGroups.push({ tests: null, body: defaultGroup.body });
+    for (let i = 0; i < allGroups.length; i += 1) {
+      const g = allGroups[i];
+      const isLast = i === allGroups.length - 1;
+      if (!isLast && !endsWithJump(g.body)) {
+        diags.push(diag("E7230", "Switch fallthrough is not supported (add break/return to each case)", path));
+        return null;
+      }
+    }
+    const out = [`_sw = ${disc};`];
+    for (let i = 0; i < allGroups.length; i += 1) {
+      const g = allGroups[i];
+      const bodyLines = [];
+      for (const s of g.body) {
+        if (s.type === "BreakStatement") continue;
+        const lines = emitStatement(s, ctx);
+        if (lines === null) return null;
+        bodyLines.push(...lines);
+      }
+      const kw = i === 0 ? "if" : "elif";
+      if (g.tests === null) {
+        out.push(`else {`, ...indentBlock(bodyLines), `}`);
+      } else {
+        const conds = [];
+        for (const t of g.tests) {
+          const tt = emitExpr(t, path, diags, ctx);
+          if (tt === null) return null;
+          conds.push(`(_sw == ${tt})`);
+        }
+        out.push(`${kw} ${conds.join(" or ")} {`, ...indentBlock(bodyLines), `}`);
+      }
+    }
+    return out;
+  }
+
+  if (kind === "ThrowStatement" || kind === "TryStatement"
       || kind === "LabeledStatement" || kind === "DebuggerStatement") {
     diags.push(diag("E7230", `${kind} is not supported in V2 (deferred to a later slice)`, path));
     return null;
@@ -2020,13 +2216,136 @@ function forLoopVarName(left, path, diags) {
   return null;
 }
 
+// V2.12: Python interop state for JS regex lowering. Reset per file in
+// convertEnvelope; read at import-assembly time to emit `import from re`.
+let REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
+// V2.12: `process.env` -> `os.environ` interop flag (import emission).
+let PROCESS_ENV_INTEROP = false;
+// V2.12: per-file identifier renames — a JS local/param bound to a Jac
+// statement keyword (`match`, `entry`, ...) cannot appear bare in Jac source
+// (parser error). File-wide rename `<name>` -> `<name>_j` is applied at both
+// binding and reference sites; member properties are exempt (they never pass
+// through the Identifier emit path).
+let IDENT_RENAMES = new Map();
+// V2.12: locals bound to `x.match(/re/)` — Python Match access is `.group(n)`,
+// so computed subscripts on these names lower to `.group(n)` (final names,
+// post-rename).
+let MATCH_LOCALS = new Set();
+// V2.12: functions (or methods) whose TS return annotation is an object
+// literal type — calls to them produce dict values, so member access on their
+// results lowers to subscripts. Collected per file in convertEnvelope.
+let DICT_RETURNING_FUNCS = new Set();
+// V2.12: locally-declared class names — `new LocalClass(...)` lowers to the
+// Jac call construction `LocalClass(...)`.
+let LOCAL_CLASSES = new Set();
+// V2.12: module-level names bound to regex literals — `.test(x)` on these
+// lowers to `search(<compiled>, x)` (re functions accept compiled patterns).
+let REGEX_CONSTS = new Set();
+const JAC_RESERVED_LOCALS = new Set([
+  "match", "with", "entry", "has", "glob", "del", "edge", "node", "graph",
+  "walker", "spawn", "visit", "report", "disengage", "skip", "take",
+  "ignore", "ability", "import", "await", "defer",
+]);
+
+/** Apply the per-file reserved-name rename to a binding/reference identifier. */
+function identText(name) {
+  return IDENT_RENAMES.get(name) ?? name;
+}
+
+/** Pre-pass: collect local/param bindings that collide with Jac statement
+ * keywords, and locals initialized from `.match(/re/)` (Match-shape locals). */
+function collectLocalRenames(body) {
+  const renames = new Map();
+  const matchLocals = new Set();
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { for (const x of n) walk(x); return; }
+    const bind = (id) => {
+      if (id?.type === "Identifier" && JAC_RESERVED_LOCALS.has(id.name) && !seen.has(id.name)) {
+        seen.add(id.name);
+        renames.set(id.name, `${id.name}_j`);
+      }
+    };
+    if (n.type === "VariableDeclarator") {
+      bind(n.id);
+      if (
+        n.id?.type === "Identifier"
+        && n.init?.type === "CallExpression"
+        && n.init.callee?.type === "MemberExpression"
+        && !n.init.callee.computed
+        && n.init.callee.property?.name === "match"
+        && (
+          (n.init.arguments?.[0]?.type === "Literal" && n.init.arguments[0].regex)
+          || (n.init.arguments?.[0]?.type === "Identifier" && REGEX_CONSTS.has(n.init.arguments[0].name))
+        )
+      ) {
+        matchLocals.add(n.id.name);
+      }
+    } else if (n.type === "FunctionDeclaration" || n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression") {
+      if (n.type === "FunctionDeclaration") bind(n.id);
+      for (const p of n.params ?? []) {
+        if (p?.type === "Identifier") bind(p);
+        else if (p?.type === "AssignmentPattern") bind(p.left);
+      }
+    }
+    for (const k of Object.keys(n)) {
+      if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
+        || k.endsWith("Comments")) continue;
+      const v = n[k];
+      if (v && typeof v === "object") walk(v);
+    }
+  };
+  walk(body);
+  const finalMatchLocals = new Set([...matchLocals].map((m) => renames.get(m) ?? m));
+  return { renames, matchLocals: finalMatchLocals };
+}
+
+/** JS numeric-builtin call table -> Python. Values are arg-index templates;
+ * `null` marks impure/unmodeled members (fail closed upstream). */
+const JS_MATH_CALLS = {
+  max: (args) => `max(${args.join(", ")})`,
+  min: (args) => `min(${args.join(", ")})`,
+  abs: (args) => `abs(${args.join(", ")})`,
+  round: (args) => `round(${args[0]} as float)`,
+  floor: (args) => `int((${args[0]}) // 1)`,
+  ceil: (args) => `int(-((-${args[0]}) // 1))`,
+  pow: (args) => `((${args[0]}) ** (${args[1]}))`,
+};
+
+/** Python raw string literal for a regex pattern (quote-char aware). */
+function pyRawString(s) {
+  if (!s.includes('"')) return `r"${s}"`;
+  if (!s.includes("'")) return `r'${s}'`;
+  return `r"""${s}"""`;
+}
+
+/** JS flag set -> imported Python flag idents (`I`/`M`/`S`), or "". Each use
+ * registers the ident in REGEX_INTEROP.flags for the `import from re` line.
+ * A cast (`I as int`) is required: the stub flags resolve as Unknown. */
+function pyRegexFlagsArg(flags) {
+  const f = flags ?? "";
+  const parts = [];
+  if (f.includes("i")) { parts.push("I as int"); REGEX_INTEROP.flags.add("I"); }
+  if (f.includes("m")) { parts.push("M as int"); REGEX_INTEROP.flags.add("M"); }
+  if (f.includes("s")) { parts.push("S as int"); REGEX_INTEROP.flags.add("S"); }
+  // JS `g` is iteration state (lastIndex), not matching flags — not modeled.
+  return parts.length ? `, ${parts.join(" | ")}` : "";
+}
+
 function emitExpr(node, path, diags, ctx = {}) {
   const kind = node?.type ?? "";
   if (kind === "Literal") {
     const v = node.value;
+    // V2.12: JS regex literal -> Python `re.compile(...)` (module interop).
+    // JS/Python regex dialects differ on edge cases; mapping note records it.
+    if (node.regex) {
+      REGEX_INTEROP.compile = true;
+      return `compile(${pyRawString(node.regex.pattern ?? "")}${pyRegexFlagsArg(node.regex.flags)})`;
+    }
     if (typeof v === "string") return `"${escapeJsxString(v)}"`;
     if (typeof v === "number") return String(v);
-    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "boolean") return v ? "True" : "False";
     if (v === null) return "None";
     // RegExp / BigInt literals: reject (deferred to a dedicated slice).
     diags.push(diag("E7215", `Unsupported literal value: ${JSON.stringify(v)}`, path));
@@ -2034,9 +2353,14 @@ function emitExpr(node, path, diags, ctx = {}) {
   }
   if (kind === "StringLiteral") return `"${escapeJsxString(node.value)}"`;
   if (kind === "NumericLiteral") return String(node.value);
-  if (kind === "BooleanLiteral") return node.value ? "true" : "false";
+  if (kind === "BooleanLiteral") return node.value ? "True" : "False";
   if (kind === "NullLiteral") return "None";
-  if (kind === "Identifier") return node.name;
+  if (kind === "Identifier") {
+    // JS `undefined` has no Jac binding; merge into None (nullish semantics
+    // coincide for the `x ?? y` / `x ? y : undefined` shapes we lower).
+    if (node.name === "undefined") return "None";
+    return identText(node.name);
+  }
   if (kind === "ParenthesizedExpression") return emitExpr(node.expression, path, diags, ctx);
   // Fix 5: TS value-position wrappers carry no runtime meaning; strip them so a
   // nested `x as T` / `x!` / `<T>x` inside an otherwise-pure init (e.g. a config
@@ -2063,12 +2387,167 @@ function emitExpr(node, path, diags, ctx = {}) {
       diags.push(diag("E7215", "Optional call expressions are not supported", path));
       return null;
     }
+    // V2.12: `new Map()` -> `{}` (dict), `new Set()`/`new Set([...])` ->
+    // `set(...)` — the empty-collection construction idioms. `new Map(entries)`
+    // is not modeled (dict(iterable-of-pairs) diverges); other `new` forms keep
+    // the fail-closed reject below.
+    if (kind === "NewExpression") {
+      const ctor = node.callee?.type === "Identifier" ? node.callee.name : null;
+      if (ctor === "Map" && (node.arguments ?? []).length === 0) return "{}";
+      if (ctor === "Set" && (node.arguments ?? []).length <= 1) {
+        if ((node.arguments ?? []).length === 0) return "set()";
+        const arg = emitExpr(node.arguments[0], path, diags, ctx);
+        if (arg === null) return null;
+        return `set(${arg})`;
+      }
+      // `new LocalClass(args)` -> Jac call construction `LocalClass(args)`.
+      // Only for classes declared in this file — external `new X()` stays
+      // fail-closed (Unknown-call sinks the checker).
+      if (ctor && LOCAL_CLASSES.has(ctor)) {
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return `${ctor}(${args.join(", ")})`;
+      }
+    }
     if (kind === "NewExpression") {
       diags.push(diag("E7215", "`new` expressions are not supported (preserve as a plain call or interop)", path));
       return null;
     }
     const nativeCall = tryEmitJacNativeCall(node, path, diags, ctx);
     if (nativeCall !== undefined) return nativeCall;
+    // V2.12: `subject.match(/pat/)` (no `g` flag) ≡ Python `search(pat, subject)`
+    // returning Match | None. Accepts a literal regex or a module regex-const
+    // name as the pattern. The `g`-flagged form returns all matches — not
+    // modeled.
+    {
+      const a0 = node.arguments?.[0];
+      const litMatch = a0?.type === "Literal" && a0.regex && !a0.regex.flags?.includes("g");
+      const constMatch = a0?.type === "Identifier" && REGEX_CONSTS.has(a0.name);
+      if (
+        node.callee?.type === "MemberExpression"
+        && !node.callee.computed
+        && node.callee.property?.name === "match"
+        && (node.arguments ?? []).length === 1
+        && (litMatch || constMatch)
+      ) {
+        const subject = emitExpr(node.callee.object, path, diags, ctx);
+        if (subject === null) return null;
+        let patText;
+        let flagArg = "";
+        if (litMatch) {
+          patText = pyRawString(a0.regex.pattern ?? "");
+          flagArg = pyRegexFlagsArg(a0.regex.flags);
+        } else {
+          patText = a0.name;
+        }
+        REGEX_INTEROP.search = true;
+        return `search(${patText}, ${subject}${flagArg})`;
+      }
+    }
+    // V2.12: `Math.*(...)` -> Python numeric builtins. JS trunc-toward-zero vs
+    // Python floor division differ on negatives; mapping note records it.
+    if (
+      node.callee?.type === "MemberExpression"
+      && !node.callee.computed
+      && node.callee.object?.type === "Identifier"
+      && node.callee.object.name === "Math"
+      && node.callee.property?.type === "Identifier"
+    ) {
+      const fn = JS_MATH_CALLS[node.callee.property.name];
+      if (fn) {
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return fn(args);
+      }
+    }
+    // V2.12: `parseInt(x[, radix])` -> `int(x[, radix])`; `parseFloat(x)` ->
+    // `float(x)`; `String(x)` -> `str(x)`. Covers the `Number.`-qualified
+    // spellings. JS leading-digit leniency is NOT modeled (ValueError on junk).
+    if (node.callee?.type === "Identifier" && !node.optional) {
+      let cname = node.callee.name;
+      if (cname === "Number" || cname === "String") {
+        // `Number.parseInt` / `String.fromCharCode` shapes arrive as member
+        // callees; only the bare wrappers land here.
+      }
+      if (cname === "String" && (node.arguments ?? []).length === 1) {
+        const text = emitExpr(node.arguments[0], path, diags, ctx);
+        if (text === null) return null;
+        return `str(${text})`;
+      }
+      if (cname === "parseInt" && (node.arguments?.length === 1 || node.arguments?.length === 2)) {
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return `int(${args.join(", ")})`;
+      }
+      if (cname === "parseFloat" && node.arguments?.length === 1) {
+        const text = emitExpr(node.arguments[0], path, diags, ctx);
+        if (text === null) return null;
+        return `float(${text})`;
+      }
+    }
+    // V2.12: `Number.parseInt(x[, r])` / `Number.parseFloat(x)` member forms.
+    if (
+      node.callee?.type === "MemberExpression"
+      && !node.callee.computed
+      && node.callee.object?.type === "Identifier"
+      && node.callee.object.name === "Number"
+      && node.callee.property?.type === "Identifier"
+    ) {
+      const m = node.callee.property.name;
+      if ((m === "parseInt" && (node.arguments?.length === 1 || node.arguments?.length === 2))
+        || (m === "parseFloat" && node.arguments?.length === 1)) {
+        const fn = m === "parseInt" ? "int" : "float";
+        const args = [];
+        for (const arg of node.arguments ?? []) {
+          const text = emitExpr(arg, path, diags, ctx);
+          if (text === null) return null;
+          args.push(text);
+        }
+        return `${fn}(${args.join(", ")})`;
+      }
+    }
+    // V2.12: `/pat/.test(x)` -> `(search(r"pat", x) is not None)` — the
+    // truthy-match-object form would leak Match|None into bool slots (E1001).
+    // Also covers `.test` on a module-level regex-const name.
+    const literalRegexCallee = node.callee?.type === "MemberExpression"
+      && !node.callee.computed
+      && node.callee.property?.type === "Identifier"
+      && node.callee.property.name === "test"
+      && node.callee.object?.type === "Literal"
+      && node.callee.object.regex;
+    const constRegexCallee = node.callee?.type === "MemberExpression"
+      && !node.callee.computed
+      && node.callee.property?.type === "Identifier"
+      && node.callee.property.name === "test"
+      && node.callee.object?.type === "Identifier"
+      && REGEX_CONSTS.has(node.callee.object.name);
+    if ((literalRegexCallee || constRegexCallee) && (node.arguments ?? []).length === 1
+      && node.arguments[0].type !== "SpreadElement") {
+      let patText = null;
+      let flagArg = "";
+      if (literalRegexCallee) {
+        patText = pyRawString(node.callee.object.regex.pattern ?? "");
+        flagArg = pyRegexFlagsArg(node.callee.object.regex.flags);
+      } else {
+        patText = node.callee.object.name;
+      }
+      const subject = emitExpr(node.arguments[0], path, diags, ctx);
+      if (subject === null) return null;
+      REGEX_INTEROP.search = true;
+      return `(search(${patText}, ${subject}${flagArg}) is not None)`;
+    }
     const callee = emitExpr(node.callee, path, diags, ctx);
     if (callee === null) return null;
     const args = [];
@@ -2370,6 +2849,17 @@ function defaultExportBasename(path) {
   return base;
 }
 
+/** V2.12: rewrite relative JS module specifiers to sibling `.jac` files so
+ * emitted imports resolve in project-mode `jac check`. Extensionless and
+ * `.ts`/`.js`/`.mjs`/`.cjs` specifiers get `.jac`; package specifiers
+ * (react, node:*, eventemitter) pass through untouched. */
+function jacModulePath(src) {
+  if (typeof src !== "string" || !src) return src;
+  if (!src.startsWith("./") && !src.startsWith("../")) return src;
+  if (/\.jac$/.test(src)) return src;
+  return src.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "") + ".jac";
+}
+
 function collectInteropImports(body) {
   const out = [];
   for (const item of body) {
@@ -2393,15 +2883,20 @@ function collectInteropImports(body) {
   return out;
 }
 
-/** V2.6: emit non-react imports. Specifier-bearing imports become live Jac
- * imports (no trailing semicolon). Side-effect imports (e.g. `import
- * './styles.css'`) have no valid Jac form, so they are preserved as a leading
- * comment and recorded as interop in the conversion report. */
+/** V2.6: emit non-react imports. Relative specifiers (./x, ../x) become live
+ * Jac imports resolved to sibling `.jac` files (project mode). Bare package
+ * specifiers (npm modules like `events`/`eventemitter3`) can never resolve as
+ * `.jac` and would drag the module into client placement (E5084) — they emit
+ * as inert interop comments instead. Side-effect imports are always comments. */
 function formatInteropImports(imports) {
   const lines = [];
   for (const imp of imports) {
-    if (!imp.specifiers.length) {
-      lines.push(`# interop import: ${imp.source}`);
+    const isRelative = imp.source.startsWith("./") || imp.source.startsWith("../");
+    if (!imp.specifiers.length || !isRelative) {
+      const specText = imp.specifiers.length
+        ? ` { ${imp.specifiers.map((s) => (s.kind === "named" && s.imported === s.local ? s.local : s.local)).join(", ")} }`
+        : "";
+      lines.push(`# interop import: ${imp.source}${specText}`);
       continue;
     }
     const parts = imp.specifiers.map((s) => {
@@ -2409,7 +2904,7 @@ function formatInteropImports(imports) {
       if (s.kind === "namespace") return `* as ${s.local}`;
       return s.imported === s.local ? s.local : `${s.imported} as ${s.local}`;
     });
-    lines.push(`import from "${imp.source}" { ${parts.join(", ")} }`);
+    lines.push(`import from "${jacModulePath(imp.source)}" { ${parts.join(", ")} }`);
   }
   return lines;
 }
@@ -2425,7 +2920,7 @@ function formatInteropImports(imports) {
  * source-module name in `spec.local` and the outward name in `spec.exported`.
  */
 function lowerReExport(item) {
-  const src = item.source?.value;
+  const src = jacModulePath(item.source?.value);
   if (typeof src !== "string" || !src) return null;
   const exportedNames = [];
   if (item.type === "ExportAllDeclaration") {
@@ -3270,7 +3765,7 @@ function parseClassMethodParams(params, path, diags, ctx) {
     const ann = idNode.typeAnnotation?.typeAnnotation;
     const jacType = ann ? tsTypeToJac(ann, path, diags) : "any";
     if (!jacType) return null;
-    let text = `${idNode.name}: ${jacType}`;
+    let text = `${identText(idNode.name)}: ${jacType}`;
     if (defaultText) text += ` = ${defaultText}`;
     jacParams.push(text);
   }
@@ -3496,6 +3991,42 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
     return null;
   }
   const memberLines = [];
+  // V2.12: synthesize `has X: any;` stubs for `this.X` accesses the class
+  // never declares — inherited-from-interop-base members (EventEmitter.emit)
+  // and method-introduced state. Without the stub `self.X` is E1030 and the
+  // file sinks. Stub fields are required (no default) so they sort first.
+  {
+    const declared = new Set();
+    for (const member of decl.body?.body ?? []) {
+      const key = member.key?.name;
+      if (key && (isClassFieldMember(member) || isClassMethodMember(member))) declared.add(key);
+    }
+    const stubbed = new Set();
+    const seenSelf = new Set();
+    const walkSelf = (n) => {
+      if (!n || typeof n !== "object" || seenSelf.has(n)) return;
+      seenSelf.add(n);
+      if (Array.isArray(n)) { for (const x of n) walkSelf(x); return; }
+      if (
+        (n.type === "MemberExpression" || n.type === "OptionalMemberExpression")
+        && !n.computed
+        && ((n.object?.type === "ThisExpression")
+          || (n.object?.type === "Identifier" && n.object.name === "self"))
+        && n.property?.type === "Identifier"
+      ) {
+        const p = n.property.name;
+        if (!declared.has(p) && !stubbed.has(p)) stubbed.add(p);
+      }
+      for (const k of Object.keys(n)) {
+        if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
+          || k.endsWith("Comments")) continue;
+        const v = n[k];
+        if (v && typeof v === "object") walkSelf(v);
+      }
+    };
+    walkSelf(decl.body);
+    for (const p of [...stubbed].sort()) memberLines.push(`has ${p}: any;`);
+  }
   for (const f of fieldLines.filter((f) => !f.hasDefault)) memberLines.push(f.line);
   for (const f of fieldLines.filter((f) => f.hasDefault)) memberLines.push(f.line);
   for (const member of methodMembers) {
@@ -3570,13 +4101,14 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
       return null;
     }
     const ann = idNode.typeAnnotation?.typeAnnotation;
-    if (!ann) {
-      diags.push(diag("E7232", `Helper parameter '${idNode.name}' requires a TypeScript type annotation`, path));
-      return null;
+    // V2.12: widen an untyped JS param to `any` instead of sinking the decl —
+    // matches the class-method param behavior and keeps jac check green.
+    let jacType = "any";
+    if (ann) {
+      jacType = tsTypeToJac(ann, path, diags);
+      if (!jacType) return null;
     }
-    const jacType = tsTypeToJac(ann, path, diags);
-    if (!jacType) return null;
-    let text = `${idNode.name}: ${jacType}`;
+    let text = `${identText(idNode.name)}: ${jacType}`;
     if (defaultText) text += ` = ${defaultText}`;
     jacParams.push(text);
   }
@@ -3601,6 +4133,30 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
     retType = inferReturnTypeFromBody(body, path, diags) ?? "any";
   }
   const ctx = { path, diags, allowReturn: true, dictBindings: new Set(), failOpen, droppedStatements: [] };
+  // V2.12: cast-at-sink support — untyped locals returned against a concrete
+  // declared return type lower as `return (x as T);` (interop-sourced values).
+  if (retType && retType !== "any" && retType !== "None" && body?.type === "BlockStatement") {
+    const untypedLocals = new Set();
+    const seenU = new Set();
+    const walkUntyped = (n) => {
+      if (!n || typeof n !== "object" || seenU.has(n)) return;
+      seenU.add(n);
+      if (Array.isArray(n)) { for (const x of n) walkUntyped(x); return; }
+      if (n.type === "VariableDeclarator" && n.id?.type === "Identifier"
+        && !n.id.typeAnnotation && n.init) untypedLocals.add(n.id.name);
+      for (const k of Object.keys(n)) {
+        if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
+          || k.endsWith("Comments")) continue;
+        const v = n[k];
+        if (v && typeof v === "object") walkUntyped(v);
+      }
+    };
+    walkUntyped(body);
+    if (untypedLocals.size) {
+      ctx.retTypeCast = retType;
+      ctx.untypedLocals = untypedLocals;
+    }
+  }
   const bodyLines = [];
   // Destructuring-param binds run first, before the original body statements.
   bodyLines.push(...paramPrelude);
@@ -3732,17 +4288,35 @@ function isModuleGlobalInit(node) {
     // Unknown-typed import/namespace -> E1032/E1030), which would sink the
     // WHOLE file. Verified: 31/88 real factory-const emissions failed jac check.
     // A sound version needs the type checker in the loop, not a shape gate.
+    // Factory calls stay rejected: lowering `const x = factory(...)` to a Jac
+    // glob is NOT sound under a static gate — emitExpr produces syntactically
+    // valid Jac that the type checker then rejects (member access on an
+    // Unknown-typed import/namespace -> E1032/E1030), which would sink the
+    // WHOLE file. Verified: 31/88 real factory-const emissions failed jac check.
+    // A sound version needs the type checker in the loop, not a shape gate.
     case "CallExpression":
-    case "NewExpression":
     case "TaggedTemplateExpression":
     case "ArrowFunctionExpression":
     case "FunctionExpression":
     case "ClassExpression":
       return false;
+    // V2.12: `new Map()` / `new Set()` are collection constructors with a
+    // clean Jac form ({} / set()) — the ONLY `new` lowered at module scope.
+    case "NewExpression":
+      if (n.callee?.type !== "Identifier") return false;
+      if (n.callee.name === "Map" && (n.arguments ?? []).length === 0) return true;
+      if (n.callee.name === "Set" && (n.arguments ?? []).length === 0) return true;
+      // A locally-declared class lowers to a call construction — sound at
+      // module scope because the archetype is defined in this file.
+      if (LOCAL_CLASSES.has(n.callee.name)) return true;
+      return false;
     // The vendored parser emits ESTree `Literal`; keep the Babel-specific names
     // too since the rest of the bridge accepts both forms defensively.
     case "Literal":
-      if (n.regex !== undefined) return false;
+      // V2.12: regex literals lower to `compile(...)` (re interop) — sound as a
+      // module global. Note: `\p{...}` property escapes exceed stdlib `re`
+      // (runtime divergence, recorded in the mapping note).
+      if (n.regex !== undefined) return true;
       return typeof n.value === "string" || typeof n.value === "number"
         || typeof n.value === "boolean" || typeof n.value === "bigint" || n.value === null;
     case "StringLiteral":
@@ -3864,8 +4438,16 @@ function parseArrowComponent(decl, exported, path, diags, hookBindings, importSt
     diags.push(diag("E7205", `Unsupported declaration: ${decl?.type}`, path));
     return null;
   }
+  // V2.12: `let`/`var` module bindings are mutable module state (never a
+  // component/hook), so route straight to the module-global path instead of
+  // the const gate. Single declarator, matching the const path's shape.
   if (decl.kind !== "const") {
-    diags.push(diag("E7205", "Arrow components must use export const", path));
+    const declarators = decl.declarations ?? [];
+    if (declarators.length === 1) {
+      const glob = parseModuleGlobal(declarators[0], decl.kind, exported, path);
+      if (glob) return glob;
+    }
+    diags.push(diag("E7205", "Top-level let/var must bind a plain value (module global)", path));
     return null;
   }
   const declarators = decl.declarations ?? [];
@@ -4086,6 +4668,11 @@ function convertEnvelope(payload) {
   // HOLE_CTX here (per-file reset, mirroring REACT_NAMESPACE_LOCALS).
   const emitHoles = payload.emitHoles === true && failOpen;
   HOLE_CTX = { emitHoles, source: typeof payload.source === "string" ? payload.source : null };
+  // V2.12: per-file reset of the regex-interop flag (mirrors HOLE_CTX).
+  REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
+  PROCESS_ENV_INTEROP = false;
+  IDENT_RENAMES = new Map();
+  MATCH_LOCALS = new Set();
   if (payload.protocolVersion !== PROTOCOL_VERSION) {
     return { ok: false, diagnostics: [diag("E7101", "Unsupported protocol version", path)] };
   }
@@ -4097,7 +4684,82 @@ function convertEnvelope(payload) {
   if (!body.length) {
     return { ok: false, diagnostics: [diag("E7200", "Empty module is not supported", path)] };
   }
+  // V2.12: reserved-name local renames + Match-shape local tracking (per file).
+  const { renames: localRenames, matchLocals } = collectLocalRenames(body);
+  IDENT_RENAMES = localRenames;
+  MATCH_LOCALS = matchLocals;
+  DICT_RETURNING_FUNCS = new Set();
   const typeAliases = collectTypeAliases(body);
+  // V2.12: collect functions whose TS return annotation is an object type —
+  // their call results are dict values, so member access lowers to subscripts.
+  {
+    const softLiteral = (ann, depth = 0) => {
+      if (!ann || depth > 6) return false;
+      if (ann.type === "TSTypeLiteral") return true;
+      if (ann.type === "TSParenthesizedType") return softLiteral(ann.typeAnnotation, depth + 1);
+      // `T | None` returns are still dict-shaped (callers null-guard).
+      if (ann.type === "TSUnionType") {
+        return (ann.types ?? []).some((t) => softLiteral(t, depth + 1));
+      }
+      if (ann.type === "TSTypeReference" && ann.typeName?.type === "Identifier") {
+        const e = typeAliases.get(ann.typeName.name);
+        if (!e) return false;
+        if (e.kind === "interface") return true;
+        return softLiteral(e.node, depth + 1);
+      }
+      return false;
+    };
+    const seenWalk = new Set();
+    const walkReturns = (n) => {
+      if (!n || typeof n !== "object" || seenWalk.has(n)) return;
+      seenWalk.add(n);
+      if (Array.isArray(n)) { for (const x of n) walkReturns(x); return; }
+      if (n.type === "FunctionDeclaration" && n.id?.name && softLiteral(n.returnType?.typeAnnotation)) {
+        DICT_RETURNING_FUNCS.add(n.id.name);
+      }
+      if (n.type === "VariableDeclarator" && n.id?.type === "Identifier"
+        && (n.init?.type === "ArrowFunctionExpression" || n.init?.type === "FunctionExpression")
+        && softLiteral(n.init.returnType?.typeAnnotation)) {
+        DICT_RETURNING_FUNCS.add(n.id.name);
+      }
+      for (const k of Object.keys(n)) {
+        if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
+          || k.endsWith("Comments")) continue;
+        const v = n[k];
+        if (v && typeof v === "object") walkReturns(v);
+      }
+    };
+    walkReturns(body);
+  }
+  // V2.12: local class names (for `new LocalClass(...)` -> call construction).
+  LOCAL_CLASSES = new Set();
+  {
+    const seenCls = new Set();
+    const walkClasses = (n) => {
+      if (!n || typeof n !== "object" || seenCls.has(n)) return;
+      seenCls.add(n);
+      if (Array.isArray(n)) { for (const x of n) walkClasses(x); return; }
+      if (n.type === "ClassDeclaration" && n.id?.type === "Identifier") LOCAL_CLASSES.add(n.id.name);
+      for (const k of Object.keys(n)) {
+        if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
+          || k.endsWith("Comments")) continue;
+        const v = n[k];
+        if (v && typeof v === "object") walkClasses(v);
+      }
+    };
+    walkClasses(body);
+  }
+  // V2.12: module-level regex-const names (for `.test(x)` on them).
+  REGEX_CONSTS = new Set();
+  for (const item of body) {
+    const decl = item?.type === "ExportNamedDeclaration" ? item.declaration : item;
+    if (decl?.type !== "VariableDeclaration") continue;
+    for (const d of decl.declarations ?? []) {
+      if (d?.id?.type === "Identifier" && d.init?.type === "Literal" && d.init.regex) {
+        REGEX_CONSTS.add(d.id.name);
+      }
+    }
+  }
   const hookBindings = collectHookBindings(body);
   // Per-file reset: emitMemberAccess reads this to fail-close computed access on
   // a lowered-away React namespace. Assigned (not merged) so the in-process probe
@@ -4143,6 +4805,16 @@ function convertEnvelope(payload) {
   const reExportLines = []; // fail-open: re-export barrel forms lowered to Jac imports
   const skips = []; // { names, code } — declarations that failed to convert (fail-open)
   const declHoles = []; // hole-mode: original JS of each skipped top-level decl
+  // V2.12: module-level imperative statements (for/while/if/expr/try/…) run at
+  // module load in JS; Jac's form is a `with entry { ... }` block, emitted after
+  // all declarations (JS hoists functions; glob inits keep source order).
+  const entryLines = [];
+  const entryDrops = [];
+  const MODULE_STMT_KINDS = new Set([
+    "ForStatement", "ForOfStatement", "ForInStatement", "WhileStatement",
+    "DoWhileStatement", "IfStatement", "ExpressionStatement", "BlockStatement",
+    "TryStatement", "SwitchStatement", "ThrowStatement",
+  ]);
   // Strict: any per-item failure aborts the file (populate `diags`). Fail-open:
   // record the item as a skip and keep going. Called with the diags the item
   // produced and the item itself (for its bound names). The first diag code is
@@ -4244,6 +4916,26 @@ function convertEnvelope(payload) {
         ? item.declarations?.[0]?.id?.name
         : item.id?.name;
       if (declName && exportedNames.has(declName)) exported = true;
+    } else if (MODULE_STMT_KINDS.has(item.type)) {
+      // Module-level statement — lower into the shared `with entry` block.
+      const entryCtx = {
+        path,
+        diags: [],
+        inClass: false,
+        dictBindings: new Set(),
+        allowReturn: false,
+        failOpen: stmtFailOpen,
+        droppedStatements: entryDrops,
+      };
+      const lines = emitStatement(item, entryCtx);
+      if (lines !== null) {
+        entryLines.push(...lines);
+      } else if (stmtFailOpen) {
+        entryLines.push(...holeCommentLines(item, entryCtx.diags[0]?.code ?? "E7205", entryCtx.diags[0]?.message ?? ""));
+      } else {
+        diags.push(...entryCtx.diags);
+      }
+      continue;
     } else {
       recordFailure([diag("E7205", `Unsupported top-level form: ${item.type} (only function/const/class declarations are supported)`, path)], item);
       continue;
@@ -4272,6 +4964,26 @@ function convertEnvelope(payload) {
     outputs.push({ ...out, names: declaredNames(item), refs });
   }
   if (diags.length) return { ok: false, diagnostics: diags };
+  // Materialize the `with entry` block once module statements were collected.
+  // It carries the statements' referenced names so the ref-safety fixpoint can
+  // drop it (names: []) if it touches a skipped/dropped declaration.
+  if (entryLines.length) {
+    const entryRefs = new Set();
+    for (const item of body) {
+      if (MODULE_STMT_KINDS.has(item.type)) collectReferencedNames(item, entryRefs);
+    }
+    outputs.push({
+      jac: [`with entry {`, ...entryLines.map((l) => `    ${l}`), `}`].join("\n"),
+      mappings: [{
+        rule_id: "js.module.entry-block.v1",
+        mapping_class: "guarded",
+        target: `module-level statements -> with entry (${entryLines.length} line(s))`,
+      }],
+      names: [],
+      refs: entryRefs,
+      droppedStatements: entryDrops,
+    });
+  }
   // Fail-open reference safety: a kept declaration that references a name bound
   // by a skipped (or transitively dropped) declaration would dangle, so drop it
   // too. Iterate to a fixpoint over the transitive closure. Over-approximated
@@ -4352,7 +5064,13 @@ function convertEnvelope(payload) {
       }, [])
     : interopImports;
   const reactImportLines = formatReactImports(body, hookBindings, importState);
-  const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines];
+  // V2.12: JS regex literals lowered via Python `re` — emit the interop import
+  // only when a regex actually lowered in this file.
+  const regexImportLines = (REGEX_INTEROP.compile || REGEX_INTEROP.search || REGEX_INTEROP.sub)
+    ? [`import from re { ${[...new Set([...REGEX_INTEROP.compile ? ["compile"] : [], ...REGEX_INTEROP.search ? ["search"] : [], ...REGEX_INTEROP.sub ? ["sub"] : [], ...[...REGEX_INTEROP.flags].sort()])].join(", ")} }`]
+    : [];
+  const osImportLines = PROCESS_ENV_INTEROP ? ["import from os { environ }"] : [];
+  const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines, ...regexImportLines, ...osImportLines];
   const bodyParts = kept.map((o) => o.jac.trimEnd());
   // Hole mode: append each skipped top-level decl's original JS as a trailing
   // commented block, so an LLM cleanup pass sees the whole file's intent (the

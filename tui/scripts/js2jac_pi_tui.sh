@@ -59,9 +59,17 @@ for fp in sorted(src.rglob("*.ts")):
         "jac_check": check_ok,
     })
 
+# Project-mode check: whole floor tree, cross-file imports resolve.
+cp = subprocess.run(
+    ["jac", "check", str(out)],
+    capture_output=True, text=True, timeout=180, cwd=str(jac_repo),
+)
+project_ok = cp.returncode == 0 and "FAILED" not in (cp.stdout + cp.stderr)
+(out.parent / "pi_jac_floor_project_check.txt").write_text(cp.stdout + cp.stderr)
+
 (out.parent / "pi_jac_floor_summary.json").write_text(json.dumps(summary, indent=2))
 floor = [s for s in summary if s.get("status") == "floor"]
-print(f"floor={len(floor)} reject={len(summary)-len(floor)} check_pass={sum(1 for s in floor if s.get('jac_check'))}")
+print(f"floor={len(floor)} reject={len(summary)-len(floor)} check_pass={sum(1 for s in floor if s.get('jac_check'))} project_check={'PASS' if project_ok else 'FAIL'}")
 PY
 
 echo "Wrote $OUT"

@@ -273,6 +273,16 @@
       "priority": 40
     },
     {
+      "rule_id": "js.module.entry-block.v1",
+      "mapping_class": "guarded",
+      "category": "js.module",
+      "description": "Module-level imperative statements (for/while/if/expr/try) -> Jac `with entry { ... }` block emitted after declarations",
+      "nsir_kinds": ["module"],
+      "guards": ["statement-kinds", "reference-safe-drop"],
+      "enabled": true,
+      "priority": 45
+    },
+    {
       "rule_id": "js.list.push-append.v2",
       "mapping_class": "guarded",
       "category": "js.list",
@@ -434,7 +444,7 @@
     }
   ],
   "nsir_kind_coverage": {
-    "module": ["catch-all.unsupported-top-level.v1", "js.import.interop.v2", "js.module.const-global.v1", "js.module.enum.v1", "js.module.directive-prologue.v1", "js.module.decl-skip.v1", "js.module.reexport.v1"],
+    "module": ["catch-all.unsupported-top-level.v1", "js.import.interop.v2", "js.module.const-global.v1", "js.module.enum.v1", "js.module.directive-prologue.v1", "js.module.entry-block.v1", "js.module.decl-skip.v1", "js.module.reexport.v1"],
     "export_function": [
       "react.component.export-function.v1",
       "js.function.component.v2",
