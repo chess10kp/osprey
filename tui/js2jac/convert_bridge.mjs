@@ -1610,6 +1610,21 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     }
     return `${recv}[${a}:${b}]`;
   }
+  if (method === "split" && (node.arguments ?? []).length === 1) {
+    const pattern = node.arguments[0];
+    const literalRegex = pattern?.type === "Literal" && pattern.regex;
+    const regexConst = pattern?.type === "Identifier" && REGEX_CONSTS.has(pattern.name);
+    if (literalRegex || regexConst) {
+      const recv = emitExpr(node.callee.object, path, diags, ctx);
+      if (recv === null) return null;
+      const patText = literalRegex ? pyRawString(pattern.regex.pattern ?? "") : identText(pattern.name);
+      const flagArg = literalRegex ? pyRegexFlagsArg(pattern.regex.flags) : "";
+      REGEX_INTEROP.split = true;
+      return flagArg
+        ? `split(${patText}, ${recv}, 0${flagArg})`
+        : `split(${patText}, ${recv})`;
+    }
+  }
   // V2.12: `s.replace(regexOrRegexConst, repl)` -> `sub(pat, repl, s)`. Only
   // the regex first-arg form (literal or module regex-const); a string first
   // arg (replace-all vs first-only) diverges and stays unsupported.
@@ -2373,7 +2388,7 @@ function forLoopBinding(left, path, diags, ctx) {
 
 // V2.12: Python interop state for JS regex lowering. Reset per file in
 // convertEnvelope; read at import-assembly time to emit `import from re`.
-let REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
+let REGEX_INTEROP = { compile: false, search: false, split: false, sub: false, flags: new Set() };
 // V2.12: `process.env` -> `os.environ` interop flag (import emission).
 let PROCESS_ENV_INTEROP = false;
 const KNOWN_AMBIENT_JS_NAMESPACES = new Set(["Intl"]);
@@ -5024,7 +5039,7 @@ function convertEnvelope(payload) {
   const emitHoles = payload.emitHoles === true && failOpen;
   HOLE_CTX = { emitHoles, source: typeof payload.source === "string" ? payload.source : null };
   // V2.12: per-file reset of the regex-interop flag (mirrors HOLE_CTX).
-  REGEX_INTEROP = { compile: false, search: false, sub: false, flags: new Set() };
+  REGEX_INTEROP = { compile: false, search: false, split: false, sub: false, flags: new Set() };
   PROCESS_ENV_INTEROP = false;
   AMBIENT_INTEROP_GLOBALS = new Set();
   IDENT_RENAMES = new Map();
@@ -5442,8 +5457,8 @@ function convertEnvelope(payload) {
   const reactImportLines = formatReactImports(body, hookBindings, importState);
   // V2.12: JS regex literals lowered via Python `re` — emit the interop import
   // only when a regex actually lowered in this file.
-  const regexImportLines = (REGEX_INTEROP.compile || REGEX_INTEROP.search || REGEX_INTEROP.sub)
-    ? [`import from re { ${[...new Set([...REGEX_INTEROP.compile ? ["compile"] : [], ...REGEX_INTEROP.search ? ["search"] : [], ...REGEX_INTEROP.sub ? ["sub"] : [], ...[...REGEX_INTEROP.flags].sort()])].join(", ")} }`]
+  const regexImportLines = (REGEX_INTEROP.compile || REGEX_INTEROP.search || REGEX_INTEROP.split || REGEX_INTEROP.sub)
+    ? [`import from re { ${[...new Set([...REGEX_INTEROP.compile ? ["compile"] : [], ...REGEX_INTEROP.search ? ["search"] : [], ...REGEX_INTEROP.split ? ["split"] : [], ...REGEX_INTEROP.sub ? ["sub"] : [], ...[...REGEX_INTEROP.flags].sort()])].join(", ")} }`]
     : [];
   const osImportLines = PROCESS_ENV_INTEROP ? ["import from os { environ }"] : [];
   const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines, ...regexImportLines, ...osImportLines];

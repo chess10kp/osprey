@@ -492,3 +492,15 @@ test("JavaScript named regex groups lower to Python group syntax", () => {
   assert.doesNotMatch(result.jac, /\(\?<word>|\\k<word>/);
   assertJacChecks(result.jac);
 });
+
+test("regex string splitting lowers through Python regex interop", () => {
+  const result = convert(`
+    export function words(query: string): string[] {
+      return query.split(/[\\s/]+/).filter((word) => word.length > 0);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import from re \{ split \}/);
+  assert.match(result.jac, /split\(r"\[\\s\/\]\+", query\)/);
+  assertJacChecks(result.jac);
+});
