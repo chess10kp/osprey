@@ -381,3 +381,17 @@ test("string literals escape control characters in emitted Jac", () => {
   assert.doesNotMatch(result.jac, /"\n"/);
   assertJacChecks(result.jac);
 });
+
+test("optional class fields and parameters lower as nullable defaults", () => {
+  const result = convert(`
+    export class Cache {
+      private value?: string;
+      set(value?: string): void { this.value = value; }
+      clear(): void { this.value = undefined; }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /has value: str \| None = None;/);
+  assert.match(result.jac, /def set\(value: str \| None = None\) -> None/);
+  assertJacChecks(result.jac);
+});

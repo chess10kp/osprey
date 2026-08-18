@@ -3929,10 +3929,12 @@ function parseClassMethodParams(params, path, diags, ctx) {
       return null;
     }
     const ann = idNode.typeAnnotation?.typeAnnotation;
-    const jacType = ann ? tsTypeToJac(ann, path, diags) : "any";
-    if (!jacType) return null;
+    const baseType = ann ? tsTypeToJac(ann, path, diags) : "any";
+    if (!baseType) return null;
+    const jacType = idNode.optional ? withOptionalJacType(baseType) : baseType;
     let text = `${identText(idNode.name)}: ${jacType}`;
-    if (defaultText) text += ` = ${defaultText}`;
+    if (defaultText !== null) text += ` = ${defaultText}`;
+    else if (idNode.optional) text += " = None";
     jacParams.push(text);
   }
   return jacParams;
@@ -4005,7 +4007,8 @@ function parseClassField(member, path, diags, classCtx) {
   } else if (member.value) {
     jacType = inferExprType(member.value, path, diags) ?? "any";
   }
-  let initText = "";
+  if (member.optional) jacType = withOptionalJacType(jacType);
+  let initText = member.optional ? " = None" : "";
   if (member.value) {
     const val = emitExpr(member.value, path, diags, classCtx);
     if (val === null) return null;
