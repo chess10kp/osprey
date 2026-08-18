@@ -1472,6 +1472,11 @@ function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx =
 /** V2.8: track dict-typed bindings so `d.field` lowers to `d["field"]`. */
 function noteDictBinding(name, init, ann, ctx) {
   if (!name || !ctx?.dictBindings) return;
+  if (init?.type === "NewExpression" && init.callee?.type === "Identifier"
+    && init.callee.name === "Map") {
+    ctx.mapBindings ??= new Set();
+    ctx.mapBindings.add(name);
+  }
   if (init?.type === "ObjectExpression") {
     ctx.dictBindings.add(name);
     return;
@@ -1506,6 +1511,11 @@ function noteDictBinding(name, init, ann, ctx) {
 
 function isDictBinding(name, ctx) {
   return Boolean(name && ctx?.dictBindings?.has(name));
+}
+
+function isKnownMapReceiver(node, ctx = {}) {
+  return node?.type === "Identifier"
+    && (ctx.mapBindings?.has(node.name) || MODULE_MAP_BINDINGS.has(node.name));
 }
 
 function usesDictBracketAccess(node, ctx) {
@@ -1838,6 +1848,22 @@ function isStableRepeatableExpr(node) {
  * map cleanly to a plain Jac member access. Returns the source or null.
  */
 function emitMemberAccess(node, path, diags, ctx = {}) {
+  // `map.keys().next().value` is JS iterator protocol. Jac's dict view is an
+  // iterable, so preserve the empty-map `undefined` result as None.
+  const nextCall = node.object;
+  const keysCall = nextCall?.callee?.object;
+  if (!node.computed && node.property?.name === "value"
+    && nextCall?.type === "CallExpression" && (nextCall.arguments ?? []).length === 0
+    && nextCall.callee?.type === "MemberExpression" && !nextCall.callee.computed
+    && nextCall.callee.property?.name === "next"
+    && keysCall?.type === "CallExpression" && (keysCall.arguments ?? []).length === 0
+    && keysCall.callee?.type === "MemberExpression" && !keysCall.callee.computed
+    && keysCall.callee.property?.name === "keys"
+    && isKnownMapReceiver(keysCall.callee.object, ctx)) {
+    const recv = emitExpr(keysCall.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    return `next(iter(${recv}.keys()), None)`;
+  }
   if (!node.computed
     && node.property?.type === "Identifier"
     && (node.object?.type === "MemberExpression" || node.object?.type === "OptionalMemberExpression")
@@ -1943,6 +1969,9 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
       : null;
     const access = `${obj}["${node.property.name}"]`;
     return fieldType ? `(${access} as ${fieldType})` : access;
+  }
+  if (node.property.name === "size" && isKnownMapReceiver(node.object, ctx)) {
+    return `len(${obj})`;
   }
   if (node.property.name === "length") {
     return `len(${obj})`;
@@ -2090,6 +2119,27 @@ function emitStatement(stmt, ctx) {
 
   if (kind === "ExpressionStatement") {
     const expr = stmt.expression;
+    // Discard-result Map mutations can lower to dict mutations without having
+    // to emulate JS's expression return values (`set` returns the Map; `delete`
+    // returns a bool). Provenance-gated to bindings initialized by `new Map`.
+    if (expr?.type === "CallExpression" && !expr.optional
+      && expr.callee?.type === "MemberExpression" && !expr.callee.computed
+      && isKnownMapReceiver(expr.callee.object, ctx)) {
+      const method = expr.callee.property?.name;
+      const recv = emitExpr(expr.callee.object, path, diags, ctx);
+      if (recv === null) return null;
+      if (method === "set" && (expr.arguments ?? []).length === 2) {
+        const key = emitExpr(expr.arguments[0], path, diags, ctx);
+        const value = emitExpr(expr.arguments[1], path, diags, ctx);
+        if (key === null || value === null) return null;
+        return [`${recv}[${key}] = ${value};`];
+      }
+      if (method === "delete" && (expr.arguments ?? []).length === 1) {
+        const key = emitExpr(expr.arguments[0], path, diags, ctx);
+        if (key === null) return null;
+        return [`${recv}.pop(${key}, None);`];
+      }
+    }
     // V2.13: `xs.splice(i, n);` -> `del xs[i:i+n];`. This mapping is confined
     // to statement position because JS returns the removed slice. Insert forms
     // and expression-valued uses remain unsupported.
@@ -2511,6 +2561,9 @@ let MATCH_LOCALS = new Set();
 // results lowers to subscripts. Collected per file in convertEnvelope.
 let DICT_RETURNING_FUNCS = new Set();
 let DICT_RETURN_FIELD_TYPES = new Map();
+// Bindings whose value originates at `new Map(...)`. Map lowers to Jac's dict,
+// but its JS-only API is rewritten only when AST provenance proves the receiver.
+let MODULE_MAP_BINDINGS = new Set();
 // V2.12: locally-declared class names — `new LocalClass(...)` lowers to the
 // Jac call construction `LocalClass(...)`.
 let LOCAL_CLASSES = new Set();
@@ -5224,6 +5277,7 @@ function convertEnvelope(payload) {
   MATCH_LOCALS = matchLocals;
   DICT_RETURNING_FUNCS = new Set();
   DICT_RETURN_FIELD_TYPES = new Map();
+  MODULE_MAP_BINDINGS = new Set();
   const typeAliases = collectTypeAliases(body);
   // V2.12: collect functions whose TS return annotation is an object type —
   // their call results are dict values, so member access lowers to subscripts.
@@ -5308,6 +5362,10 @@ function convertEnvelope(payload) {
     const decl = item?.type === "ExportNamedDeclaration" ? item.declaration : item;
     if (decl?.type !== "VariableDeclaration") continue;
     for (const d of decl.declarations ?? []) {
+      if (d?.id?.type === "Identifier" && d.init?.type === "NewExpression"
+        && d.init.callee?.type === "Identifier" && d.init.callee.name === "Map") {
+        MODULE_MAP_BINDINGS.add(d.id.name);
+      }
       if (d?.id?.type === "Identifier" && d.init?.type === "Literal" && d.init.regex) {
         REGEX_CONSTS.add(d.id.name);
       }

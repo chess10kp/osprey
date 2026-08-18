@@ -304,6 +304,26 @@ test("module Set and Map constructors lower iterable initializers", () => {
   assertJacChecks(result.jac);
 });
 
+test("known Map bindings lower their JS-only mutation and iterator API", () => {
+  const result = convert(`
+    const cache = new Map<string, number>();
+    export function remember(key: string, value: number): number {
+      if (cache.size >= 2) {
+        const first = cache.keys().next().value;
+        if (first !== undefined) cache.delete(first);
+      }
+      cache.set(key, value);
+      return cache.get(key)!;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /len\(cache\) >= 2/);
+  assert.match(result.jac, /first = next\(iter\(cache\.keys\(\)\), None\)/);
+  assert.match(result.jac, /cache\.pop\(first, None\);/);
+  assert.match(result.jac, /cache\[key\] = value;/);
+  assertJacChecks(result.jac);
+});
+
 test("bitwise operators preserve masks and shifts", () => {
   const result = convert(`
     export function masked(value: number, lock: number): number {
