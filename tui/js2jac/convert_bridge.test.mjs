@@ -355,3 +355,17 @@ test("identifier-based external constructors lower as interop calls", () => {
   assert.match(result.jac, /glob parser: any = Parser\("strict"\);/);
   assertJacChecks(result.jac);
 });
+
+test("fail-open class members are emitted as explicit holes", () => {
+  const result = convert(`
+    export class Partial {
+      segmenter = new Intl.Segmenter();
+      *values(): Iterable<number> { yield 1; }
+      ok(): string { return "ok"; }
+    }
+  `, "partial.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /JS2JAC-HOLE\[E7215\] `new` expressions are not supported/);
+  assert.match(result.jac, /JS2JAC-HOLE\[E7205\] Generator class methods are not supported/);
+  assert.match(result.jac, /def ok\(\) -> str/);
+});

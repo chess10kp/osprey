@@ -4130,6 +4130,7 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
   };
   const fieldLines = [];
   const methodMembers = [];
+  const classHoleLines = [];
   for (const member of decl.body?.body ?? []) {
     if (isClassFieldMember(member) && member.static) {
       if (member.key?.name && staticHoists.has(member.key.name)) continue;
@@ -4138,7 +4139,16 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
       const localDiags = [];
       const line = parseClassField(member, path, localDiags, classCtx);
       if (!line || localDiags.length) {
-        if (stmtFailOpen) continue;
+        if (stmtFailOpen) {
+          if (HOLE_CTX.emitHoles) {
+            classHoleLines.push(...holeCommentLines(
+              member,
+              localDiags[0]?.code ?? "E7205",
+              localDiags[0]?.message ?? "Class field produced no output",
+            ));
+          }
+          continue;
+        }
         diags.push(...(localDiags.length ? localDiags : [diag("E7205", "Class field produced no output", path)]));
         return null;
       }
@@ -4149,7 +4159,16 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
       methodMembers.push(member);
       continue;
     }
-    if (stmtFailOpen) continue;
+    if (stmtFailOpen) {
+      if (HOLE_CTX.emitHoles) {
+        classHoleLines.push(...holeCommentLines(
+          member,
+          "E7205",
+          `Unsupported class member: ${member?.type}`,
+        ));
+      }
+      continue;
+    }
     diags.push(diag("E7205", `Unsupported class member: ${member?.type}`, path));
     return null;
   }
@@ -4204,11 +4223,21 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
   for (const f of fieldLines.filter((f) => !f.hasDefault)) memberLines.push(f.line);
   memberLines.push(...syntheticFieldLines);
   for (const f of fieldLines.filter((f) => f.hasDefault)) memberLines.push(f.line);
+  memberLines.push(...classHoleLines);
   for (const member of methodMembers) {
     const localDiags = [];
     const line = parseClassMethod(normalizeClassMethodMember(member), path, localDiags, classCtx, stmtFailOpen);
     if (!line || localDiags.length) {
-      if (stmtFailOpen) continue;
+      if (stmtFailOpen) {
+        if (HOLE_CTX.emitHoles) {
+          memberLines.push(...holeCommentLines(
+            member,
+            localDiags[0]?.code ?? "E7205",
+            localDiags[0]?.message ?? "Class method produced no output",
+          ));
+        }
+        continue;
+      }
       diags.push(...(localDiags.length ? localDiags : [diag("E7205", "Class method produced no output", path)]));
       return null;
     }
