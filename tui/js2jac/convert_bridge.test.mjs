@@ -395,3 +395,16 @@ test("optional class fields and parameters lower as nullable defaults", () => {
   assert.match(result.jac, /def set\(value: str \| None = None\) -> None/);
   assertJacChecks(result.jac);
 });
+
+test("class parameters infer types from literal defaults", () => {
+  const result = convert(`
+    export class Options {
+      constructor(count = 1, label = "all", enabled = true) {}
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /count: float = 1/);
+  assert.match(result.jac, /label: str = "all"/);
+  assert.match(result.jac, /enabled: bool = True/);
+  assertJacChecks(result.jac);
+});

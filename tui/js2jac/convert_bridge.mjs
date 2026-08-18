@@ -3929,7 +3929,14 @@ function parseClassMethodParams(params, path, diags, ctx) {
       return null;
     }
     const ann = idNode.typeAnnotation?.typeAnnotation;
-    const baseType = ann ? tsTypeToJac(ann, path, diags) : "any";
+    let baseType = ann ? tsTypeToJac(ann, path, diags) : null;
+    if (!baseType && p?.type === "AssignmentPattern") {
+      baseType = inferExprType(p.right, path, diags);
+      // TypeScript numeric literals inhabit `number`, including integer-looking
+      // defaults whose callers may still supply fractional values.
+      if (baseType === "int") baseType = "float";
+    }
+    baseType ??= "any";
     if (!baseType) return null;
     const jacType = idNode.optional ? withOptionalJacType(baseType) : baseType;
     let text = `${identText(idNode.name)}: ${jacType}`;
