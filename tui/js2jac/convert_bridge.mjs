@@ -1406,6 +1406,9 @@ function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx =
     diags,
     inLambda: true,
     dictBindings: new Set(),
+    dictListBindings: new Set(),
+    dictListFieldTypes: new Map(),
+    dictFieldTypes: new Map(),
     inClass: parentCtx.inClass ?? false,
     className: parentCtx.className,
     staticHoists: parentCtx.staticHoists,
@@ -2072,7 +2075,8 @@ function emitStatement(stmt, ctx) {
       } else if (ctx.floatLocals?.has(d.id.name)) {
         prefix = `${name}: float = `;
       }
-      out.push(`${prefix}${val};`);
+      const initValue = !ann && ctx.floatLocals?.has(d.id.name) ? `float(${val})` : val;
+      out.push(`${prefix}${initValue};`);
     }
     return out;
   }
@@ -2112,6 +2116,10 @@ function emitStatement(stmt, ctx) {
       if (op === undefined) {
         diags.push(diag("E7215", `Unsupported assignment operator: ${expr.operator}`, path));
         return null;
+      }
+      if (expr.left?.type === "Identifier" && ctx.floatLocals?.has(expr.left.name)
+        && ["+=", "-=", "*=", "/=", "%=", "**="].includes(expr.operator)) {
+        return [`${left} = float(${left} ${expr.operator.slice(0, -1)} ${right});`];
       }
       return [`${left} ${op} ${right};`];
     }
@@ -4291,6 +4299,9 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     className: classCtx.className,
     staticHoists: classCtx.staticHoists,
     dictBindings: new Set(),
+    dictListBindings: new Set(),
+    dictListFieldTypes: new Map(),
+    dictFieldTypes: new Map(),
     allowReturn: true,
     failOpen: stmtFailOpen,
     droppedStatements: classCtx.droppedStatements ?? [],
@@ -4590,6 +4601,9 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
     diags,
     allowReturn: true,
     dictBindings: new Set(),
+    dictListBindings: new Set(),
+    dictListFieldTypes: new Map(),
+    dictFieldTypes: new Map(),
     failOpen,
     droppedStatements: [],
     floatLocals: collectFloatLocals(body),
@@ -5425,6 +5439,9 @@ function convertEnvelope(payload) {
         diags: [],
         inClass: false,
         dictBindings: new Set(),
+        dictListBindings: new Set(),
+        dictListFieldTypes: new Map(),
+        dictFieldTypes: new Map(),
         allowReturn: false,
         failOpen: stmtFailOpen,
         droppedStatements: entryDrops,

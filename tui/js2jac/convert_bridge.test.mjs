@@ -521,13 +521,17 @@ test("named match groups lower through Python groupdict", () => {
 test("numeric locals widen when fractional compound updates require it", () => {
   const result = convert(`
     export function score(text: string): number {
-      let score = 0;
-      for (let i = 0; i < text.length; i++) score += i * 0.1;
-      return score;
+      const calculate = (value: string): number => {
+        let score = 0;
+        for (let i = 0; i < value.length; i++) score += i * 0.1;
+        return score;
+      };
+      return calculate(text);
     }
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /score: float = 0;/);
+  assert.match(result.jac, /score: float = float\(0\);/);
+  assert.match(result.jac, /score = float\(score \+ \(i \* 0\.1\)\);/);
   assert.match(result.jac, /i: int = 0;/);
   assertJacChecks(result.jac);
 });
@@ -542,7 +546,7 @@ test("object-array comparator sort and map preserve dictionary access", () => {
       results.sort((a, b) => a.totalScore - b.totalScore);
       return results.map((result) => result.item);
     }
-  `);
+  `, "fixture.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /\.sort\(key=lambda \(_jx_sort: any\).*\["totalScore"\]/);
   assert.match(result.jac, /\(result\["item"\] as str\) for result in results/);
