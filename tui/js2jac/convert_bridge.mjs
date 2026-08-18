@@ -94,6 +94,12 @@
  * `React.FC<ButtonProps>`, `memo<AppProps>`). Unresolved or unsupported
  * references (unknown name, `PropsWithChildren<T>`, generic args on a bare ref)
  * still fail closed with `E7221`.
+ *
+ * V2.11 slice: ClassDeclaration -> Jac `obj` / `obj(Base)` with `has` fields,
+ * `def`/`override def` methods, `def __init__` constructors, `self`/`super`
+ * lowering, and static-readonly literal hoists to module `glob`. Imported bases
+ * emit anyway (per-file `jac check` may warn on Unknown base types). Simple
+ * `for (let i = 0; i < n; i++)` loops and `i++` updates lower for class bodies.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -390,6 +396,7 @@ function tsTypeToJac(typeNode, path, diags) {
   if (kind === "TSStringKeyword") return "str";
   if (kind === "TSNumberKeyword") return "float";
   if (kind === "TSBooleanKeyword") return "bool";
+  if (kind === "TSVoidKeyword") return "None";
   if (kind === "TSNullKeyword" || kind === "TSUndefinedKeyword") return "None";
   // V2.10 (Fix 4, Stage A): widen unmodeled TS types to Jac `any` in general type
   // positions (helper params, variable/return annotations, props FIELD types). `any`
@@ -1351,11 +1358,23 @@ function emitTemplateLiteral(node, path, diags) {
  * `widenedParams` (out) collects param names widened to `any` for the caller to
  * stamp as interop evidence.
  */
-function emitCallbackLambda(node, path, diags, widenedParams = null) {
+function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx = {}) {
   if (node.generator || node.async) {
     diags.push(diag("E7215", "Async/generator callbacks are not supported", path));
     return null;
   }
+  const lambdaCtx = {
+    path,
+    diags,
+    inLambda: true,
+    dictBindings: new Set(),
+    inClass: parentCtx.inClass ?? false,
+    className: parentCtx.className,
+    staticHoists: parentCtx.staticHoists,
+    allowReturn: true,
+    failOpen: parentCtx.failOpen ?? false,
+    droppedStatements: parentCtx.droppedStatements ?? [],
+  };
   const paramParts = [];
   for (const param of node.params ?? []) {
     if (param.type === "AssignmentPattern") {
@@ -1395,12 +1414,12 @@ function emitCallbackLambda(node, path, diags, widenedParams = null) {
   const stmts = [];
   if (node.body?.type === "BlockStatement") {
     for (const s of node.body.body ?? []) {
-      const lines = emitStatement(s, { path, diags, inLambda: true, dictBindings: new Set() });
+      const lines = emitStatement(s, lambdaCtx);
       if (lines === null) return null;
       stmts.push(...lines);
     }
   } else {
-    const val = emitExpr(node.body, path, diags);
+    const val = emitExpr(node.body, path, diags, lambdaCtx);
     if (val === null) return null;
     stmts.push(`return ${val};`);
   }
@@ -1555,10 +1574,16 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     diags.push(diag("E7215", "Optional chaining (?.) is not supported", path));
     return null;
   }
+  if (!node.computed
+    && node.object?.type === "Identifier"
+    && node.property?.type === "Identifier"
+    && ctx.className === node.object.name
+    && ctx.staticHoists?.has(node.property.name)) {
+    return node.property.name;
+  }
   const obj = emitExpr(node.object, path, diags, ctx);
   if (obj === null) return null;
   if (node.computed) {
-    // Computed access on a consumed React namespace (`React['useState']`) cannot
     // be resolved — the namespace is lowered away, so emitting it would dangle.
     if (node.object?.type === "Identifier" && REACT_NAMESPACE_LOCALS.has(node.object.name)) {
       diags.push(diag("E7214", "Computed member access on a React namespace is not supported", path));
@@ -1713,11 +1738,17 @@ function emitStatement(stmt, ctx) {
 
   if (kind === "ExpressionStatement") {
     const expr = stmt.expression;
+    if (expr?.type === "UpdateExpression") {
+      const arg = emitExpr(expr.argument, path, diags, ctx);
+      if (arg === null) return null;
+      const delta = expr.operator === "++" ? "1" : "-1";
+      return [`${arg} += ${delta};`];
+    }
     // Compound assignment (+=, -=, ...) -> Jac compound forms where supported.
     if (expr?.type === "AssignmentExpression") {
-      const left = emitExpr(expr.left, path, diags);
+      const left = emitExpr(expr.left, path, diags, ctx);
       if (left === null) return null;
-      const right = emitExpr(expr.right, path, diags);
+      const right = emitExpr(expr.right, path, diags, ctx);
       if (right === null) return null;
       const op = COMPOUND_ASSIGN_OPS[expr.operator];
       if (op === undefined) {
@@ -1726,7 +1757,7 @@ function emitStatement(stmt, ctx) {
       }
       return [`${left} ${op} ${right};`];
     }
-    const text = emitExpr(expr, path, diags);
+    const text = emitExpr(expr, path, diags, ctx);
     if (text === null) return null;
     return [`${text};`];
   }
@@ -1737,7 +1768,7 @@ function emitStatement(stmt, ctx) {
       return null;
     }
     if (stmt.argument === null || stmt.argument === undefined) return ["return;"];
-    const val = emitExpr(stmt.argument, path, diags);
+    const val = emitExpr(stmt.argument, path, diags, ctx);
     if (val === null) return null;
     return [`return ${val};`];
   }
@@ -1753,7 +1784,7 @@ function emitStatement(stmt, ctx) {
     }
     const leftName = forLoopVarName(stmt.left, path, diags);
     if (leftName === null) return null;
-    const right = emitExpr(stmt.right, path, diags);
+    const right = emitExpr(stmt.right, path, diags, ctx);
     if (right === null) return null;
     const bodyLines = emitStatement(stmt.body, ctx);
     if (bodyLines === null) return null;
@@ -1768,12 +1799,14 @@ function emitStatement(stmt, ctx) {
   }
 
   if (kind === "ForStatement") {
+    const cFor = tryEmitCStyleFor(stmt, ctx);
+    if (cFor !== null) return cFor;
     diags.push(diag("E7230", "C-style for loops are not supported (rewrite as while or for...of)", path));
     return null;
   }
 
   if (kind === "WhileStatement") {
-    const test = emitExpr(stmt.test, path, diags);
+    const test = emitExpr(stmt.test, path, diags, ctx);
     if (test === null) return null;
     const bodyLines = emitStatement(stmt.body, ctx);
     if (bodyLines === null) return null;
@@ -1938,7 +1971,7 @@ function emitIfChain(stmt, ctx, INDENT) {
   let cur = stmt;
   let first = true;
   while (cur?.type === "IfStatement") {
-    const test = emitExpr(cur.test, path, diags);
+    const test = emitExpr(cur.test, path, diags, ctx);
     if (test === null) return null;
     const consLines = emitStatement(cur.consequent, ctx);
     if (consLines === null) return null;
@@ -2015,6 +2048,12 @@ function emitExpr(node, path, diags, ctx = {}) {
     return emitExpr(node.expression, path, diags, ctx);
   }
   if (kind === "MemberExpression") return emitMemberAccess(node, path, diags, ctx);
+  if (kind === "OptionalMemberExpression" || kind === "OptionalCallExpression") {
+    // Emit anyway: optional chaining has no native Jac short-circuit; lower to a
+    // plain member/call (pi-tui uses `?.` on optionals that are guarded nearby).
+    const plainType = kind === "OptionalMemberExpression" ? "MemberExpression" : "CallExpression";
+    return emitExpr({ ...node, type: plainType, optional: false }, path, diags, ctx);
+  }
   if (kind === "ChainExpression") {
     // Surface `?.` chains; the inner expression carries the `optional` flag.
     return emitExpr(node.expression, path, diags, ctx);
@@ -2054,12 +2093,12 @@ function emitExpr(node, path, diags, ctx = {}) {
         return null;
       }
       if (el.type === "SpreadElement") {
-        const val = emitExpr(el.argument, path, diags);
+        const val = emitExpr(el.argument, path, diags, ctx);
         if (val === null) return null;
         elems.push(`*${val}`);
         continue;
       }
-      const text = emitExpr(el, path, diags);
+      const text = emitExpr(el, path, diags, ctx);
       if (text === null) return null;
       elems.push(text);
     }
@@ -2074,14 +2113,21 @@ function emitExpr(node, path, diags, ctx = {}) {
   if (kind === "BinaryExpression") {
     const typeofGuard = tryLowerTypeofGuard(node, path, diags);
     if (typeofGuard !== undefined) return typeofGuard;
+    if (node.operator === "??") {
+      const left = emitExpr(node.left, path, diags, ctx);
+      if (left === null) return null;
+      const right = emitExpr(node.right, path, diags, ctx);
+      if (right === null) return null;
+      return `(${left} if ${left} is not None else ${right})`;
+    }
     const op = BINARY_OPS[node.operator];
     if (op === undefined) {
       diags.push(diag("E7215", `Unsupported binary operator: ${node.operator}`, path));
       return null;
     }
-    const left = emitExpr(node.left, path, diags);
+    const left = emitExpr(node.left, path, diags, ctx);
     if (left === null) return null;
-    const right = emitExpr(node.right, path, diags);
+    const right = emitExpr(node.right, path, diags, ctx);
     if (right === null) return null;
     return `(${left} ${op} ${right})`;
   }
@@ -2091,9 +2137,9 @@ function emitExpr(node, path, diags, ctx = {}) {
       diags.push(diag("E7215", `Unsupported logical operator: ${node.operator} (nullish coalescing ?? is deferred)`, path));
       return null;
     }
-    const left = emitExpr(node.left, path, diags);
+    const left = emitExpr(node.left, path, diags, ctx);
     if (left === null) return null;
-    const right = emitExpr(node.right, path, diags);
+    const right = emitExpr(node.right, path, diags, ctx);
     if (right === null) return null;
     return `(${left} ${op} ${right})`;
   }
@@ -2103,16 +2149,16 @@ function emitExpr(node, path, diags, ctx = {}) {
       diags.push(diag("E7215", `Unsupported unary operator: ${node.operator}`, path));
       return null;
     }
-    const arg = emitExpr(node.argument, path, diags);
+    const arg = emitExpr(node.argument, path, diags, ctx);
     if (arg === null) return null;
     return `${op}${arg}`;
   }
   if (kind === "ConditionalExpression") {
-    const test = emitExpr(node.test, path, diags);
+    const test = emitExpr(node.test, path, diags, ctx);
     if (test === null) return null;
-    const cons = emitExpr(node.consequent, path, diags);
+    const cons = emitExpr(node.consequent, path, diags, ctx);
     if (cons === null) return null;
-    const alt = emitExpr(node.alternate, path, diags);
+    const alt = emitExpr(node.alternate, path, diags, ctx);
     if (alt === null) return null;
     return `(${cons} if ${test} else ${alt})`;
   }
@@ -2120,9 +2166,9 @@ function emitExpr(node, path, diags, ctx = {}) {
     // Only simple/compound assignment between lowerable expressions. Used for
     // inline assignments (e.g. `x = y` as an expression statement body).
     if (node.operator === "=") {
-      const left = emitExpr(node.left, path, diags);
+      const left = emitExpr(node.left, path, diags, ctx);
       if (left === null) return null;
-      const right = emitExpr(node.right, path, diags);
+      const right = emitExpr(node.right, path, diags, ctx);
       if (right === null) return null;
       return `${left} = ${right}`;
     }
@@ -2130,11 +2176,25 @@ function emitExpr(node, path, diags, ctx = {}) {
     return null;
   }
   if (kind === "ArrowFunctionExpression" || kind === "FunctionExpression") {
-    return emitCallbackLambda(node, path, diags);
+    return emitCallbackLambda(node, path, diags, null, ctx);
+  }
+  if (kind === "Super") {
+    return "super";
   }
   if (kind === "ThisExpression") {
+    if (ctx.inClass) return "self";
     diags.push(diag("E7215", "`this` is not supported (component helpers must not rely on receiver binding)", path));
     return null;
+  }
+  if (kind === "UpdateExpression") {
+    const arg = emitExpr(node.argument, path, diags, ctx);
+    if (arg === null) return null;
+    const delta = node.operator === "++" ? "1" : "-1";
+    if (node.prefix) {
+      diags.push(diag("E7215", "Prefix increment/decrement is not supported as an expression", path));
+      return null;
+    }
+    return `${arg} + ${delta}`;
   }
   if (kind === "AwaitExpression") {
     // Fix 3: `await x` lowers 1:1 to Jac `await x`. Valid JS only permits
@@ -3130,6 +3190,345 @@ function inferReturnTypeFromBody(body, path, diags) {
   return "None";
 }
 
+function isClassFieldMember(member) {
+  const t = member?.type ?? "";
+  return t === "ClassProperty" || t === "ClassPrivateProperty"
+    || t === "PropertyDefinition" || t === "PrivateProperty";
+}
+
+function isClassMethodMember(member) {
+  const t = member?.type ?? "";
+  return t === "ClassMethod" || t === "ClassPrivateMethod"
+    || t === "MethodDefinition";
+}
+
+function normalizeClassMethodMember(member) {
+  if (member?.type === "MethodDefinition" && member.value) {
+    const v = member.value;
+    return {
+      ...member,
+      type: "ClassMethod",
+      body: v.body,
+      params: v.params ?? [],
+      generator: v.generator ?? false,
+      async: v.async ?? false,
+      returnType: v.returnType ?? member.returnType,
+    };
+  }
+  return member;
+}
+
+function isStaticLiteralInit(node) {
+  const n = unwrapTsValue(node);
+  if (!n) return false;
+  switch (n.type) {
+    case "Literal":
+      if (n.regex !== undefined) return false;
+      return typeof n.value === "string" || typeof n.value === "number"
+        || typeof n.value === "boolean" || n.value === null;
+    case "StringLiteral":
+    case "NumericLiteral":
+    case "BooleanLiteral":
+    case "NullLiteral":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function parseClassExtends(superClass, path, diags) {
+  if (!superClass) return null;
+  if (superClass.type === "Identifier") return superClass.name;
+  diags.push(diag("E7205", `Unsupported class extends form: ${superClass.type}`, path));
+  return null;
+}
+
+function parseClassMethodParams(params, path, diags, ctx) {
+  const jacParams = [];
+  for (const p of params ?? []) {
+    let idNode = p;
+    let defaultText = null;
+    if (p?.type === "AssignmentPattern") {
+      idNode = p.left;
+      if (idNode?.type !== "Identifier") {
+        diags.push(diag("E7232", "Class method default parameters must bind a simple identifier", path));
+        return null;
+      }
+      const d = emitExpr(p.right, path, diags, ctx);
+      if (d === null) return null;
+      defaultText = d;
+    } else if (p?.type === "RestElement") {
+      diags.push(diag("E7232", "Class method rest parameters are not supported", path));
+      return null;
+    } else if (p?.type === "ObjectPattern" || p?.type === "ArrayPattern") {
+      diags.push(diag("E7232", `Unsupported class method parameter form: ${p.type}`, path));
+      return null;
+    } else if (p?.type !== "Identifier") {
+      diags.push(diag("E7232", `Unsupported class method parameter form: ${p?.type}`, path));
+      return null;
+    }
+    const ann = idNode.typeAnnotation?.typeAnnotation;
+    const jacType = ann ? tsTypeToJac(ann, path, diags) : "any";
+    if (!jacType) return null;
+    let text = `${idNode.name}: ${jacType}`;
+    if (defaultText) text += ` = ${defaultText}`;
+    jacParams.push(text);
+  }
+  return jacParams;
+}
+
+function tryEmitCStyleFor(stmt, ctx) {
+  const { path, diags } = ctx;
+  const INDENT = "    ";
+  const init = stmt.init;
+  const test = stmt.test;
+  const update = stmt.update;
+  if (!test || !update) return null;
+  let varName = null;
+  let initVal = "0";
+  if (init?.type === "VariableDeclaration" && init.kind === "let"
+    && init.declarations?.length === 1) {
+    const d = init.declarations[0];
+    if (d.id?.type === "Identifier") {
+      varName = d.id.name;
+      if (d.init) {
+        initVal = emitExpr(d.init, path, diags, ctx);
+        if (initVal === null) return null;
+      }
+    }
+  }
+  if (!varName) return null;
+  const testText = emitExpr(test, path, diags, ctx);
+  if (testText === null) return null;
+  let updateLine = null;
+  if (update.type === "UpdateExpression"
+    && update.argument?.type === "Identifier"
+    && update.argument.name === varName
+    && !update.prefix) {
+    const delta = update.operator === "++" ? "1" : "-1";
+    updateLine = `${varName} += ${delta};`;
+  } else if (update.type === "AssignmentExpression"
+    && update.left?.type === "Identifier"
+    && update.left.name === varName
+    && update.operator === "+=") {
+    const rhs = emitExpr(update.right, path, diags, ctx);
+    if (rhs === null) return null;
+    updateLine = `${varName} += ${rhs};`;
+  } else {
+    return null;
+  }
+  const bodyLines = emitStatement(stmt.body, ctx);
+  if (bodyLines === null) return null;
+  const indentBlock = (lines) => lines.map((l) => (l === "" ? "" : INDENT + l));
+  return [
+    `${varName}: int = ${initVal};`,
+    `while ${testText} {`,
+    ...indentBlock(bodyLines),
+    ...indentBlock([updateLine]),
+    "}",
+  ];
+}
+
+function parseClassField(member, path, diags, classCtx) {
+  if (member.static) return null;
+  const name = member.key?.name;
+  if (!name || member.computed) {
+    diags.push(diag("E7205", "Unsupported class field key form", path));
+    return null;
+  }
+  const ann = member.typeAnnotation?.typeAnnotation;
+  let jacType = "any";
+  if (ann) {
+    jacType = tsTypeToJac(ann, path, diags);
+    if (!jacType) return null;
+  } else if (member.value) {
+    jacType = inferExprType(member.value, path, diags) ?? "any";
+  }
+  let initText = "";
+  if (member.value) {
+    const val = emitExpr(member.value, path, diags, classCtx);
+    if (val === null) return null;
+    initText = ` = ${val}`;
+  }
+  return `has ${name}: ${jacType}${initText};`;
+}
+
+function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
+  const kind = member.kind ?? "method";
+  if (kind === "get" || kind === "set") {
+    diags.push(diag("E7205", "Class getters/setters are not supported", path));
+    return null;
+  }
+  const isCtor = kind === "constructor";
+  const name = isCtor ? "__init__" : member.key?.name;
+  if (!name) {
+    diags.push(diag("E7205", "Class method must have a simple name", path));
+    return null;
+  }
+  if (member.generator) {
+    diags.push(diag("E7205", "Generator class methods are not supported", path));
+    return null;
+  }
+  if (member.async) {
+    diags.push(diag("E7205", "Async class methods are not supported", path));
+    return null;
+  }
+  const jacParams = parseClassMethodParams(member.params ?? [], path, diags, classCtx);
+  if (jacParams === null) return null;
+  let retType = "None";
+  if (!isCtor) {
+    if (member.returnType?.typeAnnotation) {
+      retType = tsTypeToJac(member.returnType.typeAnnotation, path, diags);
+      if (!retType) return null;
+    } else {
+      retType = inferReturnTypeFromBody(member.body, path, diags) ?? "any";
+    }
+  }
+  const ctx = {
+    path,
+    diags,
+    inClass: true,
+    className: classCtx.className,
+    staticHoists: classCtx.staticHoists,
+    dictBindings: new Set(),
+    allowReturn: true,
+    failOpen: stmtFailOpen,
+    droppedStatements: classCtx.droppedStatements ?? [],
+  };
+  const bodyLines = [];
+  const body = member.body;
+  if (body?.type === "BlockStatement") {
+    if (stmtFailOpen) {
+      const lines = emitBlockFailOpen(body.body ?? [], ctx);
+      if (lines === null) return null;
+      bodyLines.push(...lines);
+    } else {
+      for (const s of body.body ?? []) {
+        const lines = emitStatement(s, ctx);
+        if (lines === null) return null;
+        bodyLines.push(...lines);
+      }
+    }
+  } else if (body) {
+    const val = emitExpr(body, path, diags, ctx);
+    if (val === null) return null;
+    bodyLines.push(`return ${val};`);
+  }
+  const overrideKw = !isCtor && classCtx.baseName ? "override " : "";
+  const paramText = jacParams.length ? `(${jacParams.join(", ")})` : "()";
+  const lines = [`${overrideKw}def ${name}${paramText} -> ${retType} {`];
+  for (const l of bodyLines) lines.push(`    ${l}`);
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
+  if (decl?.type !== "ClassDeclaration") {
+    diags.push(diag("E7205", `Unsupported declaration: ${decl?.type}`, path));
+    return null;
+  }
+  if (decl.abstract) {
+    diags.push(diag("E7205", "Abstract classes are not supported", path));
+    return null;
+  }
+  if ((decl.decorators ?? []).length) {
+    diags.push(diag("E7205", "Decorated classes are not supported", path));
+    return null;
+  }
+  const name = decl.id?.name;
+  if (!name) {
+    diags.push(diag("E7205", "Class must have a simple name", path));
+    return null;
+  }
+  const baseName = parseClassExtends(decl.superClass, path, diags);
+  if (diags.length) return null;
+  const staticHoists = new Set();
+  const preamble = [];
+  for (const member of decl.body?.body ?? []) {
+    if (!isClassFieldMember(member) || !member.static) continue;
+    if (!isStaticLiteralInit(member.value)) {
+      diags.push(diag("E7205", "Only static literal fields can be lowered (hoist or drop)", path));
+      return null;
+    }
+    const fieldName = member.key?.name;
+    if (!fieldName || member.computed) {
+      diags.push(diag("E7205", "Unsupported static class field key form", path));
+      return null;
+    }
+    const val = emitExpr(member.value, path, diags);
+    if (val === null) return null;
+    const pub = exported ? ":pub" : "";
+    preamble.push(`glob${pub} ${fieldName} = ${val};`);
+    staticHoists.add(fieldName);
+  }
+  const classCtx = {
+    path,
+    diags,
+    inClass: true,
+    className: name,
+    baseName,
+    staticHoists,
+    droppedStatements: [],
+  };
+  const fieldLines = [];
+  const methodMembers = [];
+  for (const member of decl.body?.body ?? []) {
+    if (isClassFieldMember(member) && member.static) {
+      if (member.key?.name && staticHoists.has(member.key.name)) continue;
+    }
+    if (isClassFieldMember(member) && !member.static) {
+      const localDiags = [];
+      const line = parseClassField(member, path, localDiags, classCtx);
+      if (!line || localDiags.length) {
+        if (stmtFailOpen) continue;
+        diags.push(...(localDiags.length ? localDiags : [diag("E7205", "Class field produced no output", path)]));
+        return null;
+      }
+      fieldLines.push({ line, hasDefault: Boolean(member.value) });
+      continue;
+    }
+    if (isClassMethodMember(member)) {
+      methodMembers.push(member);
+      continue;
+    }
+    if (stmtFailOpen) continue;
+    diags.push(diag("E7205", `Unsupported class member: ${member?.type}`, path));
+    return null;
+  }
+  const memberLines = [];
+  for (const f of fieldLines.filter((f) => !f.hasDefault)) memberLines.push(f.line);
+  for (const f of fieldLines.filter((f) => f.hasDefault)) memberLines.push(f.line);
+  for (const member of methodMembers) {
+    const localDiags = [];
+    const line = parseClassMethod(normalizeClassMethodMember(member), path, localDiags, classCtx, stmtFailOpen);
+    if (!line || localDiags.length) {
+      if (stmtFailOpen) continue;
+      diags.push(...(localDiags.length ? localDiags : [diag("E7205", "Class method produced no output", path)]));
+      return null;
+    }
+    memberLines.push(line);
+  }
+  if (!memberLines.length) {
+    diags.push(diag("E7200", "Class produced no members", path));
+    return null;
+  }
+  const head = exported ? "obj:pub" : "obj";
+  const extendsPart = baseName ? `(${baseName})` : "";
+  const objBlock = `${head} ${name}${extendsPart} {\n${memberLines.map((l) => `    ${l}`).join("\n")}\n}`;
+  const jac = preamble.length
+    ? `${preamble.join("\n")}\n\n${objBlock}`
+    : objBlock;
+  return {
+    jac,
+    mappings: [{
+      rule_id: "js.class.declaration.v1",
+      mapping_class: "guarded",
+      target: `${head} ${name}${extendsPart}`,
+    }],
+    droppedStatements: classCtx.droppedStatements,
+  };
+}
+
 /** V2.1: lower a non-component function/arrow to a Jac `def`/`def:pub`. Jac
  * requires typed parameters (E0052) and a return type on value-returning
  * functions (E1003), so params need TS annotations and the return type is taken
@@ -3840,13 +4239,13 @@ function convertEnvelope(payload) {
       recordFailure([diag("E7205", "Re-export forms are not supported", path)], item);
       continue;
     } else if (item.type === "FunctionDeclaration" || item.type === "VariableDeclaration"
-      || item.type === "TSEnumDeclaration") {
+      || item.type === "TSEnumDeclaration" || item.type === "ClassDeclaration") {
       const declName = item.type === "VariableDeclaration"
         ? item.declarations?.[0]?.id?.name
         : item.id?.name;
       if (declName && exportedNames.has(declName)) exported = true;
     } else {
-      recordFailure([diag("E7205", `Unsupported top-level form: ${item.type} (only function/const declarations are supported)`, path)], item);
+      recordFailure([diag("E7205", `Unsupported top-level form: ${item.type} (only function/const/class declarations are supported)`, path)], item);
       continue;
     }
     // Dispatch into a *local* diag buffer so a failure can degrade to a skip in
@@ -3859,6 +4258,8 @@ function convertEnvelope(payload) {
       out = parseArrowComponent(decl, exported, path, localDiags, hookBindings, importState, typeAliases, stmtFailOpen);
     } else if (decl.type === "TSEnumDeclaration") {
       out = parseEnum(decl, exported, path, localDiags);
+    } else if (decl.type === "ClassDeclaration") {
+      out = parseClass(decl, exported, path, localDiags, typeAliases, stmtFailOpen);
     } else {
       localDiags.push(diag("E7205", `Unsupported declaration: ${decl.type}`, path));
     }

@@ -363,6 +363,16 @@
       "priority": 8
     },
     {
+      "rule_id": "js.class.declaration.v1",
+      "mapping_class": "guarded",
+      "category": "js.class",
+      "description": "ClassDeclaration -> Jac obj / obj(Base) with has fields and methods",
+      "nsir_kinds": ["export_function"],
+      "guards": ["simple-extends", "no-decorators"],
+      "enabled": true,
+      "priority": 20
+    },
+    {
       "rule_id": "catch-all.unsupported-top-level.v1",
       "mapping_class": "rejected",
       "category": "catch-all",
