@@ -105,6 +105,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ruleCatalog from "./mapping_rules.json";
+import {
+  boundSiblingNames,
+  collectPatternNames,
+  collectReferencedNames,
+  containsReturn,
+  declaredNames,
+} from "./convert/ast_analysis.mjs";
 
 const PROTOCOL_VERSION = 1;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -2355,49 +2362,6 @@ function emitStatement(stmt, ctx) {
 
   diags.push(diag("E7214", `Unsupported statement: ${kind}`, path));
   return null;
-}
-
-// Names a statement binds into the *enclosing block* scope — the only bindings
-// that can dangle a later sibling if the statement is dropped. Block-scoped
-// bindings inside a nested if/loop body never escape to siblings, so those
-// statements bind nothing here.
-function boundSiblingNames(stmt) {
-  const out = [];
-  if (stmt?.type === "VariableDeclaration") {
-    for (const d of stmt.declarations ?? []) collectPatternNames(d.id, out);
-  } else if (stmt?.type === "FunctionDeclaration" || stmt?.type === "ClassDeclaration") {
-    if (stmt.id?.name) out.push(stmt.id.name);
-  }
-  return out;
-}
-
-function collectPatternNames(node, out) {
-  if (!node) return;
-  if (node.type === "Identifier") out.push(node.name);
-  else if (node.type === "ObjectPattern") for (const p of node.properties ?? []) collectPatternNames(p.value ?? p.argument, out);
-  else if (node.type === "ArrayPattern") for (const el of node.elements ?? []) collectPatternNames(el, out);
-  else if (node.type === "RestElement") collectPatternNames(node.argument, out);
-  else if (node.type === "AssignmentPattern") collectPatternNames(node.left, out);
-}
-
-// A subtree carries a return path that would be lost if the statement were
-// dropped (leaving a typed function without a return on that path → E1002 at
-// `jac check`). Does not descend into nested function bodies — their returns
-// belong to that inner function, not ours.
-function containsReturn(node) {
-  let found = false;
-  (function walk(n) {
-    if (found || !n || typeof n !== "object") return;
-    if (Array.isArray(n)) { for (const x of n) walk(x); return; }
-    if (n.type === "ReturnStatement") { found = true; return; }
-    if (n.type === "FunctionDeclaration" || n.type === "FunctionExpression"
-      || n.type === "ArrowFunctionExpression") return;
-    for (const [k, v] of Object.entries(n)) {
-      if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end") continue;
-      walk(v);
-    }
-  })(node);
-  return found;
 }
 
 // Statement-level fail-open (opt-in via ctx.failOpen; helpers only). Emit each
@@ -5170,56 +5134,6 @@ function validateMappings(mappings, path, diags) {
         ),
       );
     }
-  }
-}
-
-// Module-scope binding name(s) a top-level item introduces. Used by fail-open
-// per-declaration degrade to reason about which kept declarations depend on a
-// skipped one.
-function declaredNames(item) {
-  let d = item;
-  if (item.type === "ExportNamedDeclaration" || item.type === "ExportDefaultDeclaration") {
-    d = item.declaration;
-  }
-  if (!d) return [];
-  if (d.type === "FunctionDeclaration" || d.type === "ClassDeclaration"
-    || d.type === "TSEnumDeclaration") {
-    return d.id?.name ? [d.id.name] : [];
-  }
-  if (d.type === "VariableDeclaration") {
-    const names = [];
-    for (const dec of d.declarations ?? []) {
-      if (dec.id?.type === "Identifier") names.push(dec.id.name);
-    }
-    return names;
-  }
-  return [];
-}
-
-// Identifiers referenced anywhere in a subtree. Deliberately an
-// over-approximation: an extra name can only cause a *conservative drop* of a
-// keepable declaration (yield cost), never an unsound keep of one that dangles.
-// Non-computed member properties / object keys / JSX attribute names are skipped
-// so `classes.root`, `{ root: ... }`, `<div id=...>` don't masquerade as
-// references to a same-named binding.
-function collectReferencedNames(node, out) {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const n of node) collectReferencedNames(n, out);
-    return;
-  }
-  const t = node.type;
-  if (t === "Identifier" || t === "JSXIdentifier") {
-    if (typeof node.name === "string") out.add(node.name);
-    return;
-  }
-  for (const [k, v] of Object.entries(node)) {
-    if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end") continue;
-    if (t === "MemberExpression" && k === "property" && !node.computed) continue;
-    if (t === "JSXMemberExpression" && k === "property") continue;
-    if ((t === "Property" || t === "ObjectProperty") && k === "key" && !node.computed) continue;
-    if (t === "JSXAttribute" && k === "name") continue;
-    collectReferencedNames(v, out);
   }
 }
 

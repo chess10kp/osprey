@@ -13,7 +13,7 @@ in canonical `jaseci`).
   (installed CLI, any cwd) validates output. The `jac tool js2jac` CLI path is
   NOT wired to this copy.
 - **Sync back:** after a slice lands and passes the bridge + pi-tui floor gate,
-  copy `convert_bridge.mjs` / `mapping_rules.json` / touched `impl/*.impl.jac`
+  copy `convert_bridge.mjs` / `convert/` / `mapping_rules.json` / touched `impl/*.impl.jac`
   back to the fork and run the full suite there:
   `cd ~/repos/jac_llm_data/jaseci/jac && jac test tests/compiler/js2jac/`
 
