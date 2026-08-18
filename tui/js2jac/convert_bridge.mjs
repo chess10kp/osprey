@@ -1397,7 +1397,7 @@ function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx =
         if (!mapped) return null;
         jacType = mapped;
       } else if (widenedParams) widenedParams.push(param.left.name);
-      paramParts.push(`${param.left.name}: ${jacType}`);
+      paramParts.push(`${identText(param.left.name)}: ${jacType}`);
       continue;
     }
     if (param.type === "RestElement") {
@@ -1415,7 +1415,7 @@ function emitCallbackLambda(node, path, diags, widenedParams = null, parentCtx =
       if (!mapped) return null;
       jacType = mapped;
     } else if (widenedParams) widenedParams.push(param.name);
-    paramParts.push(`${param.name}: ${jacType}`);
+    paramParts.push(`${identText(param.name)}: ${jacType}`);
   }
   const paramText = paramParts.join(", ");
   const stmts = [];

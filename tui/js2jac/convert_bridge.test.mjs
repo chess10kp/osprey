@@ -456,3 +456,15 @@ test("re-exports erase type-only specifiers from runtime imports", () => {
   assert.doesNotMatch(result.jac, /Shape|Config|OnlyType|types\.jac/);
   assert.equal(result.droppedCount, 0);
 });
+
+test("callback parameters apply reserved-name renames at binding sites", () => {
+  const result = convert(`
+    export function compare(values: string[]): boolean {
+      return values.every((match, code = 0) => match.length > code);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /lambda \(match_j: any, code: any\)/);
+  assert.match(result.jac, /len\(match_j\) > code/);
+  assert.doesNotMatch(result.jac, /lambda \(match:/);
+});
