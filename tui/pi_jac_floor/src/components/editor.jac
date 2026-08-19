@@ -1435,37 +1435,25 @@ obj:pub Editor {
     def forceFileAutocomplete(explicitTab: bool = False) -> None {
         self.requestAutocomplete({"force": True, "explicitTab": explicitTab});
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private requestAutocomplete(options: { force: boolean; explicitTab: boolean }): void {
-    # | 		if (!this.autocompleteProvider) return;
-    # | 
-    # | 		if (options.force) {
-    # | 			const shouldTrigger =
-    # | 				!this.autocompleteProvider.shouldTriggerFileCompletion ||
-    # | 				this.autocompleteProvider.shouldTriggerFileCompletion(
-    # | 					this.state.lines,
-    # | 					this.state.cursorLine,
-    # | 					this.state.cursorCol,
-    # | 				);
-    # | 			if (!shouldTrigger) {
-    # | 				return;
-    # | 			}
-    # | 		}
-    # | 
-    # | 		this.cancelAutocompleteRequest();
-    # | 		const startToken = ++this.autocompleteStartToken;
-    # | 
-    # | 		const debounceMs = this.getAutocompleteDebounceMs(options);
-    # | 		if (debounceMs > 0) {
-    # | 			this.autocompleteDebounceTimer = setTimeout(() => {
-    # | 				this.autocompleteDebounceTimer = undefined;
-    # | 				void this.startAutocompleteRequest(startToken, options);
-    # | 			}, debounceMs);
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		void this.startAutocompleteRequest(startToken, options);
-    # | 	}
+    def requestAutocomplete(options: dict[str, bool]) -> None {
+        if not self.autocompleteProvider {
+            return;
+        }
+        if options.force {
+            shouldTrigger = (not self.autocompleteProvider.shouldTriggerFileCompletion or self.autocompleteProvider.shouldTriggerFileCompletion(self.state.lines, self.state.cursorLine, self.state.cursorCol));
+            if not shouldTrigger {
+                return;
+            }
+        }
+        self.cancelAutocompleteRequest();
+        startToken = (lambda () -> any { self.autocompleteStartToken += 1; return self.autocompleteStartToken; })();
+        debounceMs = self.getAutocompleteDebounceMs(options);
+        if (debounceMs > 0) {
+            self.autocompleteDebounceTimer = setTimeout(lambda () -> any { self.autocompleteDebounceTimer = None; self.startAutocompleteRequest(startToken, options); }, debounceMs);
+            return;
+        }
+        self.startAutocompleteRequest(startToken, options);
+    }
     async def startAutocompleteRequest(startToken: float, options: dict[str, bool]) -> any {
         previousTask = self.autocompleteRequestTask;
         # JS2JAC-HOLE[E7215] Async/generator callbacks are not supported:

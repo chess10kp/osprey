@@ -2164,7 +2164,19 @@ function emitStatement(stmt, ctx) {
   }
 
   if (kind === "ExpressionStatement") {
-    const expr = stmt.expression;
+    let expr = stmt.expression;
+    // `void call()` is a common TS way to make intentional fire-and-forget
+    // explicit. In statement position the value is already discarded, so the
+    // Jac equivalent is the call itself. Keep arbitrary `void` expressions
+    // fail-closed: only calls have an independently useful side effect here.
+    if (expr?.type === "UnaryExpression" && expr.operator === "void") {
+      const inner = unwrapTsValue(expr.argument);
+      if (inner?.type !== "CallExpression") {
+        diags.push(diag("E7215", "Discarded void expression must be a call", path));
+        return null;
+      }
+      expr = inner;
+    }
     // Discard-result Map mutations can lower to dict mutations without having
     // to emulate JS's expression return values (`set` returns the Map; `delete`
     // returns a bool). Provenance-gated to bindings initialized by `new Map`.
@@ -3172,6 +3184,15 @@ function emitExpr(node, path, diags, ctx = {}) {
   if (kind === "BinaryExpression") {
     const typeofGuard = tryLowerTypeofGuard(node, path, diags);
     if (typeofGuard !== undefined) return typeofGuard;
+    if (node.operator === "instanceof") {
+      if (node.right?.type !== "Identifier") {
+        diags.push(diag("E7215", "instanceof requires a simple class identifier", path));
+        return null;
+      }
+      const left = emitExpr(node.left, path, diags, ctx);
+      if (left === null) return null;
+      return `isinstance(${left}, ${identText(node.right.name)})`;
+    }
     if (node.operator === "??") {
       return emitNullishOnce(node, path, diags, ctx);
     }
@@ -3256,8 +3277,17 @@ function emitExpr(node, path, diags, ctx = {}) {
     if (arg === null) return null;
     const delta = node.operator === "++" ? "1" : "-1";
     if (node.prefix) {
-      diags.push(diag("E7215", "Prefix increment/decrement is not supported as an expression", path));
-      return null;
+      const stable = node.argument?.type === "Identifier"
+        || (node.argument?.type === "MemberExpression" && !node.argument.computed
+          && node.argument.object?.type === "ThisExpression"
+          && node.argument.property?.type === "Identifier");
+      if (!stable) {
+        diags.push(diag("E7215", "Prefix increment/decrement requires a stable binding or this.field target", path));
+        return null;
+      }
+      // An IIFE preserves expression evaluation order (notably inside object
+      // literals) while evaluating the stable target exactly once.
+      return `(lambda () -> any { ${arg} += ${delta}; return ${arg}; })()`;
     }
     return `${arg} + ${delta}`;
   }

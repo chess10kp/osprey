@@ -220,6 +220,55 @@ test("switch still rejects genuine statement fallthrough", () => {
   assert.ok(result.diagnostics.some((diag) => diag.code === "E7230"));
 });
 
+test("simple instanceof guards lower to Jac isinstance", () => {
+  const result = convert(`
+    class Container { marker: boolean = true; }
+    export class Tree {
+      contains(value: any): boolean {
+        if (!(value instanceof Container)) return false;
+        return true;
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /if not isinstance\(value, Container\)/);
+  assertJacChecks(result.jac);
+});
+
+test("instanceof with an unstable constructor remains unsupported", () => {
+  const result = convert(`export function matches(value: any): boolean {
+    return value instanceof getConstructor();
+  }`);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
+});
+
+test("statement void calls and stable prefix increments preserve effects", () => {
+  const result = convert(`
+    export class Scheduler {
+      counter: number = 0;
+      launch(): any { return null; }
+      run(): any {
+        const entry = { order: ++this.counter };
+        void this.launch();
+        return entry;
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /"order": \(lambda \(\) -> any \{ self\.counter \+= 1; return self\.counter; \}\)\(\)/);
+  assert.match(result.jac, /self\.launch\(\);/);
+  assertJacChecks(result.jac);
+});
+
+test("unstable prefix increment targets remain unsupported", () => {
+  const result = convert(`export function next(): number {
+    return ++getCounter().value;
+  }`);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
+});
+
 test("TypeScript type-predicate returns lower to bool", () => {
   const result = convert(`
     export function isText(value: unknown): value is string {

@@ -23,8 +23,8 @@
   {
     "path": "src/components/editor.ts",
     "status": "floor",
-    "bytes": 69969,
-    "holes": 2,
+    "bytes": 69789,
+    "holes": 1,
     "jac_check": false
   },
   {
@@ -170,8 +170,8 @@
   {
     "path": "src/tui.ts",
     "status": "floor",
-    "bytes": 54054,
-    "holes": 2,
+    "bytes": 53691,
+    "holes": 0,
     "jac_check": false
   },
   {

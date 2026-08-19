@@ -259,107 +259,25 @@ obj:pub TUI(Container) {
     override def isComponentMounted(component: any) -> bool {
         return any(self.containsComponent(child, component) for child in self.children);
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private containsComponent(root: Component, target: Component): boolean {
-    # | 		if (root === target) return true;
-    # | 		if (!(root instanceof Container)) return false;
-    # | 		return root.children.some((child) => this.containsComponent(child, target));
-    # | 	}
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | showOverlay(component: Component, options?: OverlayOptions): OverlayHandle {
-    # | 		const entry: OverlayStackEntry = {
-    # | 			component,
-    # | 			...(options === undefined ? {} : { options }),
-    # | 			preFocus: this.focusedComponent,
-    # | 			hidden: false,
-    # | 			focusOrder: ++this.focusOrderCounter,
-    # | 		};
-    # | 		this.overlayStack.push(entry);
-    # | 		// Only focus if overlay is actually visible
-    # | 		if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
-    # | 			this.setFocus(component);
-    # | 		}
-    # | 		this.terminal.hideCursor();
-    # | 		this.requestRender();
-    # | 
-    # | 		// Return handle for controlling this overlay
-    # | 		return {
-    # | 			hide: () => {
-    # | 				const index = this.overlayStack.indexOf(entry);
-    # | 				if (index !== -1) {
-    # | 					this.clearOverlayFocusRestoreFor(entry);
-    # | 					this.retargetOverlayPreFocus(entry);
-    # | 					this.overlayStack.splice(index, 1);
-    # | 					// Restore focus if this overlay had focus
-    # | 					if (this.focusedComponent === component) {
-    # | 						const topVisible = this.getTopmostVisibleOverlay();
-    # | 						this.setFocus(topVisible?.component ?? entry.preFocus);
-    # | 					}
-    # | 					if (this.overlayStack.length === 0) this.terminal.hideCursor();
-    # | 					this.requestRender();
-    # | 				}
-    # | 			},
-    # | 			setHidden: (hidden: boolean) => {
-    # | 				if (entry.hidden === hidden) return;
-    # | 				entry.hidden = hidden;
-    # | 				// Update focus when hiding/showing
-    # | 				if (hidden) {
-    # | 					this.clearOverlayFocusRestoreFor(entry);
-    # | 					// If this overlay had focus, move focus to next visible or preFocus
-    # | 					if (this.focusedComponent === component) {
-    # | 						const topVisible = this.getTopmostVisibleOverlay();
-    # | 						this.setFocus(topVisible?.component ?? entry.preFocus);
-    # | 					}
-    # | 				} else {
-    # | 					// Restore focus to this overlay when showing (if it's actually visible)
-    # | 					if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
-    # | 						entry.focusOrder = ++this.focusOrderCounter;
-    # | 						this.setFocus(component);
-    # | 					}
-    # | 				}
-    # | 				this.requestRender();
-    # | 			},
-    # | 			isHidden: () => entry.hidden,
-    # | 			focus: () => {
-    # | 				if (!this.overlayStack.includes(entry) || !this.isOverlayVisible(entry)) return;
-    # | 				entry.focusOrder = ++this.focusOrderCounter;
-    # | 				this.setFocus(component);
-    # | 				this.requestRender();
-    # | 			},
-    # | 			unfocus: (unfocusOptions) => {
-    # | 				const isFocused = this.focusedComponent === component;
-    # | 				const restoreState = this.overlayFocusRestore;
-    # | 				const hasPendingRestore = restoreState.status !== "inactive" && restoreState.overlay === entry;
-    # | 				if (!isFocused && !hasPendingRestore) return;
-    # | 				if (
-    # | 					restoreState.status === "blocked" &&
-    # | 					restoreState.overlay === entry &&
-    # | 					this.focusedComponent === restoreState.blockedBy
-    # | 				) {
-    # | 					if (unfocusOptions) {
-    # | 						this.overlayFocusRestore = {
-    # | 							status: "blocked",
-    # | 							overlay: entry,
-    # | 							blockedBy: restoreState.blockedBy,
-    # | 							resume: { status: "focus-target", target: unfocusOptions.target },
-    # | 						};
-    # | 					} else {
-    # | 						this.clearOverlayFocusRestore();
-    # | 					}
-    # | 					this.requestRender();
-    # | 					return;
-    # | 				}
-    # | 				this.clearOverlayFocusRestoreFor(entry);
-    # | 				if (isFocused || unfocusOptions) {
-    # | 					const topVisible = this.getTopmostVisibleOverlay();
-    # | 					const fallbackTarget = topVisible && topVisible !== entry ? topVisible.component : entry.preFocus;
-    # | 					this.setFocus(unfocusOptions ? unfocusOptions.target : fallbackTarget);
-    # | 				}
-    # | 				this.requestRender();
-    # | 			},
-    # | 			isFocused: () => this.focusedComponent === component,
-    # | 		};
-    # | 	}
+    override def containsComponent(root: any, target: any) -> bool {
+        if (root == target) {
+            return True;
+        }
+        if not isinstance(root, Container) {
+            return False;
+        }
+        return any(self.containsComponent(child, target) for child in root.children);
+    }
+    override def showOverlay(component: any, options: any | None = None) -> any {
+        entry_j: any = {"component": component, **({} if (options == None) else {"options": options}), "preFocus": self.focusedComponent, "hidden": False, "focusOrder": (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })()};
+        self.overlayStack.append(entry_j);
+        if (not ((lambda (_jx_opt7: any) -> any { return (_jx_opt7.nonCapturing if _jx_opt7 is not None else None); })(options)) and self.isOverlayVisible(entry_j)) {
+            self.setFocus(component);
+        }
+        self.terminal.hideCursor();
+        self.requestRender();
+        return {"hide": lambda () -> any { index = (-1 if entry_j not in self.overlayStack else self.overlayStack.index(entry_j)); if (index != -1) {     self.clearOverlayFocusRestoreFor(entry_j);     self.retargetOverlayPreFocus(entry_j);     del self.overlayStack[index];     if (self.focusedComponent == component) {         topVisible = self.getTopmostVisibleOverlay();         self.setFocus(((lambda (_jx_null9: any) -> any { return (_jx_null9 if _jx_null9 is not None else entry_j.preFocus); })(((lambda (_jx_opt8: any) -> any { return (_jx_opt8.component if _jx_opt8 is not None else None); })(topVisible)))));     }     if (len(self.overlayStack) == 0) {         self.terminal.hideCursor();     }     self.requestRender(); } }, "setHidden": lambda (hidden: bool) -> any { if (entry_j.hidden == hidden) {     return; } entry_j.hidden = hidden; if hidden {     self.clearOverlayFocusRestoreFor(entry_j);     if (self.focusedComponent == component) {         topVisible = self.getTopmostVisibleOverlay();         self.setFocus(((lambda (_jx_null11: any) -> any { return (_jx_null11 if _jx_null11 is not None else entry_j.preFocus); })(((lambda (_jx_opt10: any) -> any { return (_jx_opt10.component if _jx_opt10 is not None else None); })(topVisible)))));     } } else {     if (not ((lambda (_jx_opt12: any) -> any { return (_jx_opt12.nonCapturing if _jx_opt12 is not None else None); })(options)) and self.isOverlayVisible(entry_j)) {         entry_j.focusOrder = (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })();         self.setFocus(component);     } } self.requestRender(); }, "isHidden": lambda () -> any { return entry_j.hidden; }, "focus": lambda () -> any { if (not (entry_j in self.overlayStack) or not self.isOverlayVisible(entry_j)) {     return; } entry_j.focusOrder = (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })(); self.setFocus(component); self.requestRender(); }, "unfocus": lambda (unfocusOptions: any) -> any { isFocused = (self.focusedComponent == component); restoreState = self.overlayFocusRestore; hasPendingRestore = ((restoreState.status != "inactive") and (restoreState.overlay == entry_j)); if (not isFocused and not hasPendingRestore) {     return; } if (((restoreState.status == "blocked") and (restoreState.overlay == entry_j)) and (self.focusedComponent == restoreState.blockedBy)) {     if unfocusOptions {         self.overlayFocusRestore = {"status": "blocked", "overlay": entry_j, "blockedBy": restoreState.blockedBy, "resume": {"status": "focus-target", "target": unfocusOptions.target}};     }     else {         self.clearOverlayFocusRestore();     }     self.requestRender();     return; } self.clearOverlayFocusRestoreFor(entry_j); if (isFocused or unfocusOptions) {     topVisible = self.getTopmostVisibleOverlay();     fallbackTarget = (topVisible.component if (topVisible and (topVisible != entry_j)) else entry_j.preFocus);     self.setFocus((unfocusOptions.target if unfocusOptions else fallbackTarget)); } self.requestRender(); }, "isFocused": lambda () -> any { return (self.focusedComponent == component); }};
+    }
     override def hideOverlay() -> None {
         overlay = self.overlayStack[(len(self.overlayStack) - 1)];
         if not overlay {
