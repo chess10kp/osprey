@@ -708,7 +708,27 @@ export function bridgeGenerateTaskId(): string {
 // Custom commands
 // ---------------------------------------------------------------------------
 
-export function bridgeLoadCustomCommands(
+export async function bridgeLoadCustomCommands(
+  cwd: string,
+): Promise<Array<{
+  name: string;
+  description: string;
+  aliases: string[];
+  parameters: string[];
+  body: string;
+  filePath: string;
+}>> {
+  return invokeBridge<Array<{
+    name: string;
+    description: string;
+    aliases: string[];
+    parameters: string[];
+    body: string;
+    filePath: string;
+  }>>({ op: "custom_commands_load", cwd });
+}
+
+export function bridgeLoadCustomCommandsSync(
   cwd: string,
 ): Array<{
   name: string;
@@ -1001,11 +1021,34 @@ export function bridgeValidateCheckpointName(name: string): {
   });
 }
 
-export function bridgeGetModifiedFiles(cwd: string): string[] {
+export async function bridgeGetModifiedFiles(cwd: string): Promise<string[]> {
+  return invokeBridge<string[]>({ op: "checkpoint_get_modified_files", cwd });
+}
+
+export function bridgeGetModifiedFilesSync(cwd: string): string[] {
   return invokeBridgeSync<string[]>({ op: "checkpoint_get_modified_files", cwd });
 }
 
-export function bridgeCreateCheckpoint(options: {
+export async function bridgeCreateCheckpoint(options: {
+  cwd: string;
+  messages: unknown[];
+  provider: string;
+  model: string;
+  name?: string;
+  modifiedFiles?: string[];
+}): Promise<Record<string, unknown>> {
+  return invokeBridge<Record<string, unknown>>({
+    op: "checkpoint_create",
+    cwd: options.cwd,
+    messages: options.messages,
+    provider: options.provider,
+    model: options.model,
+    name: options.name,
+    modifiedFiles: options.modifiedFiles,
+  });
+}
+
+export function bridgeCreateCheckpointSync(options: {
   cwd: string;
   messages: unknown[];
   provider: string;
@@ -1024,7 +1067,22 @@ export function bridgeCreateCheckpoint(options: {
   });
 }
 
-export function bridgeLoadCheckpoint(
+export async function bridgeLoadCheckpoint(
+  cwd: string,
+  name: string,
+): Promise<{
+  metadata: Record<string, unknown>;
+  conversation: Record<string, unknown>;
+  fileSnapshots: Record<string, string>;
+}> {
+  return invokeBridge<{
+    metadata: Record<string, unknown>;
+    conversation: Record<string, unknown>;
+    fileSnapshots: Record<string, string>;
+  }>({ op: "checkpoint_load", cwd, name });
+}
+
+export function bridgeLoadCheckpointSync(
   cwd: string,
   name: string,
 ): {
@@ -1039,7 +1097,15 @@ export function bridgeLoadCheckpoint(
   }>({ op: "checkpoint_load", cwd, name });
 }
 
-export function bridgeListCheckpoints(
+export async function bridgeListCheckpoints(
+  cwd: string,
+): Promise<Array<{ name: string; metadata: Record<string, unknown>; sizeBytes?: number }>> {
+  return invokeBridge<
+    Array<{ name: string; metadata: Record<string, unknown>; sizeBytes?: number }>
+  >({ op: "checkpoint_list", cwd });
+}
+
+export function bridgeListCheckpointsSync(
   cwd: string,
 ): Array<{ name: string; metadata: Record<string, unknown>; sizeBytes?: number }> {
   return invokeBridgeSync<
@@ -1047,11 +1113,26 @@ export function bridgeListCheckpoints(
   >({ op: "checkpoint_list", cwd });
 }
 
-export function bridgeDeleteCheckpoint(cwd: string, name: string): void {
+export async function bridgeDeleteCheckpoint(cwd: string, name: string): Promise<void> {
+  await invokeBridge<boolean>({ op: "checkpoint_delete", cwd, name });
+}
+
+export function bridgeDeleteCheckpointSync(cwd: string, name: string): void {
   invokeBridgeSync<boolean>({ op: "checkpoint_delete", cwd, name });
 }
 
-export function bridgeRestoreCheckpointFiles(
+export async function bridgeRestoreCheckpointFiles(
+  cwd: string,
+  snapshots: Record<string, string>,
+): Promise<void> {
+  await invokeBridge<boolean>({
+    op: "checkpoint_restore_files",
+    cwd,
+    snapshots,
+  });
+}
+
+export function bridgeRestoreCheckpointFilesSync(
   cwd: string,
   snapshots: Record<string, string>,
 ): void {

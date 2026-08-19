@@ -77,3 +77,32 @@ export function collectReferencedNames(node, out) {
     collectReferencedNames(value, out);
   }
 }
+
+/** Collect names introduced by source bindings for hygienic generated temps. */
+export function collectBoundNames(node) {
+  const names = new Set();
+  const bindPattern = (pattern) => {
+    const found = [];
+    collectPatternNames(pattern, found);
+    for (const name of found) names.add(name);
+  };
+  const walk = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { for (const child of value) walk(child); return; }
+    if (value.type === "VariableDeclarator") bindPattern(value.id);
+    else if (value.type === "FunctionDeclaration" || value.type === "FunctionExpression"
+      || value.type === "ArrowFunctionExpression") {
+      if (value.id) bindPattern(value.id);
+      for (const param of value.params ?? []) bindPattern(param);
+    } else if (value.type === "ClassDeclaration" && value.id) bindPattern(value.id);
+    else if (value.type === "CatchClause" && value.param) bindPattern(value.param);
+    else if (value.type === "ImportSpecifier" || value.type === "ImportDefaultSpecifier"
+      || value.type === "ImportNamespaceSpecifier") bindPattern(value.local);
+    for (const [key, child] of Object.entries(value)) {
+      if (["type", "loc", "range", "start", "end"].includes(key)) continue;
+      walk(child);
+    }
+  };
+  walk(node);
+  return names;
+}

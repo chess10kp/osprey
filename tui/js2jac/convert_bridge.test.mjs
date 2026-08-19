@@ -170,19 +170,21 @@ test("nullish coalescing lowers stable operands without changing evaluation coun
     }
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /value if value is not None else "default"/);
+  assert.match(result.jac, /lambda \(_jx_null0: any\).*_jx_null0 if _jx_null0 is not None else "default"/s);
   assertJacChecks(result.jac);
 });
 
-test("nullish coalescing with a side-effecting left operand fails closed", () => {
+test("nullish coalescing evaluates a side-effecting left operand once", () => {
   const result = convert(`
     declare function nextValue(): string | undefined;
     export function fallback(): string {
       return nextValue() ?? "default";
     }
   `);
-  assert.equal(result.ok, false);
-  assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.equal((result.jac.match(/nextValue\(\)/g) ?? []).length, 1);
+  assert.match(result.jac, /lambda \(_jx_null0: any\)/);
+  assertJacChecks(result.jac);
 });
 
 test("type-only modules erase successfully instead of hard rejecting", () => {
@@ -229,18 +231,19 @@ test("optional member plus nullish fallback preserves short-circuiting", () => {
     }
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /value\.label if value is not None else None/);
-  assert.match(result.jac, /is not None else "default"/);
+  assert.match(result.jac, /lambda \(_jx_opt0: any\).*_jx_opt0\.label if _jx_opt0 is not None else None/s);
+  assert.match(result.jac, /lambda \(_jx_null1: any\).*else "default"/s);
+  assertJacChecks(result.jac);
 });
 
-test("optional calls lower only for stable call targets", () => {
+test("optional calls evaluate stable and effectful call targets once", () => {
   const stable = convert(`
     export function notify(callback: any, value: string): any {
       return callback?.(value);
     }
   `);
   assert.equal(stable.ok, true, JSON.stringify(stable.diagnostics));
-  assert.match(stable.jac, /callback\(value\) if callback is not None else None/);
+  assert.match(stable.jac, /_jx_opt0\(value\) if _jx_opt0 is not None else None/);
 
   const effectful = convert(`
     declare function nextCallback(): any;
@@ -248,8 +251,24 @@ test("optional calls lower only for stable call targets", () => {
       return nextCallback()?.(value);
     }
   `);
-  assert.equal(effectful.ok, false);
-  assert.ok(effectful.diagnostics.some((diag) => diag.code === "E7215"));
+  assert.equal(effectful.ok, true, JSON.stringify(effectful.diagnostics));
+  assert.equal((effectful.jac.match(/nextCallback\(\)/g) ?? []).length, 1);
+  assert.match(effectful.jac, /_jx_opt0\(value\) if _jx_opt0 is not None else None/);
+  assertJacChecks(effectful.jac);
+});
+
+test("whole optional-chain suffixes stay guarded with hygienic temps", () => {
+  const result = convert(`
+    declare function next(): any;
+    export function read(): any {
+      const _jx_opt0 = "source";
+      return next()?.child.label;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.equal((result.jac.match(/next\(\)/g) ?? []).length, 1);
+  assert.match(result.jac, /lambda \(_jx_opt1: any\).*_jx_opt1\.child\.label if _jx_opt1 is not None else None/s);
+  assertJacChecks(result.jac);
 });
 
 test("import meta url lowers to the server file anchor", () => {

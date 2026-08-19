@@ -107,6 +107,7 @@ import { fileURLToPath } from "node:url";
 import ruleCatalog from "./mapping_rules.json";
 import {
   boundSiblingNames,
+  collectBoundNames,
   collectPatternNames,
   collectReferencedNames,
   containsReturn,
@@ -1381,7 +1382,7 @@ function emitObjectLiteral(node, path, diags, ctx = {}) {
  * (preserving source escapes like \n), doubles literal braces, and inlines each
  * expression via emitExpr. Returns `f"..."` or null with a diag.
  */
-function emitTemplateLiteral(node, path, diags) {
+function emitTemplateLiteral(node, path, diags, ctx = {}) {
   const quasis = node.quasis ?? [];
   const exprs = node.expressions ?? [];
   let body = "";
@@ -1393,7 +1394,7 @@ function emitTemplateLiteral(node, path, diags) {
       .replace(/\}/g, "}}");
     body += raw;
     if (i < exprs.length) {
-      const text = emitExpr(exprs[i], path, diags);
+      const text = emitExpr(exprs[i], path, diags, ctx);
       if (text === null) return null;
       body += `{${text}}`;
     }
@@ -1886,7 +1887,7 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     const matchName = identText(node.object.object.name);
     return `(${matchName}.groupdict().get('${node.property.name}') as str)`;
   }
-  if (node.optional) {
+  if (node.optional && !ctx.disabledOptional?.has(node)) {
     if (!isStableRepeatableExpr(node.object)) {
       diags.push(diag("E7215", "Optional member receiver must be side-effect-free", path));
       return null;
@@ -2587,6 +2588,8 @@ let MODULE_MAP_BINDINGS = new Set();
 // Locally declared helpers with a TypeScript `number` return. Used by numeric
 // flow so aliases of helper results remain float through compound updates.
 let NUMBER_RETURNING_FUNCS = new Set();
+let SOURCE_BOUND_NAMES = new Set();
+let EXPR_TEMP_INDEX = 0;
 // V2.12: locally-declared class names — `new LocalClass(...)` lowers to the
 // Jac call construction `LocalClass(...)`.
 let LOCAL_CLASSES = new Set();
@@ -2608,6 +2611,15 @@ const JAC_RESERVED_LOCALS = new Set([
 /** Apply the per-file reserved-name rename to a binding/reference identifier. */
 function identText(name) {
   return IDENT_RENAMES.get(name) ?? name;
+}
+
+function freshExprTemp(prefix) {
+  let name;
+  do {
+    name = `_jx_${prefix}${EXPR_TEMP_INDEX++}`;
+  } while (SOURCE_BOUND_NAMES.has(name));
+  SOURCE_BOUND_NAMES.add(name);
+  return name;
 }
 
 /** Pre-pass: collect local/param bindings that collide with Jac statement
@@ -2696,7 +2708,56 @@ function pyRegexFlagsArg(flags) {
   return parts.length ? `, ${parts.join(" | ")}` : "";
 }
 
+function findOptionalBoundary(node, disabled) {
+  const current = node?.type === "ChainExpression" ? node.expression : node;
+  if (!current) return null;
+  if (current.type === "MemberExpression" || current.type === "OptionalMemberExpression") {
+    const inner = findOptionalBoundary(current.object, disabled);
+    if (inner) return inner;
+    return current.optional && !disabled?.has(current) ? current : null;
+  }
+  if (current.type === "CallExpression" || current.type === "OptionalCallExpression") {
+    const inner = findOptionalBoundary(current.callee, disabled);
+    if (inner) return inner;
+    return current.optional && !disabled?.has(current) ? current : null;
+  }
+  return null;
+}
+
+/** Lower a whole optional chain around one-shot lambda parameters. Walking only
+ * the chain spine preserves lazy computed keys/arguments and the full suffix. */
+function emitOptionalChainRoot(root, path, diags, ctx = {}) {
+  const boundary = findOptionalBoundary(root, ctx.disabledOptional);
+  if (!boundary) return emitExpr(root, path, diags, ctx);
+  const isCall = boundary.type === "CallExpression" || boundary.type === "OptionalCallExpression";
+  const guardedNode = isCall ? boundary.callee : boundary.object;
+  const guarded = emitExpr(guardedNode, path, diags, ctx);
+  if (guarded === null) return null;
+  const temp = freshExprTemp("opt");
+  const exprOverrides = new Map(ctx.exprOverrides ?? []);
+  exprOverrides.set(guardedNode, temp);
+  const disabledOptional = new Set(ctx.disabledOptional ?? []);
+  disabledOptional.add(boundary);
+  const body = emitOptionalChainRoot(root, path, diags, {
+    ...ctx,
+    exprOverrides,
+    disabledOptional,
+  });
+  if (body === null) return null;
+  return `((lambda (${temp}: any) -> any { return (${body} if ${temp} is not None else None); })(${guarded}))`;
+}
+
+function emitNullishOnce(node, path, diags, ctx) {
+  const left = emitExpr(node.left, path, diags, ctx);
+  if (left === null) return null;
+  const right = emitExpr(node.right, path, diags, ctx);
+  if (right === null) return null;
+  const temp = freshExprTemp("null");
+  return `((lambda (${temp}: any) -> any { return (${temp} if ${temp} is not None else ${right}); })(${left}))`;
+}
+
 function emitExpr(node, path, diags, ctx = {}) {
+  if (ctx.exprOverrides?.has(node)) return ctx.exprOverrides.get(node);
   const kind = node?.type ?? "";
   if (kind === "Literal") {
     const v = node.value;
@@ -2747,30 +2808,19 @@ function emitExpr(node, path, diags, ctx = {}) {
     return "__file__";
   }
   if (kind === "OptionalMemberExpression") {
-    return emitMemberAccess(node, path, diags, ctx);
+    if (ctx.disabledOptional?.has(node)) {
+      return emitMemberAccess({ ...node, type: "MemberExpression", optional: false }, path, diags, ctx);
+    }
+    return emitOptionalChainRoot(node, path, diags, ctx);
   }
   if (kind === "OptionalCallExpression" || (kind === "CallExpression" && node.optional)) {
-    if (!isStableRepeatableExpr(node.callee)) {
-      diags.push(diag("E7215", "Optional call target must be side-effect-free", path));
-      return null;
+    if (ctx.disabledOptional?.has(node)) {
+      return emitExpr({ ...node, type: "CallExpression", optional: false }, path, diags, ctx);
     }
-    const callee = emitExpr(node.callee, path, diags, ctx);
-    if (callee === null) return null;
-    const args = [];
-    for (const arg of node.arguments ?? []) {
-      if (arg.type === "SpreadElement") {
-        diags.push(diag("E7215", "Spread arguments in optional calls are not supported", path));
-        return null;
-      }
-      const text = emitExpr(arg, path, diags, ctx);
-      if (text === null) return null;
-      args.push(text);
-    }
-    return `(${callee}(${args.join(", ")}) if ${callee} is not None else None)`;
+    return emitOptionalChainRoot(node, path, diags, ctx);
   }
   if (kind === "ChainExpression") {
-    // Surface `?.` chains; the inner expression carries the `optional` flag.
-    return emitExpr(node.expression, path, diags, ctx);
+    return emitOptionalChainRoot(node.expression, path, diags, ctx);
   }
   if (kind === "CallExpression" || kind === "NewExpression") {
     if (node.optional) {
@@ -3023,16 +3073,12 @@ function emitExpr(node, path, diags, ctx = {}) {
     if (body === null) return null;
     return `{${body}}`;
   }
-  if (kind === "TemplateLiteral") return emitTemplateLiteral(node, path, diags);
+  if (kind === "TemplateLiteral") return emitTemplateLiteral(node, path, diags, ctx);
   if (kind === "BinaryExpression") {
     const typeofGuard = tryLowerTypeofGuard(node, path, diags);
     if (typeofGuard !== undefined) return typeofGuard;
     if (node.operator === "??") {
-      const left = emitExpr(node.left, path, diags, ctx);
-      if (left === null) return null;
-      const right = emitExpr(node.right, path, diags, ctx);
-      if (right === null) return null;
-      return `(${left} if ${left} is not None else ${right})`;
+      return emitNullishOnce(node, path, diags, ctx);
     }
     const op = BINARY_OPS[node.operator];
     if (op === undefined) {
@@ -3053,15 +3099,7 @@ function emitExpr(node, path, diags, ctx = {}) {
   }
   if (kind === "LogicalExpression") {
     if (node.operator === "??") {
-      if (!isStableRepeatableExpr(node.left)) {
-        diags.push(diag("E7215", "nullish-coalescing left operand must be side-effect-free", path));
-        return null;
-      }
-      const left = emitExpr(node.left, path, diags, ctx);
-      if (left === null) return null;
-      const right = emitExpr(node.right, path, diags, ctx);
-      if (right === null) return null;
-      return `(${left} if ${left} is not None else ${right})`;
+      return emitNullishOnce(node, path, diags, ctx);
     }
     const op = LOGICAL_OPS[node.operator];
     if (op === undefined) {
@@ -5295,6 +5333,8 @@ function convertEnvelope(payload) {
   if (!body.length) {
     return { ok: false, diagnostics: [diag("E7200", "Empty module is not supported", path)] };
   }
+  SOURCE_BOUND_NAMES = collectBoundNames(body);
+  EXPR_TEMP_INDEX = 0;
   // V2.12: reserved-name local renames + Match-shape local tracking (per file).
   const { renames: localRenames, matchLocals } = collectLocalRenames(body);
   IDENT_RENAMES = localRenames;

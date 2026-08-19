@@ -44,8 +44,8 @@ import {
 } from "../agent/session-permissions.js";
 import { createAgentTool } from "../agent/agent-tool.js";
 import {
-  customCommandSlashNames,
-  loadCustomCommands,
+  customCommandSlashNamesFromCommands,
+  loadCustomCommandsAsync,
   tryExpandSlashCommand,
   type CustomCommand,
 } from "../workflow/custom-commands.js";
@@ -274,19 +274,19 @@ export class JackalAgentSession {
   }
 
   getCustomCommandSlashNames(): string[] {
-    return customCommandSlashNames(this._sessionManager.cwd);
+    return customCommandSlashNamesFromCommands(this._customCommands);
   }
 
   resolveSlashCommand(text: string): string | null {
-    return tryExpandSlashCommand(text, this._sessionManager.cwd);
+    return tryExpandSlashCommand(text, this._sessionManager.cwd, this._customCommands);
   }
 
-  reloadCustomCommands(): void {
-    this._reloadCustomCommands(this._sessionManager.cwd);
+  async reloadCustomCommands(): Promise<void> {
+    await this._reloadCustomCommands(this._sessionManager.cwd);
   }
 
-  private _reloadCustomCommands(cwd: string): void {
-    this._customCommands = loadCustomCommands(cwd);
+  private async _reloadCustomCommands(cwd: string): Promise<void> {
+    this._customCommands = await loadCustomCommandsAsync(cwd);
     this._emit({
       type: "custom_commands_loaded",
       count: this._customCommands.length,
@@ -405,7 +405,7 @@ export class JackalAgentSession {
 
   /** Boot session without blocking on MCP — call scheduleMcpConnect() after UI is ready. */
   async initialize(): Promise<void> {
-    this._reloadCustomCommands(this._sessionManager.cwd);
+    await this._reloadCustomCommands(this._sessionManager.cwd);
     this._emit({
       type: "subagents_loaded",
       agents: listSubagents(this._sessionManager.cwd).map((a) => a.name),
@@ -539,7 +539,7 @@ export class JackalAgentSession {
     _opts?: { deliverAs?: string },
   ): Promise<"sent" | "queued"> {
     const cwd = this._sessionManager.cwd;
-    let outgoing = tryExpandSlashCommand(text, cwd) ?? text;
+    let outgoing = tryExpandSlashCommand(text, cwd, this._customCommands) ?? text;
     outgoing = expandSkillCommand(outgoing, this._skills);
 
     if (this.isSendBusy()) {

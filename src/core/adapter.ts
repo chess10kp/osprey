@@ -38,7 +38,7 @@ import {
 import { listProjectFiles, estimateSelectionChars } from "../project/file-explorer.js";
 import { formatSubagentCatalog } from "../orchestration/subagents.js";
 import { formatChainCatalog } from "../orchestration/chains.js";
-import { formatCustomCommandCatalog } from "../workflow/custom-commands.js";
+import { formatCustomCommandCatalogFromCommands } from "../workflow/custom-commands.js";
 import { formatSkillCommandCatalog } from "../workflow/skill-commands.js";
 import type { JacDiagnostic } from "../jac/jac-types.js";
 import type { JacDoctorReport } from "../jac/jac-doctor.js";
@@ -543,7 +543,7 @@ export async function createNextAgent(
         session.appendAssistantNotice(text);
       },
       showCommands: async () => {
-        const text = formatCustomCommandCatalog(cwd);
+        const text = formatCustomCommandCatalogFromCommands(session.customCommands);
         store.pushUserMessage("/commands");
         session.appendAssistantNotice(text);
       },
@@ -667,7 +667,7 @@ export async function createNextAgent(
         const data = await loadCheckpoint(cwd, name);
 
         if (options.createBackup !== false && data.fileSnapshots.size > 0) {
-          const dirty = getModifiedFiles(cwd);
+          const dirty = await getModifiedFiles(cwd);
           const wouldOverwrite = [...data.fileSnapshots.keys()].some((f) => dirty.includes(f));
           if (wouldOverwrite) {
             const model = session.currentModel;

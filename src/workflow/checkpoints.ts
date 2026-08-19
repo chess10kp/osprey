@@ -66,7 +66,7 @@ export function validateCheckpointName(name: string): { valid: boolean; error?: 
   return bridgeValidateCheckpointName(name);
 }
 
-export function getModifiedFiles(cwd: string): string[] {
+export async function getModifiedFiles(cwd: string): Promise<string[]> {
   return bridgeGetModifiedFiles(cwd);
 }
 
@@ -74,7 +74,7 @@ export async function createCheckpoint(
   cwd: string,
   input: CreateCheckpointInput,
 ): Promise<CheckpointMetadata> {
-  const raw = bridgeCreateCheckpoint({
+  const raw = await bridgeCreateCheckpoint({
     cwd,
     messages: input.messages as unknown[],
     provider: input.provider,
@@ -86,7 +86,7 @@ export async function createCheckpoint(
 }
 
 export async function loadCheckpoint(cwd: string, name: string): Promise<CheckpointData> {
-  const raw = bridgeLoadCheckpoint(cwd, name);
+  const raw = await bridgeLoadCheckpoint(cwd, name);
   return {
     metadata: raw.metadata as unknown as CheckpointMetadata,
     conversation: raw.conversation as unknown as CheckpointConversation,
@@ -95,18 +95,18 @@ export async function loadCheckpoint(cwd: string, name: string): Promise<Checkpo
 }
 
 export async function listCheckpoints(cwd: string): Promise<CheckpointListItem[]> {
-  return bridgeListCheckpoints(cwd) as unknown as CheckpointListItem[];
+  return await bridgeListCheckpoints(cwd) as unknown as CheckpointListItem[];
 }
 
 export async function deleteCheckpoint(cwd: string, name: string): Promise<void> {
-  bridgeDeleteCheckpoint(cwd, name);
+  await bridgeDeleteCheckpoint(cwd, name);
 }
 
 export async function restoreCheckpointFiles(
   cwd: string,
   snapshots: Map<string, string>,
 ): Promise<void> {
-  bridgeRestoreCheckpointFiles(cwd, Object.fromEntries(snapshots));
+  await bridgeRestoreCheckpointFiles(cwd, Object.fromEntries(snapshots));
 }
 
 export function formatRelativeTime(timestamp: string): string {
