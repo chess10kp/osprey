@@ -2177,6 +2177,37 @@ function emitStatement(stmt, ctx) {
       }
       expr = inner;
     }
+    // A zero-argument async IIFE assigned to a stable task slot is the common
+    // JS promise-chain serialization idiom. Preserve eager scheduling and
+    // reusable-await semantics with an asyncio Task. All other async callbacks
+    // remain fail-closed.
+    if (expr?.type === "AssignmentExpression" && expr.operator === "=") {
+      const rhs = unwrapTsValue(expr.right);
+      const callback = rhs?.type === "CallExpression" ? unwrapTsValue(rhs.callee) : null;
+      const asyncIife = rhs?.type === "CallExpression" && !rhs.optional
+        && (rhs.arguments ?? []).length === 0
+        && callback?.type === "ArrowFunctionExpression" && callback.async
+        && !callback.generator && (callback.params ?? []).length === 0
+        && callback.body?.type === "BlockStatement";
+      const stableSlot = expr.left?.type === "Identifier"
+        || (expr.left?.type === "MemberExpression" && !expr.left.computed
+          && expr.left.object?.type === "ThisExpression"
+          && expr.left.property?.type === "Identifier");
+      if (asyncIife && stableSlot) {
+        const left = emitExpr(expr.left, path, diags, ctx);
+        if (left === null) return null;
+        const body = emitStatement(callback.body, { ...ctx, failOpen: false });
+        if (body === null) return null;
+        const taskFn = freshExprTemp("async_task");
+        ASYNCIO_INTEROP = true;
+        return [
+          `async def ${taskFn}() {`,
+          ...indentBlock(body.length ? body : ["return;"]),
+          `}`,
+          `${left} = asyncio.create_task(${taskFn}());`,
+        ];
+      }
+    }
     // Discard-result Map mutations can lower to dict mutations without having
     // to emulate JS's expression return values (`set` returns the Map; `delete`
     // returns a bool). Provenance-gated to bindings initialized by `new Map`.
@@ -2644,6 +2675,8 @@ function forLoopBinding(left, right, path, diags, ctx) {
 let REGEX_INTEROP = { compile: false, search: false, split: false, sub: false, flags: new Set() };
 // V2.12: `process.env` -> `os.environ` interop flag (import emission).
 let PROCESS_ENV_INTEROP = false;
+// Async IIFEs used as queued task values lower through asyncio.create_task.
+let ASYNCIO_INTEROP = false;
 const KNOWN_AMBIENT_JS_NAMESPACES = new Set(["Intl"]);
 let AMBIENT_INTEROP_GLOBALS = new Set();
 // V2.12: per-file identifier renames — a JS local/param bound to a Jac
@@ -5546,6 +5579,7 @@ function convertEnvelope(payload) {
   // V2.12: per-file reset of the regex-interop flag (mirrors HOLE_CTX).
   REGEX_INTEROP = { compile: false, search: false, split: false, sub: false, flags: new Set() };
   PROCESS_ENV_INTEROP = false;
+  ASYNCIO_INTEROP = false;
   AMBIENT_INTEROP_GLOBALS = new Set();
   IDENT_RENAMES = new Map();
   MATCH_LOCALS = new Set();
@@ -6001,7 +6035,8 @@ function convertEnvelope(payload) {
     ? [`import from re { ${[...new Set([...REGEX_INTEROP.compile ? ["compile"] : [], ...REGEX_INTEROP.search ? ["search"] : [], ...REGEX_INTEROP.split ? ["split"] : [], ...REGEX_INTEROP.sub ? ["sub"] : [], ...[...REGEX_INTEROP.flags].sort()])].join(", ")} }`]
     : [];
   const osImportLines = PROCESS_ENV_INTEROP ? ["import from os { environ }"] : [];
-  const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines, ...regexImportLines, ...osImportLines];
+  const asyncioImportLines = ASYNCIO_INTEROP ? ["import asyncio;"] : [];
+  const importLines = [...reactImportLines, ...formatInteropImports(filteredInterop), ...reExportLines, ...regexImportLines, ...osImportLines, ...asyncioImportLines];
   const ambientInteropLines = [...AMBIENT_INTEROP_GLOBALS]
     .sort()
     .map((name) => `glob ${name}: any = None;`);

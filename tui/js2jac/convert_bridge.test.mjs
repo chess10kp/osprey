@@ -261,6 +261,39 @@ test("statement void calls and stable prefix increments preserve effects", () =>
   assertJacChecks(result.jac);
 });
 
+test("stable task-slot async IIFEs preserve queued execution", () => {
+  const result = convert(`
+    export class Scheduler {
+      task: any;
+      counter: number = 0;
+      async run(): Promise<void> {
+        const previousTask = this.task;
+        this.task = (async () => {
+          await previousTask;
+          const requestId = ++this.counter;
+          await this.perform(requestId);
+        })();
+        await this.task;
+      }
+      async perform(requestId: number): Promise<void> {}
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import asyncio;/);
+  assert.match(result.jac, /async def _jx_async_task\d+\(\)/);
+  assert.match(result.jac, /self\.task = asyncio\.create_task\(_jx_async_task\d+\(\)\);/);
+  assert.match(result.jac, /await previousTask;/);
+  assertJacChecks(result.jac);
+});
+
+test("async IIFEs outside stable task-slot assignment remain unsupported", () => {
+  const result = convert(`export async function run(): Promise<void> {
+    consume((async () => { await perform(); })());
+  }`);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
+});
+
 test("unstable prefix increment targets remain unsupported", () => {
   const result = convert(`export function next(): number {
     return ++getCounter().value;
