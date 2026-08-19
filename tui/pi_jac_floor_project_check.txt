@@ -1404,7 +1404,6 @@ _____________ /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac ______________
   → run 'jac guide reference/diagnostics' for guidance
   → run 'jac guide reference/diagnostics' for guidance
   → run 'jac guide reference/diagnostics' for guidance
-  → run 'jac guide reference/diagnostics' for guidance
   → run 'jac guide jac-types' for guidance
   → run 'jac guide jac-types' for guidance
   → run 'jac guide reference/diagnostics' for guidance
@@ -4621,7 +4620,7 @@ _____ /home/jac/repos/jackal/tui/pi_jac_floor/src/components/markdown.jac ______
 /home/jac/repos/jackal/tui/pi_jac_floor/src/index.jac - 201 errors, 0 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/fuzzy.jac - 0 errors, 13 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/utils.jac - 0 errors, 47 warnings
-/home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac - 307 errors, 362 warnings
+/home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac - 307 errors, 361 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/keybindings.jac - 5 errors, 63 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/autocomplete.jac - 45 errors, 215 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/terminal-image.jac - 141 errors, 208 warnings
@@ -4639,7 +4638,7 @@ _____ /home/jac/repos/jackal/tui/pi_jac_floor/src/components/markdown.jac ______
 /home/jac/repos/jackal/tui/pi_jac_floor/src/components/cancellable-loader.jac - 1 error, 19 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/components/loader.jac - 3 errors, 38 warnings
 /home/jac/repos/jackal/tui/pi_jac_floor/src/components/markdown.jac - 268 errors, 263 warnings
-======================== 6 passed, 22 failed in 24.94s =========================
+======================== 6 passed, 22 failed in 24.89s =========================
 🛠  jac dev mode — using compiler source at /home/jac/repos/jac_llm_data/jaseci/jac
 ✖ Error: error[E2008]: Invalid target for context update: FuncCall
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/undo-stack.jac:10:9
@@ -12794,101 +12793,101 @@ help: Add ';' to discard the expression's value, or use an explicit `return` if 
  1059 |                 self.stop();
  1060 |                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
 ✖ Error: error[E1032]: Type is Unknown, cannot access attribute "mkdirSync"
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:16
- 1083 |         if (environ.get("PI_TUI_DEBUG") == "1") {
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1084:16
+ 1082 |         if (environ.get("PI_TUI_DEBUG") == "1") {
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
       |                ^^^^^^^^^
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
 ✖ Error: error[E1054]: No matching overload found for the function call with the given arguments
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1086:25
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
- 1086 |             debugPath = debugDir.join(path);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:25
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
+ 1085 |             debugPath = debugDir.join(path);
       |                         ^^^^^^^^^^^^^^^^^^^
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
 ✖ Error: error[E1032]: Type is Unknown, cannot access attribute "writeFileSync"
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1088:16
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1087:16
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
       |                ^^^^^^^^^^^^^
- 1089 |         }
- 1090 |         self.terminal.write(buffer);
+ 1088 |         }
+ 1089 |         self.terminal.write(buffer);
+✖ Error: error[E1001]: Cannot assign float to int
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1090:9
+ 1088 |         }
+ 1089 |         self.terminal.write(buffer);
+ 1090 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
+      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 1091 |         self.hardwareCursorRow = finalCursorRow;
+ 1092 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
 ✖ Error: error[E1001]: Cannot assign float to int
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1091:9
- 1089 |         }
- 1090 |         self.terminal.write(buffer);
- 1091 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
-      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1092 |         self.hardwareCursorRow = finalCursorRow;
- 1093 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
+ 1089 |         self.terminal.write(buffer);
+ 1090 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
+ 1091 |         self.hardwareCursorRow = finalCursorRow;
+      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 1092 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
+ 1093 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
 ✖ Error: error[E1001]: Cannot assign float to int
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1092:9
- 1090 |         self.terminal.write(buffer);
- 1091 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
- 1092 |         self.hardwareCursorRow = finalCursorRow;
-      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1093 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
- 1094 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
+ 1090 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
+ 1091 |         self.hardwareCursorRow = finalCursorRow;
+ 1092 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
+      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 1093 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
+ 1094 |         self.positionHardwareCursor(cursorPos, len(newLines));
 ✖ Error: error[E1001]: Cannot assign float to int
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1093:9
- 1091 |         self.cursorRow = max(float(0), float((len(newLines) - 1)));
- 1092 |         self.hardwareCursorRow = finalCursorRow;
- 1093 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
-      |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1094 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
- 1095 |         self.positionHardwareCursor(cursorPos, len(newLines));
-✖ Error: error[E1001]: Cannot assign float to int
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1094:9
- 1092 |         self.hardwareCursorRow = finalCursorRow;
- 1093 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
- 1094 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
+ 1091 |         self.hardwareCursorRow = finalCursorRow;
+ 1092 |         self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
+ 1093 |         self.previousViewportTop = max(float(prevViewportTop), float(((finalCursorRow - height) + 1)));
       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1095 |         self.positionHardwareCursor(cursorPos, len(newLines));
- 1096 |         self.previousLines = newLines;
+ 1094 |         self.positionHardwareCursor(cursorPos, len(newLines));
+ 1095 |         self.previousLines = newLines;
 ✖ Error: error[E1030]: Type "dict[str, float]" has no attribute "row"
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:61
- 1104 |             return;
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1105:61
+ 1103 |             return;
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
       |                                                             ^^^
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
 ✖ Error: error[E1053]: Cannot assign <Unknown> to parameter 'x' of type str | Buffer | SupportsFloat | SupportsIndex
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:51
- 1104 |             return;
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1105:51
+ 1103 |             return;
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
       |                                                   ^^^^^^^^^^^^^
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
 ✖ Error: error[E1030]: Type "dict[str, float]" has no attribute "col"
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1107:51
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:51
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
       |                                                   ^^^
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
- 1109 |         buffer: str = "";
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1108 |         buffer: str = "";
 ✖ Error: error[E1053]: Cannot assign <Unknown> to parameter 'x' of type str | Buffer | SupportsFloat | SupportsIndex
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1107:41
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:41
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
       |                                         ^^^^^^^^^^^^^
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
- 1109 |         buffer: str = "";
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1108 |         buffer: str = "";
 ✖ Error: error[E1001]: Cannot assign float to int
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1120:9
- 1118 |             self.terminal.write(buffer);
- 1119 |         }
- 1120 |         self.hardwareCursorRow = targetRow;
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1119:9
+ 1117 |             self.terminal.write(buffer);
+ 1118 |         }
+ 1119 |         self.hardwareCursorRow = targetRow;
       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1121 |         if self.showHardwareCursor {
- 1122 |             self.terminal.showCursor();
+ 1120 |         if self.showHardwareCursor {
+ 1121 |             self.terminal.showCursor();
 ✖ Error: error[E5084]: Client code uses 'search' from bare import 're', which resolves to no client-reachable module
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:9:18
     7 | import from "./terminal-image.jac" { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions }
@@ -15334,8 +15333,8 @@ help: Often fixed by adding a more specific type annotation to the relevant decl
  1059 |                 self.stop();
  1060 |                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
       |                                                                                    ^^^^^^^^^^^^
- 1061 |                 # JS2JAC-HOLE[E7230] ThrowStatement is not supported in V2 (deferred to a later slice):
- 1062 |                 # | throw new Error(errorMsg);
+ 1061 |                 raise Exception(errorMsg);
+ 1062 |             }
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1060:84
@@ -15343,8 +15342,8 @@ help: Often fixed by adding a more specific type annotation to the relevant decl
  1059 |                 self.stop();
  1060 |                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
       |                                                                                    ^^^^^^^^^^^^^^^^^^
- 1061 |                 # JS2JAC-HOLE[E7230] ThrowStatement is not supported in V2 (deferred to a later slice):
- 1062 |                 # | throw new Error(errorMsg);
+ 1061 |                 raise Exception(errorMsg);
+ 1062 |             }
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1060:303
@@ -15352,179 +15351,179 @@ help: Often fixed by adding a more specific type annotation to the relevant decl
  1059 |                 self.stop();
  1060 |                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
       |                                                                                                                                                                                                                                                                                                               ^^^^^^^^^^^^
- 1061 |                 # JS2JAC-HOLE[E7230] ThrowStatement is not supported in V2 (deferred to a later slice):
- 1062 |                 # | throw new Error(errorMsg);
+ 1061 |                 raise Exception(errorMsg);
+ 1062 |             }
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:13
- 1083 |         if (environ.get("PI_TUI_DEBUG") == "1") {
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1084:13
+ 1082 |         if (environ.get("PI_TUI_DEBUG") == "1") {
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
       |             ^^
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:13
- 1083 |         if (environ.get("PI_TUI_DEBUG") == "1") {
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1084:13
+ 1082 |         if (environ.get("PI_TUI_DEBUG") == "1") {
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
       |             ^^^^^^^^^^^^
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:13
- 1083 |         if (environ.get("PI_TUI_DEBUG") == "1") {
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1084:13
+ 1082 |         if (environ.get("PI_TUI_DEBUG") == "1") {
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
       |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1086:39
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
- 1086 |             debugPath = debugDir.join(path);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:39
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
+ 1085 |             debugPath = debugDir.join(path);
       |                                       ^^^^
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1086:25
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
- 1086 |             debugPath = debugDir.join(path);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:25
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
+ 1085 |             debugPath = debugDir.join(path);
       |                         ^^^^^^^^^^^^^^^^^^^
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1088:13
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1087:13
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
       |             ^^
- 1089 |         }
- 1090 |         self.terminal.write(buffer);
+ 1088 |         }
+ 1089 |         self.terminal.write(buffer);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1088:13
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1087:13
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
       |             ^^^^^^^^^^^^^^^^
- 1089 |         }
- 1090 |         self.terminal.write(buffer);
+ 1088 |         }
+ 1089 |         self.terminal.write(buffer);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1088:13
- 1086 |             debugPath = debugDir.join(path);
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1087:13
+ 1085 |             debugPath = debugDir.join(path);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
       |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 1089 |         }
- 1090 |         self.terminal.write(buffer);
+ 1088 |         }
+ 1089 |         self.terminal.write(buffer);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:51
- 1104 |             return;
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1105:51
+ 1103 |             return;
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
       |                                                   ^^^^^^^^^^^^^
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1051]: Expression type could not be resolved (Unknown)
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1107:41
- 1105 |         }
- 1106 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
- 1107 |         targetCol = max(float(0), float(cursorPos.col));
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1106:41
+ 1104 |         }
+ 1105 |         targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
+ 1106 |         targetCol = max(float(0), float(cursorPos.col));
       |                                         ^^^^^^^^^^^^^
- 1108 |         rowDelta = (targetRow - self.hardwareCursorRow);
- 1109 |         buffer: str = "";
+ 1107 |         rowDelta = (targetRow - self.hardwareCursorRow);
+ 1108 |         buffer: str = "";
 help: Often fixed by adding a more specific type annotation to the relevant declaration (e.g., 'list[Task]' instead of bare 'list', or annotating an unannotated parameter or attribute). Can also indicate an unresolved import, a forward reference the checker cannot bind, or fallout from an upstream error.
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1128:55
- 1126 |         }
- 1127 |     }
- 1128 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1127:55
+ 1125 |         }
+ 1126 |     }
+ 1127 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
       |                                                       ^^^
- 1129 |         timeoutMs = _jx_p0.timeoutMs;
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+ 1128 |         timeoutMs = _jx_p0.timeoutMs;
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1130:41
- 1128 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
- 1129 |         timeoutMs = _jx_p0.timeoutMs;
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1129:41
+ 1127 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+ 1128 |         timeoutMs = _jx_p0.timeoutMs;
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
       |                                         ^^^
- 1131 |     }
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1130 |     }
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1130:62
- 1128 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
- 1129 |         timeoutMs = _jx_p0.timeoutMs;
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1129:62
+ 1127 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+ 1128 |         timeoutMs = _jx_p0.timeoutMs;
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
       |                                                              ^^^
- 1131 |     }
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1130 |     }
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1130:266
- 1128 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
- 1129 |         timeoutMs = _jx_p0.timeoutMs;
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1129:266
+ 1127 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+ 1128 |         timeoutMs = _jx_p0.timeoutMs;
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
       |                                                                                                                                                                                                                                                                          ^^^
- 1131 |     }
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1130 |     }
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1128:63
- 1126 |         }
- 1127 |     }
- 1128 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1127:63
+ 1125 |         }
+ 1126 |     }
+ 1127 |     override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
       |                                                               ^^^
- 1129 |         timeoutMs = _jx_p0.timeoutMs;
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+ 1128 |         timeoutMs = _jx_p0.timeoutMs;
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1132:51
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
- 1131 |     }
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1131:51
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+ 1130 |     }
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
       |                                                   ^^^
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1134:41
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1133:41
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
       |                                         ^^^
- 1135 |     }
- 1136 | }
+ 1134 |     }
+ 1135 | }
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1134:110
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1133:110
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
       |                                                                                                              ^^^
- 1135 |     }
- 1136 | }
+ 1134 |     }
+ 1135 | }
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1134:162
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1133:162
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
       |                                                                                                                                                                  ^^^
- 1135 |     }
- 1136 | }
+ 1134 |     }
+ 1135 | }
 ⚠ warning[W1037]: Explicit 'any' type annotation disables type checking here; consider a more specific type
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1132:59
- 1130 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
- 1131 |     }
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1131:59
+ 1129 |         return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+ 1130 |     }
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
       |                                                           ^^^
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
 ⚠ warning[W2003]: 'i' is defined but never used
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:758:17
   756 |                     result[idx] = self.compositeLineAt(result[idx], truncatedOverlayLine, col, w, termWidth);
@@ -15541,30 +15540,22 @@ help: Often fixed by adding a more specific type annotation to the relevant decl
       |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ^
   811 |         expandForLines(self.previousLines);
   812 |         expandForLines(newLines);
-⚠ warning[W2003]: 'errorMsg' is defined but never used
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1060:17
- 1058 |                 fs.writeFileSync(crashLogPath, crashData);
- 1059 |                 self.stop();
- 1060 |                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
-      |                 ^^^^^^^^
- 1061 |                 # JS2JAC-HOLE[E7230] ThrowStatement is not supported in V2 (deferred to a later slice):
- 1062 |                 # | throw new Error(errorMsg);
 ⚠ warning[W2003]: 'settled' is defined but never used
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1134:210
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1133:210
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
       |                                                                                                                                                                                                                  ^^^^^^^
- 1135 |     }
- 1136 | }
+ 1134 |     }
+ 1135 | }
 ⚠ warning[W2003]: 'timer' is defined but never used
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1134:266
- 1132 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
- 1133 |         timeoutMs = _jx_p0.timeoutMs;
- 1134 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1133:266
+ 1131 |     override def queryTerminalColorScheme(_jx_p0: any) -> any {
+ 1132 |         timeoutMs = _jx_p0.timeoutMs;
+ 1133 |         return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
       |                                                                                                                                                                                                                                                                          ^^^^^
- 1135 |     }
- 1136 | }
+ 1134 |     }
+ 1135 | }
 ⚠ warning[W2001]: Name 'path' may be undefined
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:888:114
   886 |         fullRender = lambda (clear: bool) -> any { self.fullRedrawCount += 1; buffer: str = "\u001b[?2026h"; if clear {     buffer += self.deleteKittyImages(self.previousKittyImageIds);     buffer += "\u001b[2J\u001b[H\u001b[3J"; } i: int = 0; while (i < len(newLines)) {     if (i > 0) {         buffer += "\r\n";     }     line = newLines[i];     isImage = isImageLine(line);     imageReservedRows = (self.getKittyImageReservedRows(newLines, i) if isImage else 1);     if ((imageReservedRows > 1) and (imageReservedRows <= height)) {         row: int = 1;         while (row < imageReservedRows) {             buffer += "\r\n";             row += 1;         }         buffer += f"\\x1b[{(imageReservedRows - 1)}A";         buffer += line;         buffer += f"\\x1b[{(imageReservedRows - 1)}B";         i += (imageReservedRows - 1);         continue;     }     buffer += line;     i += 1; } buffer += "\u001b[?2026l"; self.terminal.write(buffer); self.cursorRow = max(float(0), float((len(newLines) - 1))); self.hardwareCursorRow = self.cursorRow; if clear {     self.maxLinesRendered = len(newLines); } else {     self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines))); } bufferLength = max(float(height), float(len(newLines))); self.previousViewportTop = max(float(0), float((bufferLength - height))); self.positionHardwareCursor(cursorPos, len(newLines)); self.previousLines = newLines; self.previousKittyImageIds = self.collectKittyImageIds(newLines); self.previousWidth = width; self.previousHeight = height; };
@@ -15582,13 +15573,13 @@ help: Often fixed by adding a more specific type annotation to the relevant decl
  1056 |                 crashData = "\n".join([f"Crash at {Date().toISOString()}", f"Terminal width: {width}", f"Line {i} visible width: {visibleWidth(line)}", "", "=== All rendered lines ===", *newLines.map(lambda (l: any, idx: any) -> any { return f"[{idx}] (w={visibleWidth(l)}) {l}"; }), ""]);
  1057 |                 fs.mkdirSync(path.dirname(crashLogPath), {"recursive": True});
 ⚠ warning[W2001]: Name 'path' may be undefined
-  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1086:39
- 1084 |             debugDir: str = "/tmp/tui";
- 1085 |             fs.mkdirSync(debugDir, {"recursive": True});
- 1086 |             debugPath = debugDir.join(path);
+  --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:1085:39
+ 1083 |             debugDir: str = "/tmp/tui";
+ 1084 |             fs.mkdirSync(debugDir, {"recursive": True});
+ 1085 |             debugPath = debugDir.join(path);
       |                                       ^^^^
- 1087 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
- 1088 |             fs.writeFileSync(debugPath, debugData);
+ 1086 |             debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
+ 1087 |             fs.writeFileSync(debugPath, debugData);
 ⚠ warning[W2058]: Comparison to None should use 'is' or 'is not', not '=='
   --> /home/jac/repos/jackal/tui/pi_jac_floor/src/tui.jac:31:13
    29 |         key = _jx_d0[0];

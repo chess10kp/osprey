@@ -170,8 +170,8 @@
   {
     "path": "src/tui.ts",
     "status": "floor",
-    "bytes": 54268,
-    "holes": 5,
+    "bytes": 54160,
+    "holes": 4,
     "jac_check": false
   },
   {

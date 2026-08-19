@@ -500,6 +500,26 @@ test("catch destructuring remains fail closed", () => {
   assert.ok(result.diagnostics.some((diag) => diag.code === "E7230"));
 });
 
+test("throw new Error lowers to a Jac Exception raise", () => {
+  const result = convert(`
+    export function fail(message: string): void {
+      throw new Error(message);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /raise Exception\(message\);/);
+  assertJacChecks(result.jac);
+});
+
+test("throwing arbitrary JavaScript values remains fail closed", () => {
+  const result = convert(`
+    export function fail(): void { throw "failure"; }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) =>
+    diag.code === "E7230" && diag.message.includes("throw new Error")));
+});
+
 test("module Set and Map constructors lower iterable initializers", () => {
   const result = convert(`
     export const names = new Set(["a", "b"]);

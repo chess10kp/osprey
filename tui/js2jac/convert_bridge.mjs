@@ -2428,8 +2428,31 @@ function emitStatement(stmt, ctx) {
     return out;
   }
 
-  if (kind === "ThrowStatement"
-      || kind === "LabeledStatement" || kind === "DebuggerStatement") {
+  if (kind === "ThrowStatement") {
+    // Jac raises Exception values. The built-in JS Error constructor has the
+    // same control-flow role and message payload, so lower only this proven
+    // shape; arbitrary thrown JS values (notably strings/numbers) are legal in
+    // JavaScript but invalid Jac exceptions and remain fail-closed.
+    const arg = stmt.argument;
+    if (arg?.type === "NewExpression" && arg.callee?.type === "Identifier"
+      && arg.callee.name === "Error" && (arg.arguments ?? []).length <= 1) {
+      const args = [];
+      for (const value of arg.arguments ?? []) {
+        if (value?.type === "SpreadElement") {
+          diags.push(diag("E7230", "Spread arguments in thrown Error constructors are not supported", path));
+          return null;
+        }
+        const text = emitExpr(value, path, diags, ctx);
+        if (text === null) return null;
+        args.push(text);
+      }
+      return [`raise Exception(${args.join(", ")});`];
+    }
+    diags.push(diag("E7230", "Only `throw new Error(...)` can lower to a Jac exception", path));
+    return null;
+  }
+
+  if (kind === "LabeledStatement" || kind === "DebuggerStatement") {
     diags.push(diag("E7230", `${kind} is not supported in V2 (deferred to a later slice)`, path));
     return null;
   }

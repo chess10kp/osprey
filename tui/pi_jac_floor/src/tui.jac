@@ -1058,8 +1058,7 @@ obj:pub TUI(Container) {
                 fs.writeFileSync(crashLogPath, crashData);
                 self.stop();
                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
-                # JS2JAC-HOLE[E7230] ThrowStatement is not supported in V2 (deferred to a later slice):
-                # | throw new Error(errorMsg);
+                raise Exception(errorMsg);
             }
             buffer += line;
             i += 1;
