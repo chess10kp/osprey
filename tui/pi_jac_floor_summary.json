@@ -23,8 +23,8 @@
   {
     "path": "src/components/editor.ts",
     "status": "floor",
-    "bytes": 69789,
-    "holes": 1,
+    "bytes": 69760,
+    "holes": 0,
     "jac_check": false
   },
   {
@@ -135,9 +135,9 @@
   {
     "path": "src/native-modifiers.ts",
     "status": "floor",
-    "bytes": 623,
-    "holes": 1,
-    "jac_check": true
+    "bytes": 1753,
+    "holes": 0,
+    "jac_check": false
   },
   {
     "path": "src/stdin-buffer.ts",

@@ -7,6 +7,7 @@ import from "../utils.jac" { cjkBreakRegex, getGraphemeSegmenter, getWordSegment
 import from "../word-navigation.jac" { findWordBackward, findWordForward }
 import from "./select-list.jac" { SelectList }
 import from re { compile, search, sub }
+import asyncio;
 
 glob graphemeSegmenter = getGraphemeSegmenter();
 
@@ -1456,22 +1457,20 @@ obj:pub Editor {
     }
     async def startAutocompleteRequest(startToken: float, options: dict[str, bool]) -> any {
         previousTask = self.autocompleteRequestTask;
-        # JS2JAC-HOLE[E7215] Async/generator callbacks are not supported:
-        # | this.autocompleteRequestTask = (async () => {
-        # | 			await previousTask;
-        # | 			if (startToken !== this.autocompleteStartToken || !this.autocompleteProvider) {
-        # | 				return;
-        # | 			}
-        # | 
-        # | 			const controller = new AbortController();
-        # | 			this.autocompleteAbort = controller;
-        # | 			const requestId = ++this.autocompleteRequestId;
-        # | 			const snapshotText = this.getText();
-        # | 			const snapshotLine = this.state.cursorLine;
-        # | 			const snapshotCol = this.state.cursorCol;
-        # | 
-        # | 			await this.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
-        # | 		})();
+        async def _jx_async_task11() {
+            await previousTask;
+            if ((startToken != self.autocompleteStartToken) or not self.autocompleteProvider) {
+                return;
+            }
+            controller = AbortController();
+            self.autocompleteAbort = controller;
+            requestId = (lambda () -> any { self.autocompleteRequestId += 1; return self.autocompleteRequestId; })();
+            snapshotText = self.getText();
+            snapshotLine = self.state.cursorLine;
+            snapshotCol = self.state.cursorCol;
+            await self.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
+        }
+        self.autocompleteRequestTask = asyncio.create_task(_jx_async_task11());
         await self.autocompleteRequestTask;
     }
     def setAutocompleteTriggerCharacters(triggerCharacters: list[str]) -> None {
@@ -1543,7 +1542,7 @@ obj:pub Editor {
             clearTimeout(self.autocompleteDebounceTimer);
             self.autocompleteDebounceTimer = None;
         }
-        ((lambda (_jx_opt11: any) -> any { return (_jx_opt11.abort() if _jx_opt11 is not None else None); })(self.autocompleteAbort));
+        ((lambda (_jx_opt12: any) -> any { return (_jx_opt12.abort() if _jx_opt12 is not None else None); })(self.autocompleteAbort));
         self.autocompleteAbort = None;
     }
     def clearAutocompleteUi() -> None {
