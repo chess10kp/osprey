@@ -3603,6 +3603,15 @@ const TYPEOF_JAC_TYPE = {
   bigint: "int",
 };
 
+// Object/function checks do not have a direct isinstance spelling. Keep their
+// lowering deliberately narrower than primitive guards: a stable local can be
+// inspected repeatedly without changing JS evaluation order. In the Jac/Python
+// runtime, callable is the closest equivalent of JS's `function`; `object` is
+// the complementary non-null, non-primitive, non-callable value set.
+function isStableTypeofOperand(node) {
+  return node?.type === "Identifier";
+}
+
 /**
  * Recognize `typeof X <eq> '<name>'` (either operand order) and lower it to a
  * Jac `isinstance(...)` / `is None` check. Returns:
@@ -3629,6 +3638,18 @@ function tryLowerTypeofGuard(node, path, diags) {
   if (arg === null) return null;
   if (lit.value === "undefined") {
     return eq ? `(${arg} is None)` : `(${arg} is not None)`;
+  }
+  if (lit.value === "function") {
+    if (!isStableTypeofOperand(unary.argument)) return undefined;
+    // Jac currently exposes callable() as object-typed, so make the boolean
+    // contract explicit for return-position type checking.
+    const check = `bool(callable(${arg}))`;
+    return eq ? check : `(not ${check})`;
+  }
+  if (lit.value === "object") {
+    if (!isStableTypeofOperand(unary.argument)) return undefined;
+    const check = `((${arg} is not None) and (not isinstance(${arg}, (str, int, float, bool))) and (not callable(${arg})))`;
+    return eq ? check : `(not ${check})`;
   }
   const jacType = TYPEOF_JAC_TYPE[lit.value];
   if (jacType === undefined) return undefined; // unknown typename -> fall through to E7215

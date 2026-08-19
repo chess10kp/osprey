@@ -281,6 +281,32 @@ test("TypeScript type-predicate returns lower to bool", () => {
   assertJacChecks(result.jac);
 });
 
+test("stable typeof object and function guards lower without widening null or primitives", () => {
+  const result = convert(`
+    export function hasHandler(value: unknown): boolean {
+      if (typeof value !== "object" || value === null) return false;
+      const candidate = (value as { run?: unknown }).run;
+      return typeof candidate === "function";
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /not isinstance\(value, \(str, int, float, bool\)\)/);
+  assert.match(result.jac, /not callable\(value\)/);
+  assert.match(result.jac, /return bool\(callable\(candidate\)\);/);
+  assertJacChecks(result.jac);
+});
+
+test("effectful typeof object and function operands remain unsupported", () => {
+  for (const source of [
+    `export function isObject(): boolean { return typeof getValue() === "object"; }`,
+    `export function isFunction(): boolean { return typeof getValue() === "function"; }`,
+  ]) {
+    const result = convert(source);
+    assert.equal(result.ok, false);
+    assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
+  }
+});
+
 test("discard-result splice deletes start through start plus count", () => {
   const result = convert(`
     export function remove(values: string[], start: number, count: number): void {
