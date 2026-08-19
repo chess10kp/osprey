@@ -91,6 +91,34 @@ test("async class methods emit Jac async abilities and preserve await", () => {
   assertJacChecks(result.jac);
 });
 
+test("class method object parameters lower through a synthetic typed boundary", () => {
+  const result = convert(`
+    export class FocusManager {
+      current: any = null;
+      setFocus({ component, restore }: { component: any; restore: string }): void {
+        this.current = component;
+        if (restore === "clear") this.current = null;
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /def setFocus\(_jx_p0: any\) -> None \{/);
+  assert.match(result.jac, /component = _jx_p0\.component;/);
+  assert.match(result.jac, /restore = _jx_p0\.restore;/);
+  assert.match(result.jac, /self\.current = component;/);
+  assertJacChecks(result.jac);
+});
+
+test("nested class method parameter patterns remain fail closed", () => {
+  const result = convert(`
+    export class FocusManager {
+      setFocus({ nested: { component } }: { nested: { component: any } }): void {}
+    }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7232"));
+});
+
 test("class setters remain fail-closed", () => {
   const result = convert(`
     export class Counter {

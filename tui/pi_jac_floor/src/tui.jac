@@ -171,71 +171,47 @@ obj:pub TUI(Container) {
     override def setFocus(component: any | None) -> None {
         self.setFocusInternal({"component": component, "overlayFocusRestore": "clear"});
     }
-    # JS2JAC-HOLE[E7232] Unsupported class method parameter form: ObjectPattern:
-    # | private setFocusInternal({
-    # | 		component,
-    # | 		overlayFocusRestore,
-    # | 	}: {
-    # | 		component: Component | null;
-    # | 		overlayFocusRestore: OverlayFocusRestorePolicy;
-    # | 	}): void {
-    # | 		const previousFocus = this.focusedComponent;
-    # | 		let nextFocus = component;
-    # | 		const previousFocusedOverlay = previousFocus
-    # | 			? this.overlayStack.find((entry) => entry.component === previousFocus && this.isOverlayVisible(entry))
-    # | 			: undefined;
-    # | 		const nextFocusIsOverlay = nextFocus ? this.overlayStack.some((entry) => entry.component === nextFocus) : false;
-    # | 		const restoreState = this.getVisibleOverlayFocusRestore();
-    # | 		if (nextFocus && !nextFocusIsOverlay) {
-    # | 			if (restoreState.status === "blocked" && restoreState.blockedBy === previousFocus) {
-    # | 				if (restoreState.resume.status === "focus-target" || !this.isComponentMounted(restoreState.blockedBy)) {
-    # | 					nextFocus = this.resolveBlockedOverlayFocusResume(restoreState);
-    # | 				} else {
-    # | 					this.overlayFocusRestore = {
-    # | 						status: "blocked",
-    # | 						overlay: restoreState.overlay,
-    # | 						blockedBy: nextFocus,
-    # | 						resume: restoreState.resume,
-    # | 					};
-    # | 				}
-    # | 			} else if (
-    # | 				previousFocusedOverlay &&
-    # | 				restoreState.status !== "inactive" &&
-    # | 				restoreState.overlay === previousFocusedOverlay &&
-    # | 				!this.isOverlayFocusAncestor(previousFocusedOverlay, nextFocus)
-    # | 			) {
-    # | 				this.overlayFocusRestore = {
-    # | 					status: "blocked",
-    # | 					overlay: previousFocusedOverlay,
-    # | 					blockedBy: nextFocus,
-    # | 					resume: { status: "restore-overlay" },
-    # | 				};
-    # | 			}
-    # | 		} else if (nextFocus === null) {
-    # | 			if (restoreState.status === "blocked" && restoreState.blockedBy === previousFocus) {
-    # | 				nextFocus = this.resolveBlockedOverlayFocusResume(restoreState);
-    # | 			} else if (overlayFocusRestore === "clear") {
-    # | 				this.clearOverlayFocusRestore();
-    # | 			}
-    # | 		}
-    # | 
-    # | 		if (isFocusable(this.focusedComponent)) {
-    # | 			this.focusedComponent.focused = false;
-    # | 		}
-    # | 
-    # | 		this.focusedComponent = nextFocus;
-    # | 
-    # | 		if (isFocusable(nextFocus)) {
-    # | 			nextFocus.focused = true;
-    # | 		}
-    # | 
-    # | 		const focusedOverlay = nextFocus
-    # | 			? this.overlayStack.find((entry) => entry.component === nextFocus && this.isOverlayVisible(entry))
-    # | 			: undefined;
-    # | 		if (focusedOverlay) {
-    # | 			this.overlayFocusRestore = { status: "eligible", overlay: focusedOverlay };
-    # | 		}
-    # | 	}
+    override def setFocusInternal(_jx_p0: any) -> None {
+        component = _jx_p0.component;
+        overlayFocusRestore = _jx_p0.overlayFocusRestore;
+        previousFocus = self.focusedComponent;
+        nextFocus = component;
+        previousFocusedOverlay = (self.overlayStack.find(lambda (entry_j: any) -> any { return ((entry_j.component == previousFocus) and self.isOverlayVisible(entry_j)); }) if previousFocus else None);
+        nextFocusIsOverlay = (any((entry_j.component == nextFocus) for entry_j in self.overlayStack) if nextFocus else False);
+        restoreState = self.getVisibleOverlayFocusRestore();
+        if (nextFocus and not nextFocusIsOverlay) {
+            if ((restoreState.status == "blocked") and (restoreState.blockedBy == previousFocus)) {
+                if ((restoreState.resume.status == "focus-target") or not self.isComponentMounted(restoreState.blockedBy)) {
+                    nextFocus = self.resolveBlockedOverlayFocusResume(restoreState);
+                }
+                else {
+                    self.overlayFocusRestore = {"status": "blocked", "overlay": restoreState.overlay, "blockedBy": nextFocus, "resume": restoreState.resume};
+                }
+            }
+            elif (((previousFocusedOverlay and (restoreState.status != "inactive")) and (restoreState.overlay == previousFocusedOverlay)) and not self.isOverlayFocusAncestor(previousFocusedOverlay, nextFocus)) {
+                self.overlayFocusRestore = {"status": "blocked", "overlay": previousFocusedOverlay, "blockedBy": nextFocus, "resume": {"status": "restore-overlay"}};
+            }
+        }
+        elif (nextFocus == None) {
+            if ((restoreState.status == "blocked") and (restoreState.blockedBy == previousFocus)) {
+                nextFocus = self.resolveBlockedOverlayFocusResume(restoreState);
+            }
+            elif (overlayFocusRestore == "clear") {
+                self.clearOverlayFocusRestore();
+            }
+        }
+        if isFocusable(self.focusedComponent) {
+            self.focusedComponent.focused = False;
+        }
+        self.focusedComponent = nextFocus;
+        if isFocusable(nextFocus) {
+            nextFocus.focused = True;
+        }
+        focusedOverlay = (self.overlayStack.find(lambda (entry_j: any) -> any { return ((entry_j.component == nextFocus) and self.isOverlayVisible(entry_j)); }) if nextFocus else None);
+        if focusedOverlay {
+            self.overlayFocusRestore = {"status": "eligible", "overlay": focusedOverlay};
+        }
+    }
     override def clearOverlayFocusRestore() -> None {
         self.overlayFocusRestore = {"status": "inactive"};
     }
@@ -1149,49 +1125,12 @@ obj:pub TUI(Container) {
             self.terminal.hideCursor();
         }
     }
-    # JS2JAC-HOLE[E7232] Unsupported class method parameter form: ObjectPattern:
-    # | queryTerminalBackgroundColor({ timeoutMs }: { timeoutMs: number }): Promise<RgbColor | undefined> {
-    # | 		return new Promise((resolve) => {
-    # | 			const query: PendingOsc11BackgroundQuery = {
-    # | 				settled: false,
-    # | 				resolve,
-    # | 				timer: undefined,
-    # | 			};
-    # | 
-    # | 			query.timer = setTimeout(() => {
-    # | 				if (query.settled) {
-    # | 					return;
-    # | 				}
-    # | 				query.settled = true;
-    # | 				query.timer = undefined;
-    # | 				query.resolve?.(undefined);
-    # | 				query.resolve = undefined;
-    # | 			}, timeoutMs);
-    # | 			this.pendingOsc11BackgroundQueries.push(query);
-    # | 			this.pendingOsc11BackgroundReplies += 1;
-    # | 			this.terminal.write("\x1b]11;?\x07");
-    # | 		});
-    # | 	}
-    # JS2JAC-HOLE[E7232] Unsupported class method parameter form: ObjectPattern:
-    # | queryTerminalColorScheme({ timeoutMs }: { timeoutMs: number }): Promise<TerminalColorScheme | undefined> {
-    # | 		return new Promise((resolve) => {
-    # | 			let settled = false;
-    # | 			let timer: NodeJS.Timeout | undefined;
-    # | 			let unsubscribe: () => void = () => {};
-    # | 			const settle = (scheme: TerminalColorScheme | undefined) => {
-    # | 				if (settled) return;
-    # | 				settled = true;
-    # | 				if (timer) {
-    # | 					clearTimeout(timer);
-    # | 					timer = undefined;
-    # | 				}
-    # | 				unsubscribe();
-    # | 				resolve(scheme);
-    # | 			};
-    # | 
-    # | 			unsubscribe = this.onTerminalColorSchemeChange(settle);
-    # | 			timer = setTimeout(() => settle(undefined), timeoutMs);
-    # | 			this.terminal.write("\x1b[?996n");
-    # | 		});
-    # | 	}
+    override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
+        timeoutMs = _jx_p0.timeoutMs;
+        return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+    }
+    override def queryTerminalColorScheme(_jx_p0: any) -> any {
+        timeoutMs = _jx_p0.timeoutMs;
+        return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+    }
 }

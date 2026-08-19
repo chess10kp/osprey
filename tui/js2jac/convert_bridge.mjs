@@ -4381,6 +4381,7 @@ function parseClassExtends(superClass, path, diags) {
 
 function parseClassMethodParams(params, path, diags, ctx) {
   const jacParams = [];
+  const prelude = [];
   for (const p of params ?? []) {
     let idNode = p;
     let defaultText = null;
@@ -4397,8 +4398,19 @@ function parseClassMethodParams(params, path, diags, ctx) {
       diags.push(diag("E7232", "Class method rest parameters are not supported", path));
       return null;
     } else if (p?.type === "ObjectPattern" || p?.type === "ArrayPattern") {
-      diags.push(diag("E7232", `Unsupported class method parameter form: ${p.type}`, path));
-      return null;
+      // A Jac ability cannot bind a destructuring pattern directly. Preserve
+      // single evaluation by accepting one synthetic argument and materialize
+      // the flat bindings at the start of the method body. This is the same
+      // statement-producing lowering used by helper parameters and locals.
+      const synth = `_jx_p${jacParams.length}`;
+      const lowered = lowerFlatPattern(p, synth, true, ctx);
+      if (lowered === null) {
+        diags.push(diag("E7232", `Unsupported class method parameter form: ${p.type}`, path));
+        return null;
+      }
+      jacParams.push(`${synth}: any`);
+      prelude.push(...lowered.lines);
+      continue;
     } else if (p?.type !== "Identifier") {
       diags.push(diag("E7232", `Unsupported class method parameter form: ${p?.type}`, path));
       return null;
@@ -4419,7 +4431,7 @@ function parseClassMethodParams(params, path, diags, ctx) {
     else if (idNode.optional) text += " = None";
     jacParams.push(text);
   }
-  return jacParams;
+  return { jacParams, prelude };
 }
 
 function tryEmitCStyleFor(stmt, ctx) {
@@ -4522,8 +4534,9 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     diags.push(diag("E7205", "Class getters cannot declare parameters", path));
     return null;
   }
-  const jacParams = parseClassMethodParams(member.params ?? [], path, diags, classCtx);
-  if (jacParams === null) return null;
+  const parsedParams = parseClassMethodParams(member.params ?? [], path, diags, classCtx);
+  if (parsedParams === null) return null;
+  const { jacParams, prelude: paramPrelude } = parsedParams;
   let retType = "None";
   if (member.async) {
     // A TS async method returns Promise<T>, while Jac annotates the awaited
@@ -4554,7 +4567,7 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     droppedStatements: classCtx.droppedStatements ?? [],
     floatLocals: collectFloatLocals(member.body),
   };
-  const bodyLines = [];
+  const bodyLines = [...paramPrelude];
   const body = member.body;
   if (body?.type === "BlockStatement") {
     if (stmtFailOpen) {
