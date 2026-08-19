@@ -62,12 +62,10 @@ obj:pub SelectList {
             lines.append(self.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));
             i += 1;
         }
-        # JS2JAC-HOLE[E7214]:
-        # | if (startIndex > 0 || endIndex < this.filteredItems.length) {
-        # | 			const scrollText = `  (${this.selectedIndex + 1}/${this.filteredItems.length})`;
-        # | 			// Truncate if too long for terminal
-        # | 			lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, width - 2, "")));
-        # | 		}
+        if ((startIndex > 0) or (endIndex < len(self.filteredItems))) {
+            scrollText: str = f"  ({(self.selectedIndex + 1)}/{len(self.filteredItems)})";
+            lines.append(self.theme.scrollInfo(truncateToWidth(scrollText, (width - 2), "")));
+        }
         return lines;
     }
     def handleInput(keyData: str) -> None {
@@ -126,18 +124,11 @@ obj:pub SelectList {
         widestPrimary = self.filteredItems.reduce(lambda (widest: any, item: any) -> any { return max(float(widest), float((visibleWidth(self.getDisplayValue(item)) + PRIMARY_COLUMN_GAP))); }, 0);
         return clamp(widestPrimary, min_j, max_j);
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private getPrimaryColumnBounds(): { min: number; max: number } {
-    # | 		const rawMin =
-    # | 			this.layout.minPrimaryColumnWidth ?? this.layout.maxPrimaryColumnWidth ?? DEFAULT_PRIMARY_COLUMN_WIDTH;
-    # | 		const rawMax =
-    # | 			this.layout.maxPrimaryColumnWidth ?? this.layout.minPrimaryColumnWidth ?? DEFAULT_PRIMARY_COLUMN_WIDTH;
-    # | 
-    # | 		return {
-    # | 			min: Math.max(1, Math.min(rawMin, rawMax)),
-    # | 			max: Math.max(1, Math.max(rawMin, rawMax)),
-    # | 		};
-    # | 	}
+    def getPrimaryColumnBounds() -> dict[str, float] {
+        rawMin = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else DEFAULT_PRIMARY_COLUMN_WIDTH); })(((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else self.layout.maxPrimaryColumnWidth); })(self.layout.minPrimaryColumnWidth))));
+        rawMax = ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else DEFAULT_PRIMARY_COLUMN_WIDTH); })(((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else self.layout.minPrimaryColumnWidth); })(self.layout.maxPrimaryColumnWidth))));
+        return {"min": max(float(1), float(min(float(rawMin), float(rawMax)))), "max": max(float(1), float(max(float(rawMin), float(rawMax))))};
+    }
     def truncatePrimary(item: any, isSelected: bool, maxWidth: float, columnWidth: float) -> str {
         displayValue = self.getDisplayValue(item);
         truncatedValue = (self.layout.truncatePrimary({"text": displayValue, "maxWidth": maxWidth, "columnWidth": columnWidth, "item": item, "isSelected": isSelected}) if self.layout.truncatePrimary else truncateToWidth(displayValue, maxWidth, ""));

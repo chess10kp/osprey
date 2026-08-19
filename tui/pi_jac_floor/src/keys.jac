@@ -27,6 +27,10 @@ glob FUNCTIONAL_CODEPOINTS = {"delete": -10, "insert": -11, "pageUp": -12, "page
 
 glob KITTY_FUNCTIONAL_KEY_EQUIVALENTS = dict([[57399, 48], [57400, 49], [57401, 50], [57402, 51], [57403, 52], [57404, 53], [57405, 54], [57406, 55], [57407, 56], [57408, 57], [57409, 46], [57410, 47], [57411, 42], [57412, 45], [57413, 43], [57415, 61], [57416, 44], [57417, ARROW_CODEPOINTS.left], [57418, ARROW_CODEPOINTS.right], [57419, ARROW_CODEPOINTS.up], [57420, ARROW_CODEPOINTS.down], [57421, FUNCTIONAL_CODEPOINTS.pageUp], [57422, FUNCTIONAL_CODEPOINTS.pageDown], [57423, FUNCTIONAL_CODEPOINTS.home], [57424, FUNCTIONAL_CODEPOINTS.end], [57425, FUNCTIONAL_CODEPOINTS.insert], [57426, FUNCTIONAL_CODEPOINTS.delete]]);
 
+def normalizeKittyFunctionalCodepoint(codepoint: float) -> float {
+    return ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else codepoint); })(KITTY_FUNCTIONAL_KEY_EQUIVALENTS.get(codepoint)));
+}
+
 def normalizeShiftedLetterIdentityCodepoint(codepoint: float, modifier: float) -> float {
     effectiveModifier = float(int(modifier) & int(float(~int(LOCK_MASK))));
     if (((float(int(effectiveModifier) & int(MODIFIERS.shift)) != 0) and (codepoint >= 65)) and (codepoint <= 90)) {
@@ -135,6 +139,32 @@ def parseKittySequence(data: str) -> any | None {
     return None;
 }
 
+def matchesKittySequence(data: str, expectedCodepoint: float, expectedModifier: float) -> bool {
+    parsed = parseKittySequence(data);
+    if not parsed {
+        return False;
+    }
+    actualMod = float(int((parsed["modifier"] as float)) & int(float(~int(LOCK_MASK))));
+    expectedMod = float(int(expectedModifier) & int(float(~int(LOCK_MASK))));
+    if (actualMod != expectedMod) {
+        return False;
+    }
+    normalizedCodepoint: float = float(normalizeShiftedLetterIdentityCodepoint(normalizeKittyFunctionalCodepoint((parsed["codepoint"] as float)), (parsed["modifier"] as float)));
+    normalizedExpectedCodepoint: float = float(normalizeShiftedLetterIdentityCodepoint(normalizeKittyFunctionalCodepoint(expectedCodepoint), expectedModifier));
+    if (normalizedCodepoint == normalizedExpectedCodepoint) {
+        return True;
+    }
+    if (((parsed["baseLayoutKey"] as float | None) != None) and ((parsed["baseLayoutKey"] as float | None) == expectedCodepoint)) {
+        cp: float = float(normalizedCodepoint);
+        isLatinLetter: float = float(((cp >= 97) and (cp <= 122)));
+        isKnownSymbol = SYMBOL_KEYS.has(String.fromCharCode(cp));
+        if (not isLatinLetter and not isKnownSymbol) {
+            return True;
+        }
+    }
+    return False;
+}
+
 def parseModifyOtherKeysSequence(data: str) -> any | None {
     match_j = search(r"^\x1b\[27;(\d+);(\d+)~$", data);
     if not match_j {
@@ -225,9 +255,238 @@ def parseKeyId(keyId: str) -> dict[str, str | bool] | None {
     return {"key": key, "ctrl": ("ctrl" in parts), "shift": ("shift" in parts), "alt": ("alt" in parts), "super": ("super" in parts)};
 }
 
+def formatParsedKey(codepoint: float, modifier: float, baseLayoutKey: float) -> str | None {
+    normalizedCodepoint: float = float(normalizeKittyFunctionalCodepoint(codepoint));
+    identityCodepoint: float = float(normalizeShiftedLetterIdentityCodepoint(normalizedCodepoint, modifier));
+    isLatinLetter: float = float(((identityCodepoint >= 97) and (identityCodepoint <= 122)));
+    isDigit: float = float(((identityCodepoint >= 48) and (identityCodepoint <= 57)));
+    isKnownSymbol = SYMBOL_KEYS.has(String.fromCharCode(identityCodepoint));
+    effectiveCodepoint = (identityCodepoint if ((isLatinLetter or isDigit) or isKnownSymbol) else ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else identityCodepoint); })(baseLayoutKey)));
+    keyName: str | None;
+    if (effectiveCodepoint == CODEPOINTS.escape) {
+        keyName = "escape";
+    }
+    elif (effectiveCodepoint == CODEPOINTS.tab) {
+        keyName = "tab";
+    }
+    elif ((effectiveCodepoint == CODEPOINTS.enter) or (effectiveCodepoint == CODEPOINTS.kpEnter)) {
+        keyName = "enter";
+    }
+    elif (effectiveCodepoint == CODEPOINTS.space) {
+        keyName = "space";
+    }
+    elif (effectiveCodepoint == CODEPOINTS.backspace) {
+        keyName = "backspace";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.delete) {
+        keyName = "delete";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.insert) {
+        keyName = "insert";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.home) {
+        keyName = "home";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.end) {
+        keyName = "end";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.pageUp) {
+        keyName = "pageUp";
+    }
+    elif (effectiveCodepoint == FUNCTIONAL_CODEPOINTS.pageDown) {
+        keyName = "pageDown";
+    }
+    elif (effectiveCodepoint == ARROW_CODEPOINTS.up) {
+        keyName = "up";
+    }
+    elif (effectiveCodepoint == ARROW_CODEPOINTS.down) {
+        keyName = "down";
+    }
+    elif (effectiveCodepoint == ARROW_CODEPOINTS.left) {
+        keyName = "left";
+    }
+    elif (effectiveCodepoint == ARROW_CODEPOINTS.right) {
+        keyName = "right";
+    }
+    elif ((effectiveCodepoint >= 48) and (effectiveCodepoint <= 57)) {
+        keyName = String.fromCharCode(effectiveCodepoint);
+    }
+    elif ((effectiveCodepoint >= 97) and (effectiveCodepoint <= 122)) {
+        keyName = String.fromCharCode(effectiveCodepoint);
+    }
+    elif SYMBOL_KEYS.has(String.fromCharCode(effectiveCodepoint)) {
+        keyName = String.fromCharCode(effectiveCodepoint);
+    }
+    if not keyName {
+        return None;
+    }
+    return formatKeyNameWithModifiers(keyName, modifier);
+}
+
+def:pub parseKey(data: str) -> str | None {
+    kitty = parseKittySequence(data);
+    if kitty {
+        return formatParsedKey((kitty["codepoint"] as float), (kitty["modifier"] as float), (kitty["baseLayoutKey"] as float | None));
+    }
+    modifyOtherKeys = parseModifyOtherKeysSequence(data);
+    if modifyOtherKeys {
+        return formatParsedKey((modifyOtherKeys["codepoint"] as float), (modifyOtherKeys["modifier"] as float));
+    }
+    if _kittyProtocolActive {
+        if ((data == "\u001b\r") or (data == "\n")) {
+            return "shift+enter";
+        }
+    }
+    legacySequenceKeyId = LEGACY_SEQUENCE_KEY_IDS[data];
+    if legacySequenceKeyId {
+        return (legacySequenceKeyId as str | None);
+    }
+    if (data == "\u001b") {
+        return "escape";
+    }
+    if (data == "\u001c") {
+        return "ctrl+\\";
+    }
+    if (data == "\u001d") {
+        return "ctrl+]";
+    }
+    if (data == "\u001f") {
+        return "ctrl+-";
+    }
+    if (data == "\u001b\u001b") {
+        return "ctrl+alt+[";
+    }
+    if (data == "\u001b\u001c") {
+        return "ctrl+alt+\\";
+    }
+    if (data == "\u001b\u001d") {
+        return "ctrl+alt+]";
+    }
+    if (data == "\u001b\u001f") {
+        return "ctrl+alt+-";
+    }
+    if (data == "\t") {
+        return "tab";
+    }
+    if (((data == "\r") or (not _kittyProtocolActive and (data == "\n"))) or (data == "\u001bOM")) {
+        return "enter";
+    }
+    if (data == "\u0000") {
+        return "ctrl+space";
+    }
+    if (data == " ") {
+        return "space";
+    }
+    if (data == "") {
+        return "backspace";
+    }
+    if (data == "\b") {
+        return ("ctrl+backspace" if isWindowsTerminalSession() else "backspace");
+    }
+    if (data == "\u001b[Z") {
+        return "shift+tab";
+    }
+    if (not _kittyProtocolActive and (data == "\u001b\r")) {
+        return "alt+enter";
+    }
+    if (not _kittyProtocolActive and (data == "\u001b ")) {
+        return "alt+space";
+    }
+    if ((data == "\u001b") or (data == "\u001b\b")) {
+        return "alt+backspace";
+    }
+    if (not _kittyProtocolActive and (data == "\u001bB")) {
+        return "alt+left";
+    }
+    if (not _kittyProtocolActive and (data == "\u001bF")) {
+        return "alt+right";
+    }
+    if ((not _kittyProtocolActive and (len(data) == 2)) and (data[0] == "\u001b")) {
+        code = ord(data[1]);
+        if ((code >= 1) and (code <= 26)) {
+            return f"ctrl+alt+{String.fromCharCode((code + 96))}";
+        }
+        key = String.fromCharCode(code);
+        if ((((code >= 97) and (code <= 122)) or ((code >= 48) and (code <= 57))) or SYMBOL_KEYS.has(key)) {
+            return f"alt+{key}";
+        }
+    }
+    if (data == "\u001b[A") {
+        return "up";
+    }
+    if (data == "\u001b[B") {
+        return "down";
+    }
+    if (data == "\u001b[C") {
+        return "right";
+    }
+    if (data == "\u001b[D") {
+        return "left";
+    }
+    if ((data == "\u001b[H") or (data == "\u001bOH")) {
+        return "home";
+    }
+    if ((data == "\u001b[F") or (data == "\u001bOF")) {
+        return "end";
+    }
+    if (data == "\u001b[3~") {
+        return "delete";
+    }
+    if (data == "\u001b[5~") {
+        return "pageUp";
+    }
+    if (data == "\u001b[6~") {
+        return "pageDown";
+    }
+    if (len(data) == 1) {
+        code = ord(data[0]);
+        if ((code >= 1) and (code <= 26)) {
+            return f"ctrl+{String.fromCharCode((code + 96))}";
+        }
+        if ((code >= 32) and (code <= 126)) {
+            return data;
+        }
+    }
+    return None;
+}
+
 glob KITTY_CSI_U_REGEX = compile(r"^\x1b\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$");
 
 glob KITTY_PRINTABLE_ALLOWED_MODIFIERS = float(int(MODIFIERS.shift) | int(LOCK_MASK));
+
+def:pub decodeKittyPrintable(data: str) -> str | None {
+    match_j = search(KITTY_CSI_U_REGEX, data);
+    if not match_j {
+        return None;
+    }
+    codepoint = int(((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else ""); })(match_j.group(1))), 10);
+    if not Number.isFinite(codepoint) {
+        return None;
+    }
+    shiftedKey = (int(match_j.group(2), 10) if (match_j.group(2) and (len(match_j.group(2)) > 0)) else None);
+    modValue = (int(match_j.group(4), 10) if match_j.group(4) else 1);
+    modifier = ((modValue - 1) if Number.isFinite(modValue) else 0);
+    if (float(int(modifier) & int(float(~int(KITTY_PRINTABLE_ALLOWED_MODIFIERS)))) != 0) {
+        return None;
+    }
+    if float(int(modifier) & int(float(int(MODIFIERS.alt) | int(MODIFIERS.ctrl)))) {
+        return None;
+    }
+    effectiveCodepoint = codepoint;
+    if (float(int(modifier) & int(MODIFIERS.shift)) and isinstance(shiftedKey, (int, float))) {
+        effectiveCodepoint = shiftedKey;
+    }
+    effectiveCodepoint = normalizeKittyFunctionalCodepoint(effectiveCodepoint);
+    if (not Number.isFinite(effectiveCodepoint) or (effectiveCodepoint < 32)) {
+        return None;
+    }
+    try {
+        return String.fromCodePoint(effectiveCodepoint);
+    }
+    except Exception {
+        return None;
+    }
+}
 
 def decodeModifyOtherKeysPrintable(data: str) -> str | None {
     parsed = parseModifyOtherKeysSequence(data);
@@ -249,12 +508,11 @@ def decodeModifyOtherKeysPrintable(data: str) -> str | None {
     }
 }
 
-# ===== JS2JAC UNCONVERTED (3 decl(s), needs LLM) =====
-# JS2JAC-HOLE[E7200] Declaration produced no output:
-# | function normalizeKittyFunctionalCodepoint(codepoint: number): number {
-# | 	return KITTY_FUNCTIONAL_KEY_EQUIVALENTS.get(codepoint) ?? codepoint;
-# | }
+def:pub decodePrintableKey(data: str) -> str | None {
+    return ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else decodeModifyOtherKeysPrintable(data)); })(decodeKittyPrintable(data)));
+}
 
+# ===== JS2JAC UNCONVERTED (1 decl(s), needs LLM) =====
 # JS2JAC-HOLE[E7200] Declaration produced no output:
 # | export function matchesKey(data: string, keyId: KeyId): boolean {
 # | 	const parsed = parseKeyId(keyId);
@@ -640,9 +898,4 @@ def decodeModifyOtherKeysPrintable(data: str) -> str | None {
 # | 	}
 # | 
 # | 	return false;
-# | }
-
-# JS2JAC-HOLE[E7200] Declaration produced no output:
-# | export function decodePrintableKey(data: string): string | undefined {
-# | 	return decodeKittyPrintable(data) ?? decodeModifyOtherKeysPrintable(data);
 # | }

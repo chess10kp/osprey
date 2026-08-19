@@ -28,10 +28,10 @@ obj:pub Image {
         if (self.cachedLines and (self.cachedWidth == width)) {
             return self.cachedLines;
         }
-        maxWidth = max(float(1), float(min(float((width - 2)), float((self.options.maxWidthCells if self.options.maxWidthCells is not None else 60)))));
+        maxWidth = max(float(1), float(min(float((width - 2)), float(((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else 60); })(self.options.maxWidthCells))))));
         cellDimensions = getCellDimensions();
         defaultMaxHeight = max(float(1), float(int(-((-((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx)) // 1))));
-        maxHeight = (self.options.maxHeightCells if self.options.maxHeightCells is not None else defaultMaxHeight);
+        maxHeight = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else defaultMaxHeight); })(self.options.maxHeightCells));
         caps = getCapabilities();
         lines: list[str];
         if caps.images {

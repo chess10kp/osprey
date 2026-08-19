@@ -325,7 +325,7 @@ obj:pub Input {
         graphemes = [*segmenter.segment(visibleText[cursorDisplay:])];
         cursorGrapheme = graphemes[0];
         beforeCursor = visibleText[0:cursorDisplay];
-        atCursor = ((cursorGrapheme.segment if cursorGrapheme is not None else None) if (cursorGrapheme.segment if cursorGrapheme is not None else None) is not None else " ");
+        atCursor = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else " "); })(((lambda (_jx_opt0: any) -> any { return (_jx_opt0.segment if _jx_opt0 is not None else None); })(cursorGrapheme))));
         afterCursor = visibleText[(cursorDisplay + len(atCursor)):];
         marker = (CURSOR_MARKER if self.focused else "");
         cursorChar: str = f"\\x1b[7m{atCursor}\\x1b[27m";

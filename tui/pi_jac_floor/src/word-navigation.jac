@@ -7,47 +7,36 @@ def:pub findWordBackward(text: str, cursor: float, options: any) -> float {
         return 0;
     }
     textBeforeCursor = text[0:cursor];
-    segmentFn = (options.segment if options is not None else None);
-    isAtomic = (options.isAtomicSegment if options is not None else None);
+    segmentFn = ((lambda (_jx_opt0: any) -> any { return (_jx_opt0.segment if _jx_opt0 is not None else None); })(options));
+    isAtomic = ((lambda (_jx_opt1: any) -> any { return (_jx_opt1.isAtomicSegment if _jx_opt1 is not None else None); })(options));
     segments = ([*segmentFn(textBeforeCursor)] if segmentFn else [*wordSegmenter.segment(textBeforeCursor)]);
     newCursor = cursor;
-    # JS2JAC-HOLE[E7214]:
-    # | while (
-    # | 		segments.length > 0 &&
-    # | 		!isAtomic?.(segments[segments.length - 1]?.segment || "") &&
-    # | 		isWhitespaceChar(segments[segments.length - 1]?.segment || "")
-    # | 	) {
-    # | 		newCursor -= segments.pop()?.segment.length || 0;
-    # | 	}
+    while (((len(segments) > 0) and not ((lambda (_jx_opt2: any) -> any { return (_jx_opt2((((lambda (_jx_opt3: any) -> any { return (_jx_opt3.segment if _jx_opt3 is not None else None); })(segments[(len(segments) - 1)])) or "")) if _jx_opt2 is not None else None); })(isAtomic))) and isWhitespaceChar((((lambda (_jx_opt4: any) -> any { return (_jx_opt4.segment if _jx_opt4 is not None else None); })(segments[(len(segments) - 1)])) or ""))) {
+        newCursor -= (((lambda (_jx_opt5: any) -> any { return (len(_jx_opt5.segment) if _jx_opt5 is not None else None); })(segments.pop())) or 0);
+    }
     if (len(segments) == 0) {
         return (newCursor as float);
     }
     last = (segments[(len(segments) - 1)] as any);
-    # JS2JAC-HOLE[E7214]:
-    # | if (isAtomic?.(last.segment)) {
-    # | 		// Skip one atomic segment.
-    # | 		newCursor -= last.segment.length;
-    # | 	} else if (last.isWordLike) {
-    # | 		// Skip inside one word-like segment, preserving ASCII punctuation boundaries.
-    # | 		const segment = last.segment;
-    # | 		const matches = [...segment.matchAll(new RegExp(PUNCTUATION_REGEX, "g"))];
-    # | 		if (matches.length <= 0) {
-    # | 			newCursor -= segment.length;
-    # | 		} else {
-    # | 			const lastMatch = matches[matches.length - 1]!;
-    # | 			newCursor -= segment.length - (lastMatch.index + lastMatch[0].length);
-    # | 		}
-    # | 	} else {
-    # | 		// Skip non-word non-whitespace run (punctuation)
-    # | 		while (
-    # | 			segments.length > 0 &&
-    # | 			!isAtomic?.(segments[segments.length - 1]?.segment || "") &&
-    # | 			!segments[segments.length - 1]?.isWordLike &&
-    # | 			!isWhitespaceChar(segments[segments.length - 1]?.segment || "")
-    # | 		) {
-    # | 			newCursor -= segments.pop()?.segment.length || 0;
-    # | 		}
-    # | 	}
+    if ((lambda (_jx_opt6: any) -> any { return (_jx_opt6(last.segment) if _jx_opt6 is not None else None); })(isAtomic)) {
+        newCursor -= len(last.segment);
+    }
+    elif last.isWordLike {
+        segment = last.segment;
+        matches = [*segment.matchAll(RegExp(PUNCTUATION_REGEX, "g"))];
+        if (len(matches) <= 0) {
+            newCursor -= len(segment);
+        }
+        else {
+            lastMatch = (matches[(len(matches) - 1)] as any);
+            newCursor -= (len(segment) - (lastMatch.index + len(lastMatch[0])));
+        }
+    }
+    else {
+        while ((((len(segments) > 0) and not ((lambda (_jx_opt7: any) -> any { return (_jx_opt7((((lambda (_jx_opt8: any) -> any { return (_jx_opt8.segment if _jx_opt8 is not None else None); })(segments[(len(segments) - 1)])) or "")) if _jx_opt7 is not None else None); })(isAtomic))) and not ((lambda (_jx_opt9: any) -> any { return (_jx_opt9.isWordLike if _jx_opt9 is not None else None); })(segments[(len(segments) - 1)]))) and not isWhitespaceChar((((lambda (_jx_opt10: any) -> any { return (_jx_opt10.segment if _jx_opt10 is not None else None); })(segments[(len(segments) - 1)])) or ""))) {
+            newCursor -= (((lambda (_jx_opt11: any) -> any { return (len(_jx_opt11.segment) if _jx_opt11 is not None else None); })(segments.pop())) or 0);
+        }
+    }
     return (newCursor as float);
 }
 
@@ -56,37 +45,30 @@ def:pub findWordForward(text: str, cursor: float, options: any) -> float {
         return len(text);
     }
     textAfterCursor = text[cursor:];
-    segmentFn = (options.segment if options is not None else None);
-    isAtomic = (options.isAtomicSegment if options is not None else None);
+    segmentFn = ((lambda (_jx_opt12: any) -> any { return (_jx_opt12.segment if _jx_opt12 is not None else None); })(options));
+    isAtomic = ((lambda (_jx_opt13: any) -> any { return (_jx_opt13.isAtomicSegment if _jx_opt13 is not None else None); })(options));
     segments = (segmentFn(textAfterCursor) if segmentFn else wordSegmenter.segment(textAfterCursor));
     iterator = segments[Symbol.iterator]();
     next_j = iterator.next();
     newCursor = cursor;
-    while ((not next_j.done and not (isAtomic(next_j.value.segment) if isAtomic is not None else None)) and isWhitespaceChar(next_j.value.segment)) {
+    while ((not next_j.done and not ((lambda (_jx_opt14: any) -> any { return (_jx_opt14(next_j.value.segment) if _jx_opt14 is not None else None); })(isAtomic))) and isWhitespaceChar(next_j.value.segment)) {
         newCursor += int(len(next_j.value.segment));
         next_j = iterator.next();
     }
     if next_j.done {
         return (newCursor as float);
     }
-    # JS2JAC-HOLE[E7214]:
-    # | if (isAtomic?.(next.value.segment)) {
-    # | 		// Skip one atomic segment.
-    # | 		newCursor += next.value.segment.length;
-    # | 	} else if (next.value.isWordLike) {
-    # | 		// Skip inside one word-like segment, preserving ASCII punctuation boundaries.
-    # | 		newCursor += PUNCTUATION_REGEX.exec(next.value.segment)?.index ?? next.value.segment.length;
-    # | 	} else {
-    # | 		// Skip non-word non-whitespace run (punctuation)
-    # | 		while (
-    # | 			!next.done &&
-    # | 			!isAtomic?.(next.value.segment) &&
-    # | 			!next.value.isWordLike &&
-    # | 			!isWhitespaceChar(next.value.segment)
-    # | 		) {
-    # | 			newCursor += next.value.segment.length;
-    # | 			next = iterator.next();
-    # | 		}
-    # | 	}
+    if ((lambda (_jx_opt15: any) -> any { return (_jx_opt15(next_j.value.segment) if _jx_opt15 is not None else None); })(isAtomic)) {
+        newCursor += int(len(next_j.value.segment));
+    }
+    elif next_j.value.isWordLike {
+        newCursor += ((lambda (_jx_null17: any) -> any { return (_jx_null17 if _jx_null17 is not None else len(next_j.value.segment)); })(((lambda (_jx_opt16: any) -> any { return (_jx_opt16.index if _jx_opt16 is not None else None); })(PUNCTUATION_REGEX.exec(next_j.value.segment)))));
+    }
+    else {
+        while (((not next_j.done and not ((lambda (_jx_opt18: any) -> any { return (_jx_opt18(next_j.value.segment) if _jx_opt18 is not None else None); })(isAtomic))) and not next_j.value.isWordLike) and not isWhitespaceChar(next_j.value.segment)) {
+            newCursor += int(len(next_j.value.segment));
+            next_j = iterator.next();
+        }
+    }
     return (newCursor as float);
 }

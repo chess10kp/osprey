@@ -10,7 +10,7 @@ def:pub fuzzyMatch(query: str, text: str) -> any {
     }
     alphaNumericMatch = search(r"^(?P<letters>[a-z]+)(?P<digits>[0-9]+)$", queryLower);
     numericAlphaMatch = search(r"^(?P<digits>[0-9]+)(?P<letters>[a-z]+)$", queryLower);
-    swappedQuery = (f"{((alphaNumericMatch.groupdict().get('digits') as str) if (alphaNumericMatch.groupdict().get('digits') as str) is not None else "")}{((alphaNumericMatch.groupdict().get('letters') as str) if (alphaNumericMatch.groupdict().get('letters') as str) is not None else "")}" if alphaNumericMatch else (f"{((numericAlphaMatch.groupdict().get('letters') as str) if (numericAlphaMatch.groupdict().get('letters') as str) is not None else "")}{((numericAlphaMatch.groupdict().get('digits') as str) if (numericAlphaMatch.groupdict().get('digits') as str) is not None else "")}" if numericAlphaMatch else ""));
+    swappedQuery = (f"{((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else ""); })(((alphaNumericMatch.groupdict().get('digits') as str) if alphaNumericMatch else None)))}{((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else ""); })(((alphaNumericMatch.groupdict().get('letters') as str) if alphaNumericMatch else None)))}" if alphaNumericMatch else (f"{((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else ""); })(((numericAlphaMatch.groupdict().get('letters') as str) if numericAlphaMatch else None)))}{((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else ""); })(((numericAlphaMatch.groupdict().get('digits') as str) if numericAlphaMatch else None)))}" if numericAlphaMatch else ""));
     if not swappedQuery {
         return primaryMatch;
     }

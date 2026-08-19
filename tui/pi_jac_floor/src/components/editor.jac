@@ -65,7 +65,7 @@ def:pub wordWrapLine(line: str, maxWidth: float, preSegmented: list[any]) -> lis
         return [{"text": line, "startIndex": 0, "endIndex": len(line)}];
     }
     chunks: list[any] = [];
-    segments = (preSegmented if preSegmented is not None else [*graphemeSegmenter.segment(line)]);
+    segments = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else [*graphemeSegmenter.segment(line)]); })(preSegmented));
     currentWidth = 0;
     chunkStart: float = float(0);
     wrapOppIndex = -1;
@@ -185,9 +185,9 @@ obj:pub Editor {
         self.tui = tui;
         self.theme = theme;
         self.borderColor = theme.borderColor;
-        paddingX = (options.paddingX if options.paddingX is not None else 0);
+        paddingX = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else 0); })(options.paddingX));
         self.paddingX = (max(float(0), float(int((paddingX) // 1))) if Number.isFinite(paddingX) else 0);
-        maxVisible = (options.autocompleteMaxVisible if options.autocompleteMaxVisible is not None else 5);
+        maxVisible = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else 5); })(options.autocompleteMaxVisible));
         self.autocompleteMaxVisible = (max(float(3), float(min(float(20), float(int((maxVisible) // 1))))) if Number.isFinite(maxVisible) else 5);
     }
     def validPasteIds() -> any {
@@ -219,7 +219,7 @@ obj:pub Editor {
     def setAutocompleteProvider(provider: any) -> None {
         self.cancelAutocomplete();
         self.autocompleteProvider = provider;
-        self.setAutocompleteTriggerCharacters((provider.triggerCharacters if provider.triggerCharacters is not None else []));
+        self.setAutocompleteTriggerCharacters(((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else []); })(provider.triggerCharacters)));
     }
     def addToHistory(text: str) -> None {
         trimmed: str = text.strip();
@@ -289,7 +289,7 @@ obj:pub Editor {
         lines = text.split("\n");
         self.state.lines = ([""] if (len(lines) == 0) else lines);
         self.state.cursorLine = (0 if (cursorPlacement == "start") else (len(self.state.lines) - 1));
-        self.setCursorCol((0 if (cursorPlacement == "start") else ((len(self.state.lines[self.state.cursorLine]) if self.state.lines[self.state.cursorLine] is not None else None) or 0)));
+        self.setCursorCol((0 if (cursorPlacement == "start") else (((lambda (_jx_opt4: any) -> any { return (len(_jx_opt4) if _jx_opt4 is not None else None); })(self.state.lines[self.state.cursorLine])) or 0)));
         self.scrollOffset = 0;
         if self.onChange {
             self.onChange(self.getText());
@@ -323,18 +323,19 @@ obj:pub Editor {
         result: list[str] = [];
         leftPadding = (" " * int(paddingX));
         rightPadding = leftPadding;
-        # JS2JAC-HOLE[E7214]:
-        # | if (this.scrollOffset > 0) {
-        # | 			const indicator = `─── ↑ ${this.scrollOffset} more `;
-        # | 			const remaining = width - visibleWidth(indicator);
-        # | 			if (remaining >= 0) {
-        # | 				result.push(this.borderColor(indicator + "─".repeat(remaining)));
-        # | 			} else {
-        # | 				result.push(this.borderColor(truncateToWidth(indicator, width)));
-        # | 			}
-        # | 		} else {
-        # | 			result.push(horizontal.repeat(width));
-        # | 		}
+        if (self.scrollOffset > 0) {
+            indicator: str = f"─── ↑ {self.scrollOffset} more ";
+            remaining = (width - visibleWidth(indicator));
+            if (remaining >= 0) {
+                result.append(self.borderColor((indicator + ("─" * int(remaining)))));
+            }
+            else {
+                result.append(self.borderColor(truncateToWidth(indicator, width)));
+            }
+        }
+        else {
+            result.append((horizontal * int(width)));
+        }
         emitCursorMarker = self.focused;
         for layoutLine in visibleLines {
             displayText = layoutLine.text;
@@ -346,7 +347,7 @@ obj:pub Editor {
                 marker = (CURSOR_MARKER if emitCursorMarker else "");
                 if (len(after) > 0) {
                     afterGraphemes = [*self.segment(after, "grapheme")];
-                    firstGrapheme = ((afterGraphemes[0].segment if afterGraphemes[0] is not None else None) or "");
+                    firstGrapheme = (((lambda (_jx_opt5: any) -> any { return (_jx_opt5.segment if _jx_opt5 is not None else None); })(afterGraphemes[0])) or "");
                     restAfter = after[len(firstGrapheme):];
                     cursor: str = f"\\x1b[7m{firstGrapheme}\\x1b[0m";
                     displayText = (((before + marker) + cursor) + restAfter);
@@ -383,296 +384,234 @@ obj:pub Editor {
         }
         return result;
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | handleInput(data: string): void {
-    # | 		const kb = getKeybindings();
-    # | 
-    # | 		// Handle character jump mode (awaiting next character to jump to)
-    # | 		if (this.jumpMode !== null) {
-    # | 			// Cancel if the hotkey is pressed again
-    # | 			if (kb.matches(data, "tui.editor.jumpForward") || kb.matches(data, "tui.editor.jumpBackward")) {
-    # | 				this.jumpMode = null;
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
-    # | 			if (printable !== undefined) {
-    # | 				// Printable character - perform the jump
-    # | 				const direction = this.jumpMode;
-    # | 				this.jumpMode = null;
-    # | 				this.jumpToChar(printable, direction);
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			// Control character - cancel and fall through to normal handling
-    # | 			this.jumpMode = null;
-    # | 		}
-    # | 
-    # | 		// Handle bracketed paste mode
-    # | 		if (data.includes("\x1b[200~")) {
-    # | 			this.isInPaste = true;
-    # | 			this.pasteBuffer = "";
-    # | 			data = data.replace("\x1b[200~", "");
-    # | 		}
-    # | 
-    # | 		if (this.isInPaste) {
-    # | 			this.pasteBuffer += data;
-    # | 			const endIndex = this.pasteBuffer.indexOf("\x1b[201~");
-    # | 			if (endIndex !== -1) {
-    # | 				const pasteContent = this.pasteBuffer.substring(0, endIndex);
-    # | 				if (pasteContent.length > 0) {
-    # | 					this.handlePaste(pasteContent);
-    # | 				}
-    # | 				this.isInPaste = false;
-    # | 				const remaining = this.pasteBuffer.substring(endIndex + 6);
-    # | 				this.pasteBuffer = "";
-    # | 				if (remaining.length > 0) {
-    # | 					this.handleInput(remaining);
-    # | 				}
-    # | 				return;
-    # | 			}
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Ctrl+C - let parent handle (exit/clear)
-    # | 		if (kb.matches(data, "tui.input.copy")) {
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Undo
-    # | 		if (kb.matches(data, "tui.editor.undo")) {
-    # | 			this.undo();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Handle autocomplete mode
-    # | 		if (this.autocompleteState && this.autocompleteList) {
-    # | 			if (kb.matches(data, "tui.select.cancel")) {
-    # | 				this.cancelAutocomplete();
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			if (kb.matches(data, "tui.select.up") || kb.matches(data, "tui.select.down")) {
-    # | 				this.autocompleteList.handleInput(data);
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			if (kb.matches(data, "tui.input.tab")) {
-    # | 				const selected = this.autocompleteList.getSelectedItem();
-    # | 				if (selected && this.autocompleteProvider) {
-    # | 					this.pushUndoSnapshot();
-    # | 					this.lastAction = null;
-    # | 					const result = this.autocompleteProvider.applyCompletion(
-    # | 						this.state.lines,
-    # | 						this.state.cursorLine,
-    # | 						this.state.cursorCol,
-    # | 						selected,
-    # | 						this.autocompletePrefix,
-    # | 					);
-    # | 					this.state.lines = result.lines;
-    # | 					this.state.cursorLine = result.cursorLine;
-    # | 					this.setCursorCol(result.cursorCol);
-    # | 					this.cancelAutocomplete();
-    # | 					if (this.onChange) this.onChange(this.getText());
-    # | 				}
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			if (kb.matches(data, "tui.select.confirm")) {
-    # | 				const selected = this.autocompleteList.getSelectedItem();
-    # | 				if (selected && this.autocompleteProvider) {
-    # | 					this.pushUndoSnapshot();
-    # | 					this.lastAction = null;
-    # | 					const result = this.autocompleteProvider.applyCompletion(
-    # | 						this.state.lines,
-    # | 						this.state.cursorLine,
-    # | 						this.state.cursorCol,
-    # | 						selected,
-    # | 						this.autocompletePrefix,
-    # | 					);
-    # | 					this.state.lines = result.lines;
-    # | 					this.state.cursorLine = result.cursorLine;
-    # | 					this.setCursorCol(result.cursorCol);
-    # | 
-    # | 					if (this.autocompletePrefix.startsWith("/")) {
-    # | 						this.cancelAutocomplete();
-    # | 						// Fall through to submit
-    # | 					} else {
-    # | 						this.cancelAutocomplete();
-    # | 						if (this.onChange) this.onChange(this.getText());
-    # | 						return;
-    # | 					}
-    # | 				}
-    # | 			}
-    # | 		}
-    # | 
-    # | 		// Tab - trigger completion
-    # | 		if (kb.matches(data, "tui.input.tab") && !this.autocompleteState) {
-    # | 			this.handleTabCompletion();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Deletion actions
-    # | 		if (kb.matches(data, "tui.editor.deleteToLineEnd")) {
-    # | 			this.deleteToEndOfLine();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.deleteToLineStart")) {
-    # | 			this.deleteToStartOfLine();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.deleteWordBackward")) {
-    # | 			this.deleteWordBackwards();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.deleteWordForward")) {
-    # | 			this.deleteWordForward();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.deleteCharBackward") || matchesKey(data, "shift+backspace")) {
-    # | 			this.handleBackspace();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.deleteCharForward") || matchesKey(data, "shift+delete")) {
-    # | 			this.handleForwardDelete();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Kill ring actions
-    # | 		if (kb.matches(data, "tui.editor.yank")) {
-    # | 			this.yank();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.yankPop")) {
-    # | 			this.yankPop();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Cursor movement actions
-    # | 		if (kb.matches(data, "tui.editor.cursorLineStart")) {
-    # | 			this.moveToLineStart();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorLineEnd")) {
-    # | 			this.moveToLineEnd();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorWordLeft")) {
-    # | 			this.moveWordBackwards();
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorWordRight")) {
-    # | 			this.moveWordForwards();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// New line
-    # | 		if (
-    # | 			kb.matches(data, "tui.input.newLine") ||
-    # | 			(data.charCodeAt(0) === 10 && data.length > 1) ||
-    # | 			data === "\x1b\r" ||
-    # | 			data === "\x1b[13;2~" ||
-    # | 			(data.length > 1 && data.includes("\x1b") && data.includes("\r")) ||
-    # | 			(data === "\n" && data.length === 1)
-    # | 		) {
-    # | 			if (this.shouldSubmitOnBackslashEnter(data, kb)) {
-    # | 				this.handleBackspace();
-    # | 				this.submitValue();
-    # | 				return;
-    # | 			}
-    # | 			this.addNewLine();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Submit (Enter)
-    # | 		if (kb.matches(data, "tui.input.submit")) {
-    # | 			if (this.disableSubmit) return;
-    # | 
-    # | 			// Workaround for terminals without Shift+Enter support:
-    # | 			// If char before cursor is \, delete it and insert newline instead of submitting.
-    # | 			const currentLine = this.state.lines[this.state.cursorLine] || "";
-    # | 			if (this.state.cursorCol > 0 && currentLine[this.state.cursorCol - 1] === "\\") {
-    # | 				this.handleBackspace();
-    # | 				this.addNewLine();
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			this.submitValue();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Arrow key navigation (with history support)
-    # | 		if (kb.matches(data, "tui.editor.cursorUp")) {
-    # | 			if (
-    # | 				this.isOnFirstVisualLine() &&
-    # | 				(this.isEditorEmpty() || this.historyIndex > -1 || this.state.cursorCol === 0)
-    # | 			) {
-    # | 				this.navigateHistory(-1);
-    # | 			} else if (this.isOnFirstVisualLine()) {
-    # | 				// Already at top - jump to start of line
-    # | 				this.moveToLineStart();
-    # | 			} else {
-    # | 				this.moveCursor(-1, 0);
-    # | 			}
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorDown")) {
-    # | 			if (this.historyIndex > -1 && this.isOnLastVisualLine()) {
-    # | 				this.navigateHistory(1);
-    # | 			} else if (this.isOnLastVisualLine()) {
-    # | 				// Already at bottom - jump to end of line
-    # | 				this.moveToLineEnd();
-    # | 			} else {
-    # | 				this.moveCursor(1, 0);
-    # | 			}
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorRight")) {
-    # | 			this.moveCursor(0, 1);
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.cursorLeft")) {
-    # | 			this.moveCursor(0, -1);
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Page up/down - scroll by page and move cursor
-    # | 		if (kb.matches(data, "tui.editor.pageUp")) {
-    # | 			this.pageScroll(-1);
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.pageDown")) {
-    # | 			this.pageScroll(1);
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Character jump mode triggers
-    # | 		if (kb.matches(data, "tui.editor.jumpForward")) {
-    # | 			this.jumpMode = "forward";
-    # | 			return;
-    # | 		}
-    # | 		if (kb.matches(data, "tui.editor.jumpBackward")) {
-    # | 			this.jumpMode = "backward";
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Shift+Space - insert regular space
-    # | 		if (matchesKey(data, "shift+space")) {
-    # | 			this.insertCharacter(" ");
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		const printable = decodePrintableKey(data);
-    # | 		if (printable !== undefined) {
-    # | 			this.insertCharacter(printable);
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		// Regular characters
-    # | 		if (data.charCodeAt(0) >= 32) {
-    # | 			this.insertCharacter(data);
-    # | 		}
-    # | 	}
+    def handleInput(data: str) -> None {
+        kb = getKeybindings();
+        if (self.jumpMode != None) {
+            if (kb.matches(data, "tui.editor.jumpForward") or kb.matches(data, "tui.editor.jumpBackward")) {
+                self.jumpMode = None;
+                return;
+            }
+            printable = ((lambda (_jx_null6: any) -> any { return (_jx_null6 if _jx_null6 is not None else (data if (ord(data[0]) >= 32) else None)); })(decodePrintableKey(data)));
+            if (printable != None) {
+                direction = self.jumpMode;
+                self.jumpMode = None;
+                self.jumpToChar(printable, direction);
+                return;
+            }
+            self.jumpMode = None;
+        }
+        if ("\u001b[200~" in data) {
+            self.isInPaste = True;
+            self.pasteBuffer = "";
+            data = data.replace("\u001b[200~", "");
+        }
+        if self.isInPaste {
+            self.pasteBuffer += data;
+            endIndex = (-1 if "\u001b[201~" not in self.pasteBuffer else self.pasteBuffer.index("\u001b[201~"));
+            if (endIndex != -1) {
+                pasteContent = self.pasteBuffer[0:endIndex];
+                if (len(pasteContent) > 0) {
+                    self.handlePaste(pasteContent);
+                }
+                self.isInPaste = False;
+                remaining = self.pasteBuffer[(endIndex + 6):];
+                self.pasteBuffer = "";
+                if (len(remaining) > 0) {
+                    self.handleInput(remaining);
+                }
+                return;
+            }
+            return;
+        }
+        if kb.matches(data, "tui.input.copy") {
+            return;
+        }
+        if kb.matches(data, "tui.editor.undo") {
+            self.undo();
+            return;
+        }
+        if (self.autocompleteState and self.autocompleteList) {
+            if kb.matches(data, "tui.select.cancel") {
+                self.cancelAutocomplete();
+                return;
+            }
+            if (kb.matches(data, "tui.select.up") or kb.matches(data, "tui.select.down")) {
+                self.autocompleteList.handleInput(data);
+                return;
+            }
+            if kb.matches(data, "tui.input.tab") {
+                selected = self.autocompleteList.getSelectedItem();
+                if (selected and self.autocompleteProvider) {
+                    self.pushUndoSnapshot();
+                    self.lastAction = None;
+                    result = self.autocompleteProvider.applyCompletion(self.state.lines, self.state.cursorLine, self.state.cursorCol, selected, self.autocompletePrefix);
+                    self.state.lines = result.lines;
+                    self.state.cursorLine = result.cursorLine;
+                    self.setCursorCol(result.cursorCol);
+                    self.cancelAutocomplete();
+                    if self.onChange {
+                        self.onChange(self.getText());
+                    }
+                }
+                return;
+            }
+            if kb.matches(data, "tui.select.confirm") {
+                selected = self.autocompleteList.getSelectedItem();
+                if (selected and self.autocompleteProvider) {
+                    self.pushUndoSnapshot();
+                    self.lastAction = None;
+                    result = self.autocompleteProvider.applyCompletion(self.state.lines, self.state.cursorLine, self.state.cursorCol, selected, self.autocompletePrefix);
+                    self.state.lines = result.lines;
+                    self.state.cursorLine = result.cursorLine;
+                    self.setCursorCol(result.cursorCol);
+                    if self.autocompletePrefix.startswith("/") {
+                        self.cancelAutocomplete();
+                    }
+                    else {
+                        self.cancelAutocomplete();
+                        if self.onChange {
+                            self.onChange(self.getText());
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        if (kb.matches(data, "tui.input.tab") and not self.autocompleteState) {
+            self.handleTabCompletion();
+            return;
+        }
+        if kb.matches(data, "tui.editor.deleteToLineEnd") {
+            self.deleteToEndOfLine();
+            return;
+        }
+        if kb.matches(data, "tui.editor.deleteToLineStart") {
+            self.deleteToStartOfLine();
+            return;
+        }
+        if kb.matches(data, "tui.editor.deleteWordBackward") {
+            self.deleteWordBackwards();
+            return;
+        }
+        if kb.matches(data, "tui.editor.deleteWordForward") {
+            self.deleteWordForward();
+            return;
+        }
+        if (kb.matches(data, "tui.editor.deleteCharBackward") or matchesKey(data, "shift+backspace")) {
+            self.handleBackspace();
+            return;
+        }
+        if (kb.matches(data, "tui.editor.deleteCharForward") or matchesKey(data, "shift+delete")) {
+            self.handleForwardDelete();
+            return;
+        }
+        if kb.matches(data, "tui.editor.yank") {
+            self.yank();
+            return;
+        }
+        if kb.matches(data, "tui.editor.yankPop") {
+            self.yankPop();
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorLineStart") {
+            self.moveToLineStart();
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorLineEnd") {
+            self.moveToLineEnd();
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorWordLeft") {
+            self.moveWordBackwards();
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorWordRight") {
+            self.moveWordForwards();
+            return;
+        }
+        if (((((kb.matches(data, "tui.input.newLine") or ((ord(data[0]) == 10) and (len(data) > 1))) or (data == "\u001b\r")) or (data == "\u001b[13;2~")) or (((len(data) > 1) and ("\u001b" in data)) and ("\r" in data))) or ((data == "\n") and (len(data) == 1))) {
+            if self.shouldSubmitOnBackslashEnter(data, kb) {
+                self.handleBackspace();
+                self.submitValue();
+                return;
+            }
+            self.addNewLine();
+            return;
+        }
+        if kb.matches(data, "tui.input.submit") {
+            if self.disableSubmit {
+                return;
+            }
+            currentLine = (self.state.lines[self.state.cursorLine] or "");
+            if ((self.state.cursorCol > 0) and (currentLine[(self.state.cursorCol - 1)] == "\\")) {
+                self.handleBackspace();
+                self.addNewLine();
+                return;
+            }
+            self.submitValue();
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorUp") {
+            if (self.isOnFirstVisualLine() and ((self.isEditorEmpty() or (self.historyIndex > -1)) or (self.state.cursorCol == 0))) {
+                self.navigateHistory(-1);
+            }
+            elif self.isOnFirstVisualLine() {
+                self.moveToLineStart();
+            }
+            else {
+                self.moveCursor(-1, 0);
+            }
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorDown") {
+            if ((self.historyIndex > -1) and self.isOnLastVisualLine()) {
+                self.navigateHistory(1);
+            }
+            elif self.isOnLastVisualLine() {
+                self.moveToLineEnd();
+            }
+            else {
+                self.moveCursor(1, 0);
+            }
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorRight") {
+            self.moveCursor(0, 1);
+            return;
+        }
+        if kb.matches(data, "tui.editor.cursorLeft") {
+            self.moveCursor(0, -1);
+            return;
+        }
+        if kb.matches(data, "tui.editor.pageUp") {
+            self.pageScroll(-1);
+            return;
+        }
+        if kb.matches(data, "tui.editor.pageDown") {
+            self.pageScroll(1);
+            return;
+        }
+        if kb.matches(data, "tui.editor.jumpForward") {
+            self.jumpMode = "forward";
+            return;
+        }
+        if kb.matches(data, "tui.editor.jumpBackward") {
+            self.jumpMode = "backward";
+            return;
+        }
+        if matchesKey(data, "shift+space") {
+            self.insertCharacter(" ");
+            return;
+        }
+        printable = decodePrintableKey(data);
+        if (printable != None) {
+            self.insertCharacter(printable);
+            return;
+        }
+        if (ord(data[0]) >= 32) {
+            self.insertCharacter(data);
+        }
+    }
     def layoutText(contentWidth: float) -> list[any] {
         layoutLines: list[any] = [];
         if ((len(self.state.lines) == 0) or ((len(self.state.lines) == 1) and (self.state.lines[0] == ""))) {
@@ -884,8 +823,7 @@ obj:pub Editor {
         before = currentLine[0:self.state.cursorCol];
         after = currentLine[self.state.cursorCol:];
         self.state.lines[self.state.cursorLine] = before;
-        # JS2JAC-HOLE[E7215] splice is supported only as a discard-result statement:
-        # | this.state.lines.splice(this.state.cursorLine + 1, 0, after);
+        self.state.lines[(self.state.cursorLine + 1):((self.state.cursorLine + 1)) + (0)] = [after];
         self.state.cursorLine += 1;
         self.setCursorCol(0);
         if self.onChange {
@@ -939,19 +877,7 @@ obj:pub Editor {
                 targetId = Number(isPastedSegmented[1]);
                 self.pastes.delete(targetId);
                 self.pasteCounter += -1;
-                # JS2JAC-HOLE[E7215] nullish-coalescing left operand must be side-effect-free:
-                # | this.state.lines = this.state.lines.map((line) =>
-                # | 					line.replace(PASTE_MARKER_REGEX, (fullMatch, idGroup, suffixGroup) => {
-                # | 						const x = Number(idGroup);
-                # | 						if (x <= targetId) return fullMatch;
-                # | 
-                # | 						// [paste #3] become [paste #2] if we remove [paste #1]
-                # | 						const newText = `[paste #${x - 1}${suffixGroup}]`;
-                # | 						this.pastes.set(x - 1, this.pastes.get(x) ?? newText);
-                # | 						this.pastes.delete(x);
-                # | 						return newText;
-                # | 					}),
-                # | 				);
+                self.state.lines = [sub(PASTE_MARKER_REGEX, lambda (fullMatch: any, idGroup: any, suffixGroup: any) -> any { x = Number(idGroup); if (x <= targetId) {     return fullMatch; } newText: str = f"[paste #{(x - 1)}{suffixGroup}]"; self.pastes.set((x - 1), ((lambda (_jx_null7: any) -> any { return (_jx_null7 if _jx_null7 is not None else newText); })(self.pastes.get(x)))); self.pastes.delete(x); return newText; }, line) for line in self.state.lines];
             }
             line = (self.state.lines[self.state.cursorLine] or "");
             before = line[0:(self.state.cursorCol - graphemeLength)];
@@ -1004,9 +930,9 @@ obj:pub Editor {
         else {
             currentVisualCol = (self.state.cursorCol - currentVL.startCol);
         }
-        isLastSourceSegment = ((currentVisualLine == (len(visualLines) - 1)) or ((visualLines[(currentVisualLine + 1)].logicalLine if visualLines[(currentVisualLine + 1)] is not None else None) != currentVL.logicalLine));
+        isLastSourceSegment = ((currentVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt8: any) -> any { return (_jx_opt8.logicalLine if _jx_opt8 is not None else None); })(visualLines[(currentVisualLine + 1)])) != currentVL.logicalLine));
         sourceMaxVisualCol = (len(currentVL) if isLastSourceSegment else max(float(0), float((len(currentVL) - 1))));
-        isLastTargetSegment = ((targetVisualLine == (len(visualLines) - 1)) or ((visualLines[(targetVisualLine + 1)].logicalLine if visualLines[(targetVisualLine + 1)] is not None else None) != targetVL.logicalLine));
+        isLastTargetSegment = ((targetVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt9: any) -> any { return (_jx_opt9.logicalLine if _jx_opt9 is not None else None); })(visualLines[(targetVisualLine + 1)])) != targetVL.logicalLine));
         targetMaxVisualCol = (len(targetVL) if isLastTargetSegment else max(float(0), float((len(targetVL) - 1))));
         moveToVisualCol = self.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol);
         self.state.cursorLine = targetVL.logicalLine;
@@ -1246,7 +1172,7 @@ obj:pub Editor {
                 continue;
             }
             offset = (col - vl.startCol);
-            isLastSegmentOfLine = ((i == (len(visualLines) - 1)) or ((visualLines[(i + 1)].logicalLine if visualLines[(i + 1)] is not None else None) != vl.logicalLine));
+            isLastSegmentOfLine = ((i == (len(visualLines) - 1)) or (((lambda (_jx_opt10: any) -> any { return (_jx_opt10.logicalLine if _jx_opt10 is not None else None); })(visualLines[(i + 1)])) != vl.logicalLine));
             if ((offset >= 0) and ((offset < len(vl)) or (isLastSegmentOfLine and (offset == len(vl))))) {
                 return i;
             }
@@ -1362,13 +1288,13 @@ obj:pub Editor {
             before = currentLine[0:self.state.cursorCol];
             after = currentLine[self.state.cursorCol:];
             self.state.lines[self.state.cursorLine] = (before + (lines[0] or ""));
-            # JS2JAC-HOLE[E7230] C-style for loops are not supported (rewrite as while or for...of):
-            # | for (let i = 1; i < lines.length - 1; i++) {
-            # | 				this.state.lines.splice(this.state.cursorLine + i, 0, lines[i] || "");
-            # | 			}
+            i: int = 1;
+            while (i < (len(lines) - 1)) {
+                self.state.lines[(self.state.cursorLine + i):((self.state.cursorLine + i)) + (0)] = [(lines[i] or "")];
+                i += 1;
+            }
             lastLineIndex = ((self.state.cursorLine + len(lines)) - 1);
-            # JS2JAC-HOLE[E7215] splice is supported only as a discard-result statement:
-            # | this.state.lines.splice(lastLineIndex, 0, (lines[lines.length - 1] || "") + after);
+            self.state.lines[lastLineIndex:(lastLineIndex) + (0)] = [((lines[(len(lines) - 1)] or "") + after)];
             self.state.cursorLine = lastLineIndex;
             self.setCursorCol(len((lines[(len(lines) - 1)] or "")));
         }
@@ -1395,8 +1321,7 @@ obj:pub Editor {
             startCol = (len((self.state.lines[startLine] or "")) - len((yankLines[0] or "")));
             afterCursor = (self.state.lines[self.state.cursorLine] or "")[self.state.cursorCol:];
             beforeYank = (self.state.lines[startLine] or "")[0:startCol];
-            # JS2JAC-HOLE[E7215] splice is supported only as a discard-result statement:
-            # | this.state.lines.splice(startLine, yankLines.length, beforeYank + afterCursor);
+            self.state.lines[startLine:(startLine) + (len(yankLines))] = [(beforeYank + afterCursor)];
             self.state.cursorLine = startLine;
             self.setCursorCol(startCol);
         }
@@ -1541,29 +1466,27 @@ obj:pub Editor {
     # | 
     # | 		void this.startAutocompleteRequest(startToken, options);
     # | 	}
-    # JS2JAC-HOLE[E7205] Async class methods are not supported:
-    # | private async startAutocompleteRequest(
-    # | 		startToken: number,
-    # | 		options: { force: boolean; explicitTab: boolean },
-    # | 	): Promise<void> {
-    # | 		const previousTask = this.autocompleteRequestTask;
-    # | 		this.autocompleteRequestTask = (async () => {
-    # | 			await previousTask;
-    # | 			if (startToken !== this.autocompleteStartToken || !this.autocompleteProvider) {
-    # | 				return;
-    # | 			}
-    # | 
-    # | 			const controller = new AbortController();
-    # | 			this.autocompleteAbort = controller;
-    # | 			const requestId = ++this.autocompleteRequestId;
-    # | 			const snapshotText = this.getText();
-    # | 			const snapshotLine = this.state.cursorLine;
-    # | 			const snapshotCol = this.state.cursorCol;
-    # | 
-    # | 			await this.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
-    # | 		})();
-    # | 		await this.autocompleteRequestTask;
-    # | 	}
+    async def startAutocompleteRequest(startToken: float, options: dict[str, bool]) -> any {
+        previousTask = self.autocompleteRequestTask;
+        # JS2JAC-HOLE[E7215] Async/generator callbacks are not supported:
+        # | this.autocompleteRequestTask = (async () => {
+        # | 			await previousTask;
+        # | 			if (startToken !== this.autocompleteStartToken || !this.autocompleteProvider) {
+        # | 				return;
+        # | 			}
+        # | 
+        # | 			const controller = new AbortController();
+        # | 			this.autocompleteAbort = controller;
+        # | 			const requestId = ++this.autocompleteRequestId;
+        # | 			const snapshotText = this.getText();
+        # | 			const snapshotLine = this.state.cursorLine;
+        # | 			const snapshotCol = this.state.cursorCol;
+        # | 
+        # | 			await this.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
+        # | 		})();
+        # JS2JAC-HOLE[E7215] `this` is not supported (component helpers must not rely on receiver binding):
+        # | await this.autocompleteRequestTask;
+    }
     def setAutocompleteTriggerCharacters(triggerCharacters: list[str]) -> None {
         next_j = [*DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS];
         for character in triggerCharacters {
@@ -1584,7 +1507,7 @@ obj:pub Editor {
         textBeforeCursor = currentLine[0:self.state.cursorCol];
         return (ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS if self.autocompleteDebouncePattern.test(textBeforeCursor) else 0);
     }
-    # JS2JAC-HOLE[E7205] Async class methods are not supported:
+    # JS2JAC-HOLE[E7205] Class method produced no output:
     # | private async runAutocompleteRequest(
     # | 		requestId: number,
     # | 		controller: AbortController,
@@ -1654,7 +1577,7 @@ obj:pub Editor {
             clearTimeout(self.autocompleteDebounceTimer);
             self.autocompleteDebounceTimer = None;
         }
-        (self.autocompleteAbort.abort if self.autocompleteAbort is not None else None)();
+        ((lambda (_jx_opt11: any) -> any { return (_jx_opt11.abort() if _jx_opt11 is not None else None); })(self.autocompleteAbort));
         self.autocompleteAbort = None;
     }
     def clearAutocompleteUi() -> None {

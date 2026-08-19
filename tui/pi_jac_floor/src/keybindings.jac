@@ -32,15 +32,18 @@ obj:pub KeybindingsManager {
         self.keysById.clear();
         self.conflicts = [];
         userClaims = {};
-        # JS2JAC-HOLE[E7214]:
-        # | for (const [keybinding, keys] of Object.entries(this.userBindings)) {
-        # | 			if (!(keybinding in this.definitions)) continue;
-        # | 			for (const key of normalizeKeys(keys)) {
-        # | 				const claimants = userClaims.get(key) ?? new Set<Keybinding>();
-        # | 				claimants.add(keybinding as Keybinding);
-        # | 				userClaims.set(key, claimants);
-        # | 			}
-        # | 		}
+        for _jx_item0 in Object.entries(self.userBindings) {
+            keybinding = _jx_item0[0];
+            keys = _jx_item0[1];
+            if not (keybinding in self.definitions) {
+                continue;
+            }
+            for key in normalizeKeys(keys) {
+                claimants = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else set()); })(userClaims.get(key)));
+                claimants.add(keybinding);
+                userClaims.set(key, claimants);
+            }
+        }
         for _jx_item0 in userClaims {
             key = _jx_item0[0];
             keybindings = _jx_item0[1];
@@ -56,18 +59,18 @@ obj:pub KeybindingsManager {
             self.keysById.set(id_j, keys);
         }
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | matches(data: string, keybinding: Keybinding): boolean {
-    # | 		const keys = this.keysById.get(keybinding) ?? [];
-    # | 		for (const key of keys) {
-    # | 			if (matchesKey(data, key)) return true;
-    # | 		}
-    # | 		return false;
-    # | 	}
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | getKeys(keybinding: Keybinding): KeyId[] {
-    # | 		return [...(this.keysById.get(keybinding) ?? [])];
-    # | 	}
+    def matches(data: str, keybinding: any) -> bool {
+        keys = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else []); })(self.keysById.get(keybinding)));
+        for key in keys {
+            if matchesKey(data, key) {
+                return True;
+            }
+        }
+        return False;
+    }
+    def getKeys(keybinding: any) -> list[any] {
+        return [*((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else []); })(self.keysById.get(keybinding)))];
+    }
     def getDefinition(keybinding: any) -> any {
         return self.definitions[keybinding];
     }
@@ -83,11 +86,10 @@ obj:pub KeybindingsManager {
     }
     def getResolvedBindings() -> any {
         resolved: any = {};
-        # JS2JAC-HOLE[E7214]:
-        # | for (const id of Object.keys(this.definitions)) {
-        # | 			const keys = this.keysById.get(id as Keybinding) ?? [];
-        # | 			resolved[id] = keys.length === 1 ? keys[0]! : [...keys];
-        # | 		}
+        for id_j in Object.keys(self.definitions) {
+            keys = ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else []); })(self.keysById.get(id_j)));
+            resolved[id_j] = ((keys[0] as any) if (len(keys) == 1) else [*keys]);
+        }
         return resolved;
     }
 }

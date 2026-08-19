@@ -39,7 +39,7 @@ obj:pub Box {
     def invalidate() -> None {
         self.invalidateCache();
         for child in self.children {
-            (child.invalidate() if child.invalidate is not None else None);
+            ((lambda (_jx_opt0: any) -> any { return (_jx_opt0() if _jx_opt0 is not None else None); })(child.invalidate));
         }
     }
     def render(width: float) -> list[str] {

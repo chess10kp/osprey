@@ -161,7 +161,7 @@ obj:pub StdinBuffer(EventEmitter) {
     has pasteBuffer: str = "";
     def __init__(options: any = {}) -> None {
         super();
-        self.timeoutMs = (options.timeout if options.timeout is not None else 10);
+        self.timeoutMs = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else 10); })(options.timeout));
     }
     override def process(data: str | any) -> None {
         if self.timeout {

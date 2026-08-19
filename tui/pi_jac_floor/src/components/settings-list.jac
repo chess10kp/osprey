@@ -22,7 +22,7 @@ obj:pub SettingsList {
         self.theme = theme;
         self.onChange = onChange;
         self.onCancel = onCancel;
-        self.searchEnabled = (options.enableSearch if options.enableSearch is not None else False);
+        self.searchEnabled = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else False); })(options.enableSearch));
         if self.searchEnabled {
             self.searchInput = Input();
         }
@@ -34,7 +34,7 @@ obj:pub SettingsList {
         }
     }
     def invalidate() -> None {
-        ((self.submenuComponent.invalidate if self.submenuComponent is not None else None)() if (self.submenuComponent.invalidate if self.submenuComponent is not None else None) is not None else None);
+        ((lambda (_jx_opt1: any) -> any { return (((lambda (_jx_opt2: any) -> any { return (_jx_opt2() if _jx_opt2 is not None else None); })(_jx_opt1.invalidate)) if _jx_opt1 is not None else None); })(self.submenuComponent));
     }
     def render(width: float) -> list[str] {
         if self.submenuComponent {
@@ -45,8 +45,7 @@ obj:pub SettingsList {
     def renderMainList(width: float) -> list[str] {
         lines: list[str] = [];
         if (self.searchEnabled and self.searchInput) {
-            # JS2JAC-HOLE[E7215] Unsupported expression in body: SpreadElement:
-            # | lines.push(...this.searchInput.render(width));
+            lines.extend(self.searchInput.render(width));
             lines.append("");
         }
         if (len(self.items) == 0) {
@@ -64,37 +63,31 @@ obj:pub SettingsList {
         }
         startIndex = max(float(0), float(min(float((self.selectedIndex - int(((self.maxVisible / 2)) // 1))), float((len(displayItems) - self.maxVisible)))));
         endIndex = min(float((startIndex + self.maxVisible)), float(len(displayItems)));
-        # JS2JAC-HOLE[E7215] Unsupported expression in body: SpreadElement:
-        # | const maxLabelWidth = Math.min(30, Math.max(...this.items.map((item) => visibleWidth(item.label))));
-        # JS2JAC-HOLE[transitive-stmt] references dropped binding 'maxLabelWidth':
-        # | for (let i = startIndex; i < endIndex; i++) {
-        # | 			const item = displayItems[i];
-        # | 			if (!item) continue;
-        # | 
-        # | 			const isSelected = i === this.selectedIndex;
-        # | 			const prefix = isSelected ? this.theme.cursor : "  ";
-        # | 			const prefixWidth = visibleWidth(prefix);
-        # | 
-        # | 			// Pad label to align values
-        # | 			const labelPadded = item.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(item.label)));
-        # | 			const labelText = this.theme.label(labelPadded, isSelected);
-        # | 
-        # | 			// Calculate space for value
-        # | 			const separator = "  ";
-        # | 			const usedWidth = prefixWidth + maxLabelWidth + visibleWidth(separator);
-        # | 			const valueMaxWidth = width - usedWidth - 2;
-        # | 
-        # | 			const valueText = this.theme.value(truncateToWidth(item.currentValue, valueMaxWidth, ""), isSelected);
-        # | 
-        # | 			lines.push(truncateToWidth(prefix + labelText + separator + valueText, width));
-        # | 		}
-        # JS2JAC-HOLE[E7214]:
-        # | if (startIndex > 0 || endIndex < displayItems.length) {
-        # | 			const scrollText = `  (${this.selectedIndex + 1}/${displayItems.length})`;
-        # | 			lines.push(this.theme.hint(truncateToWidth(scrollText, width - 2, "")));
-        # | 		}
+        maxLabelWidth = min(float(30), float(max(*[float(_jx_math) for _jx_math in [visibleWidth(item.label) for item in self.items]])));
+        i: int = startIndex;
+        while (i < endIndex) {
+            item = displayItems[i];
+            if not item {
+                continue;
+            }
+            isSelected = (i == self.selectedIndex);
+            prefix = (self.theme.cursor if isSelected else "  ");
+            prefixWidth = visibleWidth(prefix);
+            labelPadded = (item.label + (" " * int(max(float(0), float((maxLabelWidth - visibleWidth(item.label)))))));
+            labelText = self.theme.label(labelPadded, isSelected);
+            separator: str = "  ";
+            usedWidth = ((prefixWidth + maxLabelWidth) + visibleWidth(separator));
+            valueMaxWidth = ((width - usedWidth) - 2);
+            valueText = self.theme.value(truncateToWidth(item.currentValue, valueMaxWidth, ""), isSelected);
+            lines.append(truncateToWidth((((prefix + labelText) + separator) + valueText), width));
+            i += 1;
+        }
+        if ((startIndex > 0) or (endIndex < len(displayItems))) {
+            scrollText: str = f"  ({(self.selectedIndex + 1)}/{len(displayItems)})";
+            lines.append(self.theme.hint(truncateToWidth(scrollText, (width - 2), "")));
+        }
         selectedItem = displayItems[self.selectedIndex];
-        if (selectedItem.description if selectedItem is not None else None) {
+        if ((lambda (_jx_opt3: any) -> any { return (_jx_opt3.description if _jx_opt3 is not None else None); })(selectedItem)) {
             lines.append("");
             wrappedDesc = wrapTextWithAnsi(selectedItem.description, (width - 4));
             for line in wrappedDesc {
@@ -106,7 +99,7 @@ obj:pub SettingsList {
     }
     def handleInput(data: str) -> None {
         if self.submenuComponent {
-            (self.submenuComponent.handleInput(data) if self.submenuComponent.handleInput is not None else None);
+            ((lambda (_jx_opt4: any) -> any { return (_jx_opt4(data) if _jx_opt4 is not None else None); })(self.submenuComponent.handleInput));
             return;
         }
         kb = getKeybindings();

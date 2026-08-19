@@ -63,14 +63,12 @@ obj:pub ProcessTerminal {
     has keyboardProtocolPushed: bool = False;
     has keyboardProtocolNegotiationBuffer: str = "";
     has writeLogPath: any = (lambda () -> any { env = (environ.get("PI_TUI_WRITE_LOG") or ""); if not env {     return ""; } try {     if fs.statSync(env).isDirectory() {         now = Date();         ts: str = f"{now.getFullYear()}-{str((now.getMonth() + 1)).padStart(2, "0")}-{str(now.getDate()).padStart(2, "0")}_{str(now.getHours()).padStart(2, "0")}-{str(now.getMinutes()).padStart(2, "0")}-{str(now.getSeconds()).padStart(2, "0")}";         return env.join(path);     } } except Exception { } return env; })();
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get kittyProtocolActive(): boolean {
-    # | 		return this._kittyProtocolActive;
-    # | 	}
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get modifyOtherKeysActive(): boolean {
-    # | 		return this._modifyOtherKeysActive;
-    # | 	}
+    def kittyProtocolActive() -> bool {
+        return self._kittyProtocolActive;
+    }
+    def modifyOtherKeysActive() -> bool {
+        return self._modifyOtherKeysActive;
+    }
     def start(onInput: any, onResize: any) -> None {
         self.inputHandler = onInput;
         self.resizeHandler = onResize;
@@ -214,7 +212,7 @@ obj:pub ProcessTerminal {
             for modulePath in candidates {
                 try {
                     helper = cjsRequire(modulePath);
-                    (helper.enableVirtualTerminalInput() if helper.enableVirtualTerminalInput is not None else None);
+                    ((lambda (_jx_opt0: any) -> any { return (_jx_opt0() if _jx_opt0 is not None else None); })(helper.enableVirtualTerminalInput));
                     return;
                 }
                 except Exception {
@@ -224,44 +222,40 @@ obj:pub ProcessTerminal {
         except Exception {
         }
     }
-    # JS2JAC-HOLE[E7205] Async class methods are not supported:
-    # | async drainInput(maxMs = 1000, idleMs = 50): Promise<void> {
-    # | 		const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
-    # | 		this.clearKeyboardProtocolNegotiationBuffer();
-    # | 		if (shouldDisableKittyProtocol) {
-    # | 			// Disable Kitty keyboard protocol first so any late key releases
-    # | 			// do not generate new Kitty escape sequences.
-    # | 			process.stdout.write("\x1b[<u");
-    # | 			this.keyboardProtocolPushed = false;
-    # | 			this._kittyProtocolActive = false;
-    # | 			setKittyProtocolActive(false);
-    # | 		}
-    # | 		this.disableModifyOtherKeys();
-    # | 
-    # | 		const previousHandler = this.inputHandler;
-    # | 		this.inputHandler = undefined;
-    # | 
-    # | 		let lastDataTime = Date.now();
-    # | 		const onData = () => {
-    # | 			lastDataTime = Date.now();
-    # | 		};
-    # | 
-    # | 		process.stdin.on("data", onData);
-    # | 		const endTime = Date.now() + maxMs;
-    # | 
-    # | 		try {
-    # | 			while (true) {
-    # | 				const now = Date.now();
-    # | 				const timeLeft = endTime - now;
-    # | 				if (timeLeft <= 0) break;
-    # | 				if (now - lastDataTime >= idleMs) break;
-    # | 				await new Promise((resolve) => setTimeout(resolve, Math.min(idleMs, timeLeft)));
-    # | 			}
-    # | 		} finally {
-    # | 			process.stdin.removeListener("data", onData);
-    # | 			this.inputHandler = previousHandler;
-    # | 		}
-    # | 	}
+    async def drainInput(maxMs: float = 1000, idleMs: float = 50) -> any {
+        shouldDisableKittyProtocol = (self.keyboardProtocolPushed or self._kittyProtocolActive);
+        self.clearKeyboardProtocolNegotiationBuffer();
+        if shouldDisableKittyProtocol {
+            process.stdout.write("\u001b[<u");
+            self.keyboardProtocolPushed = False;
+            self._kittyProtocolActive = False;
+            setKittyProtocolActive(False);
+        }
+        self.disableModifyOtherKeys();
+        previousHandler = self.inputHandler;
+        self.inputHandler = None;
+        lastDataTime = Date.now();
+        onData = lambda () -> any { lastDataTime = Date.now(); };
+        process.stdin.on("data", onData);
+        endTime = (Date.now() + maxMs);
+        try {
+            while True {
+                now = Date.now();
+                timeLeft = (endTime - now);
+                if (timeLeft <= 0) {
+                    break;
+                }
+                if ((now - lastDataTime) >= idleMs) {
+                    break;
+                }
+                await Promise(lambda (resolve: any) -> any { return setTimeout(resolve, min(float(idleMs), float(timeLeft))); });
+            }
+        }
+        finally {
+            process.stdin.removeListener("data", onData);
+            self.inputHandler = previousHandler;
+        }
+    }
     def stop() -> None {
         if self.clearProgressInterval() {
             process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
@@ -304,14 +298,12 @@ obj:pub ProcessTerminal {
             }
         }
     }
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get columns(): number {
-    # | 		return process.stdout.columns || Number(process.env.COLUMNS) || 80;
-    # | 	}
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get rows(): number {
-    # | 		return process.stdout.rows || Number(process.env.LINES) || 24;
-    # | 	}
+    def columns() -> float {
+        return ((process.stdout.columns or Number(environ.get("COLUMNS"))) or 80);
+    }
+    def rows() -> float {
+        return ((process.stdout.rows or Number(environ.get("LINES"))) or 24);
+    }
     def moveBy(lines: float) -> None {
         if (lines > 0) {
             process.stdout.write(f"\\x1b[{lines}B");

@@ -9,8 +9,7 @@ obj:pub UndoStack {
     def clear() -> None {
         len(self.stack) = 0;
     }
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get length(): number {
-    # | 		return this.stack.length;
-    # | 	}
+    def length() -> float {
+        return len(self.stack);
+    }
 }

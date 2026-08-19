@@ -42,8 +42,8 @@ obj:pub Loader(Text) {
     }
     override def setIndicator(indicator: any | None = None) -> None {
         self.renderIndicatorVerbatim = (indicator != None);
-        self.frames = ([*indicator.frames] if ((indicator.frames if indicator is not None else None) != None) else [*DEFAULT_FRAMES]);
-        self.intervalMs = (indicator.intervalMs if ((indicator.intervalMs if indicator is not None else None) and (indicator.intervalMs > 0)) else DEFAULT_INTERVAL_MS);
+        self.frames = ([*indicator.frames] if (((lambda (_jx_opt0: any) -> any { return (_jx_opt0.frames if _jx_opt0 is not None else None); })(indicator)) != None) else [*DEFAULT_FRAMES]);
+        self.intervalMs = (indicator.intervalMs if (((lambda (_jx_opt1: any) -> any { return (_jx_opt1.intervalMs if _jx_opt1 is not None else None); })(indicator)) and (indicator.intervalMs > 0)) else DEFAULT_INTERVAL_MS);
         self.currentFrame = 0;
         self.start();
     }
@@ -55,11 +55,10 @@ obj:pub Loader(Text) {
         self.intervalId = setInterval(lambda () -> any { self.currentFrame = ((self.currentFrame + 1) % len(self.frames)); self.updateDisplay(); }, self.intervalMs);
     }
     override def updateDisplay() -> None {
-        frame = (self.frames[self.currentFrame] if self.frames[self.currentFrame] is not None else "");
+        frame = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else ""); })(self.frames[self.currentFrame]));
         renderedFrame = (frame if self.renderIndicatorVerbatim else self.spinnerColorFn(frame));
         indicator = (f"{renderedFrame} " if (len(frame) > 0) else "");
-        # JS2JAC-HOLE[E7215] `this` is not supported (component helpers must not rely on receiver binding):
-        # | this.setText(`${indicator}${this.messageColorFn(this.message)}`);
+        self.setText(f"{indicator}{self.messageColorFn(self.message)}");
         if self.ui {
             self.ui.requestRender();
         }

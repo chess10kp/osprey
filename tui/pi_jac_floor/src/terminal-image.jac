@@ -24,10 +24,10 @@ def probeTmuxHyperlinks() -> bool {
 }
 
 def:pub detectCapabilities(tmuxForwardsHyperlink: any = probeTmuxHyperlinks) -> any {
-    termProgram = ((environ.get("TERM_PROGRAM").toLowerCase if environ.get("TERM_PROGRAM") is not None else None)() or "");
-    terminalEmulator = ((environ.get("TERMINAL_EMULATOR").toLowerCase if environ.get("TERMINAL_EMULATOR") is not None else None)() or "");
-    term = ((environ.get("TERM").toLowerCase if environ.get("TERM") is not None else None)() or "");
-    colorTerm = ((environ.get("COLORTERM").toLowerCase if environ.get("COLORTERM") is not None else None)() or "");
+    termProgram = (((lambda (_jx_opt0: any) -> any { return (_jx_opt0.toLowerCase() if _jx_opt0 is not None else None); })(environ.get("TERM_PROGRAM"))) or "");
+    terminalEmulator = (((lambda (_jx_opt1: any) -> any { return (_jx_opt1.toLowerCase() if _jx_opt1 is not None else None); })(environ.get("TERMINAL_EMULATOR"))) or "");
+    term = (((lambda (_jx_opt2: any) -> any { return (_jx_opt2.toLowerCase() if _jx_opt2 is not None else None); })(environ.get("TERM"))) or "");
+    colorTerm = (((lambda (_jx_opt3: any) -> any { return (_jx_opt3.toLowerCase() if _jx_opt3 is not None else None); })(environ.get("COLORTERM"))) or "");
     hasTrueColorHint = ((colorTerm == "truecolor") or (colorTerm == "24bit"));
     if (environ.get("TMUX") or term.startswith("tmux")) {
         return {"images": None, "trueColor": hasTrueColorHint, "hyperlinks": tmuxForwardsHyperlink()};
@@ -328,14 +328,14 @@ def:pub renderImage(base64Data: str, imageDimensions: any, options: any = {}) ->
     if not (caps["images"] as any) {
         return None;
     }
-    maxWidth = (options.maxWidthCells if options.maxWidthCells is not None else 80);
+    maxWidth = ((lambda (_jx_null4: any) -> any { return (_jx_null4 if _jx_null4 is not None else 80); })(options.maxWidthCells));
     size = calculateImageCellSize(imageDimensions, maxWidth, options.maxHeightCells, getCellDimensions());
     if ((caps["images"] as any) == "kitty") {
         sequence = encodeKitty(base64Data, {"columns": (size["columns"] as float), "rows": (size["rows"] as float), "imageId": options.imageId, "moveCursor": options.moveCursor});
         return {"sequence": sequence, "rows": (size["rows"] as float), "imageId": options.imageId};
     }
     if ((caps["images"] as any) == "iterm2") {
-        sequence = encodeITerm2(base64Data, {"width": (size["columns"] as float), "height": "auto", "preserveAspectRatio": (options.preserveAspectRatio if options.preserveAspectRatio is not None else True)});
+        sequence = encodeITerm2(base64Data, {"width": (size["columns"] as float), "height": "auto", "preserveAspectRatio": ((lambda (_jx_null5: any) -> any { return (_jx_null5 if _jx_null5 is not None else True); })(options.preserveAspectRatio))});
         return {"sequence": sequence, "rows": (size["rows"] as float)};
     }
     return None;

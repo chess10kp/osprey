@@ -2,71 +2,71 @@
   {
     "path": "src/autocomplete.ts",
     "status": "floor",
-    "bytes": 5172,
-    "holes": 1,
+    "bytes": 23326,
+    "holes": 6,
     "jac_check": false
   },
   {
     "path": "src/components/box.ts",
     "status": "floor",
-    "bytes": 3186,
+    "bytes": 3234,
     "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/cancellable-loader.ts",
     "status": "floor",
-    "bytes": 886,
-    "holes": 2,
+    "bytes": 795,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/editor.ts",
     "status": "floor",
-    "bytes": 71814,
-    "holes": 10,
+    "bytes": 70409,
+    "holes": 4,
     "jac_check": false
   },
   {
     "path": "src/components/image.ts",
     "status": "floor",
-    "bytes": 3346,
+    "bytes": 3427,
     "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/input.ts",
     "status": "floor",
-    "bytes": 12607,
+    "bytes": 12660,
     "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/loader.ts",
     "status": "floor",
-    "bytes": 2741,
-    "holes": 1,
+    "bytes": 2775,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/markdown.ts",
     "status": "floor",
-    "bytes": 1934,
-    "holes": 1,
+    "bytes": 27784,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/select-list.ts",
     "status": "floor",
-    "bytes": 7384,
-    "holes": 2,
+    "bytes": 7513,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/components/settings-list.ts",
     "status": "floor",
-    "bytes": 7928,
-    "holes": 4,
+    "bytes": 7665,
+    "holes": 0,
     "jac_check": false
   },
   {
@@ -100,7 +100,7 @@
   {
     "path": "src/fuzzy.ts",
     "status": "floor",
-    "bytes": 3623,
+    "bytes": 3813,
     "holes": 0,
     "jac_check": true
   },
@@ -109,27 +109,27 @@
     "status": "floor",
     "bytes": 1764,
     "holes": 0,
-    "jac_check": true
+    "jac_check": false
   },
   {
     "path": "src/keybindings.ts",
     "status": "floor",
-    "bytes": 6445,
-    "holes": 4,
+    "bytes": 6594,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/keys.ts",
     "status": "floor",
-    "bytes": 28867,
-    "holes": 3,
+    "bytes": 37756,
+    "holes": 1,
     "jac_check": false
   },
   {
     "path": "src/kill-ring.ts",
     "status": "floor",
-    "bytes": 857,
-    "holes": 1,
+    "bytes": 779,
+    "holes": 0,
     "jac_check": false
   },
   {
@@ -142,7 +142,7 @@
   {
     "path": "src/stdin-buffer.ts",
     "status": "floor",
-    "bytes": 9401,
+    "bytes": 9453,
     "holes": 0,
     "jac_check": false
   },
@@ -156,29 +156,29 @@
   {
     "path": "src/terminal-image.ts",
     "status": "floor",
-    "bytes": 13127,
+    "bytes": 13367,
     "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/terminal.ts",
     "status": "floor",
-    "bytes": 14765,
-    "holes": 5,
+    "bytes": 14340,
+    "holes": 0,
     "jac_check": false
   },
   {
     "path": "src/tui.ts",
     "status": "floor",
-    "bytes": 3661,
-    "holes": 3,
+    "bytes": 55072,
+    "holes": 8,
     "jac_check": false
   },
   {
     "path": "src/undo-stack.ts",
     "status": "floor",
-    "bytes": 419,
-    "holes": 1,
+    "bytes": 341,
+    "holes": 0,
     "jac_check": false
   },
   {
@@ -191,8 +191,8 @@
   {
     "path": "src/word-navigation.ts",
     "status": "floor",
-    "bytes": 3744,
-    "holes": 3,
+    "bytes": 4710,
+    "holes": 0,
     "jac_check": false
   }
 ]

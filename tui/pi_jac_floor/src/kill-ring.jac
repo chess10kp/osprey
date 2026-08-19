@@ -21,8 +21,7 @@ obj:pub KillRing {
             self.ring.unshift(last);
         }
     }
-    # JS2JAC-HOLE[E7205] Class getters/setters are not supported:
-    # | get length(): number {
-    # | 		return this.ring.length;
-    # | 	}
+    def length() -> float {
+        return len(self.ring);
+    }
 }
