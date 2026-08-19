@@ -1,80 +1,92 @@
-# pi-tui → Jac via js2jac (baseline run)
+# pi-tui → Jac via js2jac: zero-hole milestone and diagnostic census
 
-**Source:** `~/repos/notes/reference/pi/packages/tui` (`@earendil-works/pi-tui`, ~19.6k LOC in `src/`).
+**Source:** `~/repos/notes/reference/pi/packages/tui` (`@earendil-works/pi-tui`, 28 non-test TypeScript modules).
 
-**Converter:** `jac_llm_data/jaseci/jac` (`jac tool js2jac`, bridge `holeconvert.mjs` with `failOpen` + `emitHoles`).
+**Converter:** the Jackal-local js2jac snapshot under `tui/js2jac/`, driven by `tui/scripts/holeconvert.mjs`.
 
-**Date:** 2026-08-18
+**Census date/compiler:** 2026-08-18, `jac 0.36.0`.
 
-## Summary
+## Current milestone
 
-js2jac is a strong baseline for **React function components** (Pilot A corpus). pi-tui is a **class-based terminal framework** with Node builtins (`node:fs`, `process`, `EventEmitter`, native `.node` helpers). The deterministic converter does **not** yet lower that shape.
+The **zero-hole conversion milestone is complete**. All 28 source modules emit Jac, and none of the emitted modules contains a `JS2JAC-HOLE` marker. This is a converter coverage milestone, not a compilation or runtime milestone.
 
-| Mode | Files | Notes |
-|------|------:|-------|
-| `src/*.ts` total | 28 | excludes `test/` |
-| Strict project write (`--write`, `--fail-open`) | **2** emitted | `stdin-buffer.jac`, `terminal-colors.jac` — both `jac check` pass |
-| Floor batch (`holeconvert`, holes kept) | **13** emitted | partial Jac with `# JS2JAC-HOLE` markers |
-| Floor `jac check` pass | **5 / 13** | holes or missing decls break syntax |
-| Hard reject (no Jac at all) | **15 / 28** | normalize stage |
+| Gate | Current result | Meaning |
+|------|---------------:|---------|
+| Emitted | **28 / 28** | The converter produced a `.jac` file for every source module. |
+| Zero-hole emitted | **28 / 28** | No emitted file contains a converter hole marker. |
+| Independently checks | **5 / 28** | `jac check <module>` succeeds for the module entry point. Local imports are still followed, so dependency diagnostics can appear. |
+| Module graph checks | **No** | `jac check tui/pi_jac_floor` fails; graph totals are dominated by downstream failures. |
+| Runtime verified | **No** | No converted virtual-terminal/input/render smoke slice has run successfully. |
 
-**Bottom line:** Running js2jac alone does **not** produce a usable pi-tui port today. The gap is structural (classes + Node server runtime), not volume.
+The five checking entry points are:
 
-## Dominant rejection codes
+- `components/spacer.jac`
+- `editor-component.jac`
+- `fuzzy.jac`
+- `terminal-colors.jac`
+- `utils.jac`
 
-| Code | Meaning | pi-tui impact |
-|------|---------|----------------|
-| **E7205** | Unsupported `ClassDeclaration` (and non-component `export const`) | Almost every `Component` class (`Spacer`, `Text`, `TUI`, `Editor`, …) |
-| **E7215** | Unsupported expression/literal in body | `++`/`--`, `{}` sentinels, some Node patterns |
-| **E7230** | Unsupported top-level form | e.g. `for` loops at module scope in `fuzzy.ts` |
-| **E7232** | Helper needs TS type annotation | untyped helper params in `utils.ts` |
-| **E7200** | Declaration produced no output | type predicates (`is Focusable`), some exports |
+Warnings are not counted as failures. The census classifies errors attributed to the entry file separately from errors reported in imported files. For example, `components/image.jac` reports 216 errors when checked as an entry point, but 194 are imported from `terminal-image.jac`. Similarly, `index.jac` reports 203 errors but only one is attributed directly to `index.jac`. Project-wide raw totals are therefore not a useful progress metric yet.
 
-Example (spacer — smallest component):
+## Root-cause census
 
-```
-E7205: Unsupported declaration: ClassDeclaration
-```
+The 23 failing entry points reduce to eight actionable families. Counts below are affected entry points, not raw diagnostic counts; one file can belong to several families.
 
-## Artifacts in this repo
+| Root cause | Affected shape/files | Owner | Disposition |
+|------------|----------------------|-------|-------------|
+| Invalid syntax/control-flow lowering | Directly concentrated in `terminal-image.jac`; its failures cascade through `components/image.jac`, `components/markdown.jac`, `tui.jac`, and `index.jac`. Examples include nested-quote f-strings, malformed `Buffer.from(...).toString(...)`, and parser fallout (`E0002`, `E0005`, `E0030`). | **js2jac** | Fix general emission rules. This is genuine incorrect lowering. |
+| JS collection/object semantics left intact | `keybindings`, `keys`, `kill-ring`, `undo-stack`, autocomplete and component code: `.has`, `.find`, `.reduce`, `.unshift`, JS object dot access on emitted Jac dicts, `array.length = 0`, and `Object.entries`/Map-shaped loops. | **js2jac** | Add only general semantic mappings to Jac operations. Do not solve individual pi-tui call sites with special cases. |
+| Identifier and object-layout incompatibility | `root` emitted unescaped in `components/editor`, `components/input`, `tui`, and the barrel; non-default fields emitted after default fields in `settings-list`, `markdown`, and `tui`. | **js2jac** | Escape Jac keywords and emit legal field order while preserving constructor behavior. |
+| Numeric/type lowering and insufficient annotations | Most component and navigation modules: TypeScript `number` becomes `float` even where indexing/width APIs require `int`; unions collapse to imprecise dicts; locals/import results become `Unknown`, producing arithmetic, return, and overload errors. | **Mixed: js2jac + Jackal port** | Fix systematic source-type-to-Jac-type mistakes in the converter. Add domain types and deliberate annotations during porting; do not grow per-call converter heuristics. |
+| Unsupported Node runtime APIs | `native-modifiers`, `terminal`, `stdin-buffer`, `terminal-image`, `keys`, and consumers use `process`, stdin/stdout, `Buffer`, `EventEmitter`, `node:child_process`, timers, and environment/runtime behavior. | **Jackal port** | Replace with deliberate server/Python-backed terminal adapters in `app/`. This is not converter work. |
+| Unsupported JS/browser/package APIs | `Intl.Segmenter` in word navigation; `String.fromCharCode`, `Array`/`Object` globals; `marked`, image helpers, and terminal feature probing. | **Jackal port**, except general built-in mappings | Port algorithms and dependencies explicitly. Only broadly correct built-in mappings belong in js2jac. |
+| Import/export and visibility fallout | `index.jac` has one direct diagnostic and 202 dependency diagnostics; component entry checks also replay errors from `terminal-image.jac` and other imports. Rewritten exports and shared type visibility remain unproven. | **js2jac for rewrite correctness; Jackal port for graph design** | Re-evaluate only after direct module errors are reduced. Do not use the current 203-error barrel total as a converter score. |
+| Potential compiler/framework limitations | No diagnostic in this census is yet proven to require a Jac compiler or framework change. Candidates must be reduced to a minimal valid-Jac reproducer before handoff. | **Upstream Jac, unconfirmed** | Do not patch `jaclang`, `jac-ink`, or `jac-client`. Document a minimal reproducer and hand it to the human if a converter-correct construct still fails. |
+
+## Per-entry triage
+
+This table records the primary first fix, not every secondary error.
+
+| Entry points | Primary root cause | First owner |
+|--------------|--------------------|-------------|
+| `undo-stack`, `kill-ring`, `keybindings` | JS collection mutation/API lowering | js2jac |
+| `keys` | JS object/dict semantics plus runtime string/terminal APIs | js2jac, then Jackal port |
+| `terminal-image` | Invalid emitted syntax, then Node/image runtime APIs | js2jac, then Jackal port |
+| `native-modifiers`, `terminal`, `stdin-buffer` | Node process/stream/event runtime | Jackal port |
+| `word-navigation` | `Intl.Segmenter` plus missing segment types | Jackal port |
+| `autocomplete` | async/result type inference and JS collection semantics | mixed |
+| `components/box`, `text`, `truncated-text`, `loader`, `cancellable-loader` | inferred/declared type incompatibilities and JS regex/collection APIs | mixed |
+| `components/settings-list`, `select-list`, `input`, `editor` | field layout/keyword lowering plus domain types | js2jac, then Jackal port |
+| `components/image`, `markdown`, `tui` | own type/API errors plus the `terminal-image` syntax cascade | mixed; unblock `terminal-image` first |
+| `index` | barrel/export issue plus transitive cascade | js2jac; defer until leaves improve |
+
+## Decision boundary
+
+Broad converter feature expansion is frozen after zero-hole emission. A change belongs in js2jac only when the emitted Jac is generally and semantically wrong, such as malformed syntax, an unescaped Jac keyword, illegal field ordering, or a reusable incorrect mapping of a JavaScript operation. Node interop, terminal behavior, package replacement, domain modeling, and ordinary type refinement belong to the Jackal port.
+
+The generated tree under `tui/pi_jac_floor/` remains migration/reference material. It does not replace the Jac-native product work under `app/`, and reaching 28/28 checks would not complete Roadmap N1.
+
+## Next gates
+
+1. Fix the general converter-owned errors, starting with `terminal-image.jac` syntax, reserved identifiers, field ordering, and collection mutations.
+2. Re-run all 28 entry checks and record direct versus imported diagnostics. The next clean converter gate is 28/28 entry checks only if it can be reached without encoding Node-specific behavior into js2jac.
+3. Check the complete module graph and then repair import/export rewrites, cycles, and shared type visibility.
+4. Add focused behavioral parity tests for input buffering, key normalization, cursor/word movement, undo/kill-ring behavior, ANSI width, invalidation/rendering, async autocomplete serialization, and terminal cleanup/cancellation.
+5. Prove an executable smoke slice with components, a virtual terminal, input, output, state, and cancellation.
+
+## Artifacts and reproduction
 
 | Path | Contents |
 |------|----------|
-| `pi_jac/` | Strict project-mode output (2 files + `js2jac_report.json`) |
-| `pi_jac_floor/` | Per-file floor Jac for 13 modules (holes preserved) |
-| `pi_jac_floor_summary.json` | Per-file status, hole counts, `jac check` results, reject codes |
+| `tui/pi_jac_floor/` | Current 28-file, zero-hole emitted tree. |
+| `tui/pi_jac_floor_summary.json` | Per-entry emission, hole, and check result from the conversion run. |
+| `tui/pi_jac_floor_project_check.txt` | Whole-tree check output; useful for detail, not aggregate progress. |
+| `tui/pi_jac/` | Earlier strict project-mode artifact; retained as conversion history. |
 
-### Floor files that pass `jac check` (starting points)
-
-- `src/index.jac` — re-export barrel (no holes)
-- `src/stdin-buffer.jac` — escape-sequence completeness helpers (3 holes in source, still checks)
-- `src/terminal-colors.jac` — `hexToRgb` (uses `parseInt` — server codespace)
-- `src/components/loader.jac` — partial loader (1 hole)
-- `src/components/editor.jac` — large partial editor (8 holes)
-
-### Largest partial floors (need class + Node interop work)
-
-- `src/tui.jac` — `Container`/`TUI` classes left as holes; imports still point at `.ts` paths
-- `src/utils.jac` — 23 holes (ANSI width, `AnsiCodeTracker` class, `Intl`/`Map` exports)
-- `src/keys.jac` — 19 holes (keyboard protocol parsing)
-
-## Python runtime mismatch
-
-Even converted fragments assume **Node** (`import from "node:fs"`, `process.env`, `performance`, `parseInt` as global). A Jackal Jac TUI should use **server-anchored Python stdlib** (`termios`, `tty`, `select`, `sys.stdin`/`stdout`) via `::py::` blocks or thin bridge modules — same pattern as `lib/jac/` in Jackal.
-
-`jac check` may pass while **native lowering fails** (e.g. `parseInt` → E5092); those modules compile in the server codespace only.
-
-## Recommended next steps
-
-1. **js2jac slice (jac_llm_data):** ClassDeclaration → Jac `obj` / methods (V2.10+). This unlocks ~15 hard-rejected files and holes inside `tui.jac`, `utils.jac`, etc.
-2. **Node → server interop track:** `node:*` imports, `process`, `Buffer`, `EventEmitter` → Python stdlib or `::py::` shims (not in current client intent).
-3. **Hole-fill:** `scripts/js2jac_holepatch.py` on floor files after class lowering — LLM fills `# JS2JAC-HOLE` blocks, `jac check` gates.
-4. **Parallel track:** Hand-build the thin foundation you outlined (`terminal.jac`, `renderer.jac`, `component.jac`, `editor.jac`) and port pi-tui **by module** with tests, using floor Jac as reference — likely faster than waiting for full automated conversion.
-
-## Re-run
+Re-run the conversion and checks with:
 
 ```bash
 ./tui/scripts/js2jac_pi_tui.sh
 ```
 
-Uses `jac` from `jac_llm_data/jaseci/jac` (dev compiler) and writes `pi_jac_floor/` + summary.
+The script regenerates `pi_jac_floor/`, the summary, and the whole-tree check output. Its per-entry `jac check` follows resolvable imports; when diagnosing ownership, attribute each diagnostic to the file path in the diagnostic rather than to the entry command alone.
