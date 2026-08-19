@@ -286,11 +286,56 @@ test("native module patterns emit a reviewable fail-open floor", () => {
     }
   `, "native.ts", { failOpen: true, stmtFailOpen: true, emitHoles: true });
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.equal(result.droppedCount, 1);
+  assert.equal(result.droppedCount, 0);
   assert.match(result.jac, /glob cjsRequire = createRequire\(__file__\);/);
   assert.match(result.jac, /glob helper: any \| None = None;/);
-  assert.match(result.jac, /JS2JAC-HOLE\[E7200\] Declaration produced no output/);
-  assert.match(result.jac, /try \{ return helper\.run\(value\); \} catch/);
+  assert.match(result.jac, /try \{/);
+  assert.match(result.jac, /except Exception \{/);
+  assert.doesNotMatch(result.jac, /JS2JAC-HOLE/);
+});
+
+test("try catch finally lowers with renamed catch bindings", () => {
+  const result = convert(`
+    export function recover(value: string): string {
+      try {
+        return int(value).toString();
+      } catch (match) {
+        return String(match);
+      } finally {
+        value = value.trim();
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /try \{/);
+  assert.match(result.jac, /except Exception as match_j \{/);
+  assert.match(result.jac, /finally \{/);
+  assertJacChecks(result.jac);
+});
+
+test("class field try IIFEs parenthesize emitted lambdas", () => {
+  const result = convert(`
+    export class Probe {
+      value = (() => {
+        try { return 1; } catch { return 0; }
+      })();
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /has value: any = \(lambda \(\) -> any \{ try \{/);
+  assert.match(result.jac, /except Exception \{/);
+  assert.match(result.jac, /\}\)\(\);/);
+  assertJacChecks(result.jac);
+});
+
+test("catch destructuring remains fail closed", () => {
+  const result = convert(`
+    export function recover(): string {
+      try { return "ok"; } catch ({ message }) { return message; }
+    }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7230"));
 });
 
 test("module Set and Map constructors lower iterable initializers", () => {

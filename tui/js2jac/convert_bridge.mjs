@@ -2380,7 +2380,30 @@ function emitStatement(stmt, ctx) {
     return out;
   }
 
-  if (kind === "ThrowStatement" || kind === "TryStatement"
+  if (kind === "TryStatement") {
+    const tryLines = emitStatement(stmt.block, ctx);
+    if (tryLines === null) return null;
+    const out = ["try {", ...indentBlock(tryLines), "}"];
+    if (stmt.handler) {
+      const param = stmt.handler.param;
+      if (param && param.type !== "Identifier") {
+        diags.push(diag("E7230", "Catch bindings must use a simple identifier", path));
+        return null;
+      }
+      const catchLines = emitStatement(stmt.handler.body, ctx);
+      if (catchLines === null) return null;
+      const binding = param ? ` as ${identText(param.name)}` : "";
+      out.push(`except Exception${binding} {`, ...indentBlock(catchLines), "}");
+    }
+    if (stmt.finalizer) {
+      const finallyLines = emitStatement(stmt.finalizer, ctx);
+      if (finallyLines === null) return null;
+      out.push("finally {", ...indentBlock(finallyLines), "}");
+    }
+    return out;
+  }
+
+  if (kind === "ThrowStatement"
       || kind === "LabeledStatement" || kind === "DebuggerStatement") {
     diags.push(diag("E7230", `${kind} is not supported in V2 (deferred to a later slice)`, path));
     return null;
@@ -2623,6 +2646,8 @@ function collectLocalRenames(body) {
         if (p?.type === "Identifier") bind(p);
         else if (p?.type === "AssignmentPattern") bind(p.left);
       }
+    } else if (n.type === "CatchClause") {
+      bind(n.param);
     }
     for (const k of Object.keys(n)) {
       if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
@@ -2968,7 +2993,11 @@ function emitExpr(node, path, diags, ctx = {}) {
       if (text === null) return null;
       args.push(text);
     }
-    return `${callee}(${args.join(", ")})`;
+    const rawCallee = unwrapTsValue(node.callee);
+    const callTarget = rawCallee?.type === "ArrowFunctionExpression" || rawCallee?.type === "FunctionExpression"
+      ? `(${callee})`
+      : callee;
+    return `${callTarget}(${args.join(", ")})`;
   }
   if (kind === "ArrayExpression") {
     const elems = [];
