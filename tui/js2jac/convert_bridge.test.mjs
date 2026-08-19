@@ -64,6 +64,44 @@ test("class lowering nests complete multiline methods inside the object", () => 
   assertJacChecks(result.jac);
 });
 
+test("class getters lower to zero-argument abilities with explicit self calls", () => {
+  const result = convert(`
+    export class Queue {
+      items: string[] = [];
+      get length(): number { return this.items.length; }
+      empty(): boolean { return this.length === 0; }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /def length\(\) -> float \{/);
+  assert.match(result.jac, /return len\(self\.items\);/);
+  assert.match(result.jac, /return \(self\.length\(\) == 0\);/);
+  assertJacChecks(result.jac);
+});
+
+test("async class methods emit Jac async abilities and preserve await", () => {
+  const result = convert(`
+    export class Loader {
+      async load(value: any): Promise<string> { return await value; }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /async def load\(value: any\) -> any \{/);
+  assert.match(result.jac, /return await value;/);
+  assertJacChecks(result.jac);
+});
+
+test("class setters remain fail-closed", () => {
+  const result = convert(`
+    export class Counter {
+      set value(next: number) {}
+    }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) =>
+    diag.code === "E7205" && diag.message.includes("setters")));
+});
+
 test("repeat casts a TS number count to int", () => {
   const result = convert(`
     export function repeatText(value: string, count: number): string {
@@ -87,6 +125,17 @@ test("discard-result splice deletes start through start plus count", () => {
   assertJacChecks(result.jac);
 });
 
+test("three-argument splice replaces a slice in statement position", () => {
+  const result = convert(`
+    export function insert(values: string[], start: number, value: string): void {
+      values.splice(start, 0, value);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /values\[start:\(start\) \+ \(0\)\] = \[value\];/);
+  assertJacChecks(result.jac);
+});
+
 test("expression-valued splice fails closed", () => {
   const result = convert(`
     export function remove(values: string[]): string[] {
@@ -106,6 +155,17 @@ test("Math max and min normalize every argument to float", () => {
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /max\(float\(floor\), float\(min\(float\(value\), float\(3\.5\)\)\)\)/);
+  assertJacChecks(result.jac);
+});
+
+test("Math max lowers a spread iterable with numeric normalization", () => {
+  const result = convert(`
+    export function largest(values: number[]): number {
+      return Math.max(...values);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /max\(\*\[float\(_jx_math\) for _jx_math in values\]\)/);
   assertJacChecks(result.jac);
 });
 
@@ -183,6 +243,7 @@ test("nullish coalescing evaluates a side-effecting left operand once", () => {
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.equal((result.jac.match(/nextValue\(\)/g) ?? []).length, 1);
+  assert.match(result.jac, /def nextValue\(\) -> str \| None;/);
   assert.match(result.jac, /lambda \(_jx_null0: any\)/);
   assertJacChecks(result.jac);
 });
@@ -598,6 +659,8 @@ test("named match groups lower through Python groupdict", () => {
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /match_j\.groupdict\(\)\.get\('digits'\)/);
+  assert.match(result.jac, /if match_j else None/);
+  assert.doesNotMatch(result.jac, /match_j\.groups/);
   assert.doesNotMatch(result.jac, /\.groups\.digits/);
   assertJacChecks(result.jac);
 });

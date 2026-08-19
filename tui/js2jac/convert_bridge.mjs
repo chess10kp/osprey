@@ -1948,6 +1948,16 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
     && ctx.staticHoists?.has(node.property.name)) {
     return node.property.name;
   }
+  // Jac has no JavaScript property-getter invocation syntax. Lower a getter to
+  // a zero-argument ability and make receiver reads within the declaring class
+  // explicit calls. This is AST/provenance based, so ordinary fields (including
+  // the ubiquitous list/string `.length`) retain their existing lowering.
+  if (!node.computed
+    && node.object?.type === "ThisExpression"
+    && node.property?.type === "Identifier"
+    && ctx.getterNames?.has(node.property.name)) {
+    return `self.${node.property.name}()`;
+  }
   const obj = emitExpr(node.object, path, diags, ctx);
   if (obj === null) return null;
   if (node.computed) {
@@ -2165,21 +2175,24 @@ function emitStatement(stmt, ctx) {
         return [`${recv}.pop(${key}, None);`];
       }
     }
-    // V2.13: `xs.splice(i, n);` -> `del xs[i:i+n];`. This mapping is confined
-    // to statement position because JS returns the removed slice. Insert forms
-    // and expression-valued uses remain unsupported.
+    // V2.13: discard-result splice lowers to slice mutation. This mapping is
+    // confined to statement position because JS returns the removed slice.
     if (
       expr?.type === "CallExpression" && !expr.optional
       && expr.callee?.type === "MemberExpression" && !expr.callee.computed
       && expr.callee.property?.name === "splice"
-      && (expr.arguments ?? []).length === 2
+      && ((expr.arguments ?? []).length === 2 || (expr.arguments ?? []).length === 3)
     ) {
       const recv = emitExpr(expr.callee.object, path, diags, ctx);
       const start = emitExpr(expr.arguments[0], path, diags, ctx);
       const count = emitExpr(expr.arguments[1], path, diags, ctx);
       if (recv === null || start === null || count === null) return null;
-      return count === "1"
-        ? [`del ${recv}[${start}];`]
+      if ((expr.arguments ?? []).length === 3) {
+        const value = emitExpr(expr.arguments[2], path, diags, ctx);
+        if (value === null) return null;
+        return [`${recv}[${start}:(${start}) + (${count})] = [${value}];`];
+      }
+      return count === "1" ? [`del ${recv}[${start}];`]
         : [`del ${recv}[${start}:(${start}) + (${count})];`];
     }
     if (expr?.type === "UpdateExpression") {
@@ -2727,6 +2740,21 @@ function findOptionalBoundary(node, disabled) {
 /** Lower a whole optional chain around one-shot lambda parameters. Walking only
  * the chain spine preserves lazy computed keys/arguments and the full suffix. */
 function emitOptionalChainRoot(root, path, diags, ctx = {}) {
+  // A JS named-capture read (`match.groups?.name`) maps to Python's
+  // `Match.groupdict()`.  Guard the Match itself, not the nonexistent Python
+  // `.groups` attribute.  Keeping the call in the conditional's true branch
+  // also lets Jac narrow `Match | None` before checking `groupdict()`.
+  const current = root?.type === "ChainExpression" ? root.expression : root;
+  if ((current?.type === "MemberExpression" || current?.type === "OptionalMemberExpression")
+    && current.optional && !current.computed
+    && current.property?.type === "Identifier"
+    && (current.object?.type === "MemberExpression" || current.object?.type === "OptionalMemberExpression")
+    && !current.object.computed && current.object.property?.name === "groups"
+    && current.object.object?.type === "Identifier"
+    && MATCH_LOCALS.has(identText(current.object.object.name))) {
+    const matchName = identText(current.object.object.name);
+    return `((${matchName}.groupdict().get('${current.property.name}') as str) if ${matchName} else None)`;
+  }
   const boundary = findOptionalBoundary(root, ctx.disabledOptional);
   if (!boundary) return emitExpr(root, path, diags, ctx);
   const isCall = boundary.type === "CallExpression" || boundary.type === "OptionalCallExpression";
@@ -2942,9 +2970,22 @@ function emitExpr(node, path, diags, ctx = {}) {
         }
         const args = [];
         for (const arg of node.arguments ?? []) {
+          if (arg.type === "SpreadElement") {
+            const text = emitExpr(arg.argument, path, diags, ctx);
+            if (text === null) return null;
+            if (node.callee.property.name === "max" || node.callee.property.name === "min") {
+              args.push(`*[float(_jx_math) for _jx_math in ${text}]`);
+            } else {
+              args.push(`*${text}`);
+            }
+            continue;
+          }
           const text = emitExpr(arg, path, diags, ctx);
           if (text === null) return null;
           args.push(text);
+        }
+        if (args.some((arg) => arg.startsWith("*"))) {
+          return `${node.callee.property.name}(${args.join(", ")})`;
         }
         return fn(args);
       }
@@ -4446,12 +4487,12 @@ function parseClassField(member, path, diags, classCtx) {
 
 function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
   const kind = member.kind ?? "method";
-  if (kind === "get" || kind === "set") {
-    diags.push(diag("E7205", "Class getters/setters are not supported", path));
+  if (kind === "set") {
+    diags.push(diag("E7205", "Class setters are not supported", path));
     return null;
   }
   const isCtor = kind === "constructor";
-  const name = isCtor ? "__init__" : member.key?.name;
+  const name = isCtor ? "__init__" : (member.key?.name ?? member.key?.id?.name);
   if (!name) {
     diags.push(diag("E7205", "Class method must have a simple name", path));
     return null;
@@ -4460,14 +4501,23 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     diags.push(diag("E7205", "Generator class methods are not supported", path));
     return null;
   }
-  if (member.async) {
-    diags.push(diag("E7205", "Async class methods are not supported", path));
+  if (isCtor && member.async) {
+    diags.push(diag("E7205", "Async class constructors are not supported", path));
+    return null;
+  }
+  if (kind === "get" && (member.params ?? []).length !== 0) {
+    diags.push(diag("E7205", "Class getters cannot declare parameters", path));
     return null;
   }
   const jacParams = parseClassMethodParams(member.params ?? [], path, diags, classCtx);
   if (jacParams === null) return null;
   let retType = "None";
-  if (!isCtor) {
+  if (member.async) {
+    // A TS async method returns Promise<T>, while Jac annotates the awaited
+    // value. Interop awaits are checker-Unknown, so use the same sound boundary
+    // as top-level async helpers instead of claiming an unverifiable T.
+    retType = "any";
+  } else if (!isCtor) {
     if (member.returnType?.typeAnnotation) {
       retType = tsTypeToJac(member.returnType.typeAnnotation, path, diags);
       if (!retType) return null;
@@ -4480,6 +4530,7 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     diags,
     inClass: true,
     className: classCtx.className,
+    getterNames: classCtx.getterNames,
     staticHoists: classCtx.staticHoists,
     dictBindings: new Set(),
     dictListBindings: new Set(),
@@ -4511,7 +4562,8 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
   }
   const overrideKw = !isCtor && classCtx.baseName ? "override " : "";
   const paramText = jacParams.length ? `(${jacParams.join(", ")})` : "()";
-  const lines = [`${overrideKw}def ${name}${paramText} -> ${retType} {`];
+  const asyncKw = member.async ? "async " : "";
+  const lines = [`${asyncKw}${overrideKw}def ${name}${paramText} -> ${retType} {`];
   for (const l of bodyLines) lines.push(`    ${l}`);
   lines.push("}");
   return lines.join("\n");
@@ -4563,6 +4615,12 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
     className: name,
     baseName,
     staticHoists,
+    getterNames: new Set((decl.body?.body ?? [])
+      .filter((member) => isClassMethodMember(member))
+      .map(normalizeClassMethodMember)
+      .filter((member) => member.kind === "get" && !member.computed)
+      .map((member) => member.key?.name ?? member.key?.id?.name)
+      .filter(Boolean)),
     droppedStatements: [],
   };
   const fieldLines = [];
@@ -4849,6 +4907,42 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
     { rule_id: "js.function.declaration.v2", mapping_class: "guarded", target: `def${pubKw} ${name}` },
   ];
   return { jac, mappings, droppedStatements: ctx.droppedStatements };
+}
+
+/** Preserve an ambient TypeScript function as a typed Jac declaration.  These
+ * signatures have no JS body to emit, but erasing a referenced declaration
+ * leaves its calls unresolved during `jac check`. */
+function parseDeclareFunction(decl, exported, path, diags) {
+  const name = decl.id?.name;
+  if (!name) {
+    diags.push(diag("E7205", "Declared function must have a simple name", path));
+    return null;
+  }
+  const jacParams = [];
+  for (const param of decl.params ?? []) {
+    if (param?.type !== "Identifier") {
+      diags.push(diag("E7232", `Unsupported declared-function parameter form: ${param?.type}`, path));
+      return null;
+    }
+    const ann = param.typeAnnotation?.typeAnnotation;
+    const jacType = ann ? tsTypeToJac(ann, path, diags) : "any";
+    if (!jacType) return null;
+    jacParams.push(`${identText(param.name)}: ${jacType}`);
+  }
+  const returnAnn = decl.returnType?.typeAnnotation;
+  const retType = returnAnn ? tsTypeToJac(returnAnn, path, diags) : "any";
+  if (!retType) return null;
+  const pubKw = exported ? ":pub" : "";
+  const paramText = jacParams.length ? `(${jacParams.join(", ")})` : "()";
+  return {
+    jac: `def${pubKw} ${identText(name)}${paramText} -> ${retType};\n`,
+    mappings: [{
+      rule_id: "js.function.declaration.v2",
+      mapping_class: "guarded",
+      target: `def${pubKw} ${identText(name)}`,
+    }],
+    droppedStatements: [],
+  };
 }
 
 function parseFunction(decl, exported, path, diags, hookBindings, importState, typeAliases, failOpen = false) {
@@ -5589,7 +5683,7 @@ function convertEnvelope(payload) {
       }
       recordFailure([diag("E7205", "Re-export forms are not supported", path)], item);
       continue;
-    } else if (item.type === "FunctionDeclaration" || item.type === "VariableDeclaration"
+    } else if (item.type === "FunctionDeclaration" || item.type === "TSDeclareFunction" || item.type === "VariableDeclaration"
       || item.type === "TSEnumDeclaration" || item.type === "ClassDeclaration") {
       const declName = item.type === "VariableDeclaration"
         ? item.declarations?.[0]?.id?.name
@@ -5628,6 +5722,8 @@ function convertEnvelope(payload) {
     let out = null;
     if (decl.type === "FunctionDeclaration") {
       out = parseFunction(decl, exported, path, localDiags, hookBindings, importState, typeAliases, stmtFailOpen);
+    } else if (decl.type === "TSDeclareFunction") {
+      out = parseDeclareFunction(decl, exported, path, localDiags);
     } else if (decl.type === "VariableDeclaration") {
       out = parseArrowComponent(decl, exported, path, localDiags, hookBindings, importState, typeAliases, stmtFailOpen);
     } else if (decl.type === "TSEnumDeclaration") {
