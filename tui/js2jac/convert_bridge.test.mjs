@@ -593,3 +593,51 @@ test("record-returning helpers preserve field types at member access", () => {
   assert.doesNotMatch(result.jac, /len\(found\)/);
   assertJacChecks(result.jac);
 });
+
+test("typed numeric flow, local classes, and direct record fields remain precise", () => {
+  const result = convert(`
+    class Tracker {
+      active(): string { return "on"; }
+    }
+    function measure(): number { return 1; }
+    export function render(tracker: Tracker): string {
+      let width = 0;
+      const measured = measure();
+      width += measured;
+      let offset = 0;
+      const found = inspect("x");
+      offset += found.length;
+      let output = "";
+      output += tracker.active();
+      return inspect(output).text + str(width + offset);
+    }
+    function inspect(value: string): { text: string; length: number } {
+      return { text: value, length: value.length };
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /tracker: Tracker/);
+  assert.match(result.jac, /width: float = float\(0\)/);
+  assert.match(result.jac, /measured: float = float\(measure\(\)\)/);
+  assert.match(result.jac, /offset \+= int\(\(found\["length"\] as float\)\)/);
+  assert.match(result.jac, /output: str = ""/);
+  assert.match(result.jac, /\(inspect\(output\)\["text"\] as str\)/);
+  assertJacChecks(result.jac);
+});
+
+test("segmenter destructuring and string-method locals keep string types", () => {
+  const result = convert(`
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    export function joinSegments(text: string): string {
+      let result = "";
+      for (const { segment } of segmenter.segment(text)) result += segment;
+      let trimmed = result.trimEnd();
+      trimmed += "!";
+      return trimmed;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /segment: str = \(_jx_item0\.segment as str\)/);
+  assert.match(result.jac, /trimmed: str = result\.rstrip\(\)/);
+  assertJacChecks(result.jac);
+});

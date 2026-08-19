@@ -509,6 +509,10 @@ function tsTypeToJac(typeNode, path, diags) {
       diags.push(diag("E7201", "PropsWithChildren is not supported; use an inline object type", path));
       return null;
     }
+    // A class declared in this module lowers to a Jac archetype with the same
+    // name. Preserve that type so method calls on typed parameters remain
+    // checker-visible instead of widening the whole value to `any`.
+    if (params.length === 0 && LOCAL_CLASSES.has(refName)) return refName;
     // V2.10 (Fix 4, Stage A): unknown/unresolved type references and generic
     // references (e.g. `T`, `AbortSignal`, `Params`, `Foo<Bar>`) widen to `any`
     // rather than dropping the whole declaration. Sound for a type annotation.
@@ -1971,9 +1975,13 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
   // rewrite is unambiguous. A user object with a real `.length` field would fail
   // `len()` under check and be pruned downstream — no worse than the status quo.
   if (usesDictBracketAccess(node, ctx)) {
-    const fieldType = node.object?.type === "Identifier"
+    let fieldType = node.object?.type === "Identifier"
       ? ctx.dictFieldTypes?.get(node.object.name)?.get(node.property.name)
       : null;
+    if (!fieldType && node.object?.type === "CallExpression"
+      && node.object.callee?.type === "Identifier") {
+      fieldType = DICT_RETURN_FIELD_TYPES.get(node.object.callee.name)?.get(node.property.name);
+    }
     const access = `${obj}["${node.property.name}"]`;
     return fieldType ? `(${access} as ${fieldType})` : access;
   }
@@ -1999,7 +2007,7 @@ function emitMemberAccess(node, path, diags, ctx = {}) {
  *   `forParam=true` (helper param): `valExpr` is a synthetic `any`-typed param
  *      identifier already bound, so no temp is introduced.
  * Returns { lines } (Jac statements) or null. */
-function lowerFlatPattern(idNode, valExpr, forParam, ctx) {
+function lowerFlatPattern(idNode, valExpr, forParam, ctx, fieldTypes = null) {
   const binds = [];
   if (idNode?.type === "ObjectPattern") {
     for (const pr of idNode.properties ?? []) {
@@ -2007,7 +2015,7 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx) {
       if (pr.computed) return null;                      // computed key
       if (pr.key?.type !== "Identifier") return null;
       if (pr.value?.type !== "Identifier") return null;  // nested / default / non-ident
-      binds.push({ target: pr.value.name, access: `.${pr.key.name}` });
+      binds.push({ target: pr.value.name, access: `.${pr.key.name}`, type: fieldTypes?.get(pr.key.name) ?? null });
     }
   } else if (idNode?.type === "ArrayPattern") {
     const els = idNode.elements ?? [];
@@ -2015,7 +2023,7 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx) {
       const el = els[i];
       if (el === null || el === undefined) continue;     // hole, e.g. [, b]
       if (el.type !== "Identifier") return null;         // rest / default / nested
-      binds.push({ target: el.name, access: `[${i}]` });
+      binds.push({ target: el.name, access: `[${i}]`, type: null });
     }
   } else {
     return null;
@@ -2031,7 +2039,11 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx) {
     base = `_jx_d${n}`;
     lines.push(`${base}: any = ${valExpr};`);
   }
-  for (const b of binds) lines.push(`${b.target} = ${base}${b.access};`);
+  for (const b of binds) {
+    lines.push(b.type
+      ? `${b.target}: ${b.type} = (${base}${b.access} as ${b.type});`
+      : `${b.target} = ${base}${b.access};`);
+  }
   return { lines };
 }
 
@@ -2117,6 +2129,11 @@ function emitStatement(stmt, ctx) {
         prefix = `${name}: ${jacType} = `;
       } else if (ctx.floatLocals?.has(d.id.name)) {
         prefix = `${name}: float = `;
+      } else {
+        const inferred = inferExprType(unwrapTsValue(d.init), path, []);
+        // Jac otherwise preserves literal-string/bool types for mutable `let`
+        // locals, rejecting later updates with ordinary str/bool values.
+        if (inferred === "str" || inferred === "bool") prefix = `${name}: ${inferred} = `;
       }
       const initValue = !ann && ctx.floatLocals?.has(d.id.name) ? `float(${val})` : val;
       out.push(`${prefix}${initValue};`);
@@ -2174,7 +2191,7 @@ function emitStatement(stmt, ctx) {
     if (expr?.type === "AssignmentExpression") {
       const left = emitExpr(expr.left, path, diags, ctx);
       if (left === null) return null;
-      const right = emitExpr(expr.right, path, diags, ctx);
+      let right = emitExpr(expr.right, path, diags, ctx);
       if (right === null) return null;
       const op = COMPOUND_ASSIGN_OPS[expr.operator];
       if (op === undefined) {
@@ -2184,6 +2201,15 @@ function emitStatement(stmt, ctx) {
       if (expr.left?.type === "Identifier" && ctx.floatLocals?.has(expr.left.name)
         && ["+=", "-=", "*=", "/=", "%=", "**="].includes(expr.operator)) {
         return [`${left} = float(${left} ${expr.operator.slice(0, -1)} ${right});`];
+      }
+      // Record fields named `length` originate as TS number/float, but in the
+      // index-advance idiom they are integral counts. Keep an int loop cursor
+      // integral rather than widening every index because of the record cast.
+      if (expr.left?.type === "Identifier" && !ctx.floatLocals?.has(expr.left.name)
+        && expr.operator === "+="
+        && (expr.right?.type === "MemberExpression" || expr.right?.type === "OptionalMemberExpression")
+        && !expr.right.computed && expr.right.property?.name === "length") {
+        right = `int(${right})`;
       }
       return [`${left} ${op} ${right};`];
     }
@@ -2220,7 +2246,7 @@ function emitStatement(stmt, ctx) {
       diags.push(diag("E7230", "for-await-of loops are not supported", path));
       return null;
     }
-    const binding = forLoopBinding(stmt.left, path, diags, ctx);
+    const binding = forLoopBinding(stmt.left, stmt.right, path, diags, ctx);
     if (binding === null) return null;
     const right = emitExpr(stmt.right, path, diags, ctx);
     if (right === null) return null;
@@ -2481,7 +2507,7 @@ function emitIfChain(stmt, ctx, INDENT) {
 
 /** Resolve/lower a for-loop binding. Flat destructuring binds through a stable
  * synthetic iteration variable before the original loop body. */
-function forLoopBinding(left, path, diags, ctx) {
+function forLoopBinding(left, right, path, diags, ctx) {
   if (left?.type === "Identifier") return { loopVar: left.name, preamble: [] };
   if (left?.type === "VariableDeclaration") {
     if ((left.declarations ?? []).length !== 1) {
@@ -2493,7 +2519,14 @@ function forLoopBinding(left, path, diags, ctx) {
     if (id?.type === "ArrayPattern" || id?.type === "ObjectPattern") {
       const index = (ctx.__forTmp = (ctx.__forTmp ?? -1) + 1);
       const loopVar = `_jx_item${index}`;
-      const lowered = lowerFlatPattern(id, loopVar, true, ctx);
+      // Intl.Segmenter iteration exposes `{ segment: string, ... }`. Preserve
+      // the one field Pi consumes so downstream string operations type-check.
+      const segmentFields = right?.type === "CallExpression"
+        && right.callee?.type === "MemberExpression" && !right.callee.computed
+        && right.callee.property?.name === "segment"
+        ? new Map([["segment", "str"]])
+        : null;
+      const lowered = lowerFlatPattern(id, loopVar, true, ctx, segmentFields);
       if (lowered !== null) return { loopVar, preamble: lowered.lines };
     }
     diags.push(diag("E7230", "for...of destructuring must use a flat array/object pattern", path));
@@ -2528,6 +2561,9 @@ let DICT_RETURN_FIELD_TYPES = new Map();
 // Bindings whose value originates at `new Map(...)`. Map lowers to Jac's dict,
 // but its JS-only API is rewritten only when AST provenance proves the receiver.
 let MODULE_MAP_BINDINGS = new Set();
+// Locally declared helpers with a TypeScript `number` return. Used by numeric
+// flow so aliases of helper results remain float through compound updates.
+let NUMBER_RETURNING_FUNCS = new Set();
 // V2.12: locally-declared class names — `new LocalClass(...)` lowers to the
 // Jac call construction `LocalClass(...)`.
 let LOCAL_CLASSES = new Set();
@@ -4061,6 +4097,9 @@ function inferExprType(node, path, diags) {
   if (kind === "BooleanLiteral") return "bool";
   if (kind === "NullLiteral") return "None";
   if (kind === "TemplateLiteral") return "str";
+  if (kind === "CallExpression"
+    && node.callee?.type === "MemberExpression" && !node.callee.computed
+    && JS_STRING_METHODS[node.callee.property?.name]) return "str";
   if (kind === "ArrayExpression") return "list";
   if (kind === "ObjectExpression") return "dict";
   if (isJsxNode(node)) return "JsxElement";
@@ -4070,6 +4109,8 @@ function inferExprType(node, path, diags) {
 function collectFloatLocals(body) {
   const numericLocals = new Set();
   const floatLocals = new Set();
+  const declarations = [];
+  const assignments = [];
   const walk = (node, visit) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) { for (const item of node) walk(item, visit); return; }
@@ -4084,8 +4125,14 @@ function collectFloatLocals(body) {
   walk(body, (node) => {
     if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier" || node.id.typeAnnotation) return;
     const init = unwrapTsValue(node.init);
+    declarations.push({ name: node.id.name, init });
     if ((init?.type === "Literal" && typeof init.value === "number") || init?.type === "NumericLiteral") {
       numericLocals.add(node.id.name);
+    }
+    if (init?.type === "CallExpression" && init.callee?.type === "Identifier"
+      && NUMBER_RETURNING_FUNCS.has(init.callee.name)) {
+      numericLocals.add(node.id.name);
+      floatLocals.add(node.id.name);
     }
   });
   const suggestsFloat = (node) => {
@@ -4094,7 +4141,10 @@ function collectFloatLocals(body) {
     if ((value.type === "Literal" && typeof value.value === "number") || value.type === "NumericLiteral") {
       return !Number.isInteger(value.value);
     }
-    if (value.type === "CallExpression") return true;
+    if (value.type === "Identifier") return floatLocals.has(value.name);
+    if (value.type === "CallExpression") {
+      return value.callee?.type !== "Identifier" || NUMBER_RETURNING_FUNCS.has(value.callee.name);
+    }
     if (value.type === "MemberExpression" || value.type === "OptionalMemberExpression") {
       return value.computed || value.property?.name !== "length";
     }
@@ -4104,10 +4154,41 @@ function collectFloatLocals(body) {
     if (value.type === "UnaryExpression") return suggestsFloat(value.argument);
     return false;
   };
+  const suggestsDeclaredFloat = (node) => {
+    const value = unwrapTsValue(node);
+    if (!value) return false;
+    if (value.type === "Identifier") return floatLocals.has(value.name);
+    if (value.type === "CallExpression") {
+      return value.callee?.type === "Identifier" && NUMBER_RETURNING_FUNCS.has(value.callee.name);
+    }
+    if (value.type === "BinaryExpression" || value.type === "LogicalExpression") {
+      return suggestsDeclaredFloat(value.left) || suggestsDeclaredFloat(value.right);
+    }
+    return false;
+  };
   walk(body, (node) => {
-    if (node.type !== "AssignmentExpression" || node.left?.type !== "Identifier") return;
-    if (numericLocals.has(node.left.name) && suggestsFloat(node.right)) floatLocals.add(node.left.name);
+    if (node.type === "AssignmentExpression" && node.left?.type === "Identifier") assignments.push(node);
   });
+  // Type flow reaches a fixed point: helper result -> alias -> accumulator.
+  // This is intentionally local to one function and never crosses callbacks.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const { name, init } of declarations) {
+      if (!floatLocals.has(name) && suggestsDeclaredFloat(init)) {
+        numericLocals.add(name);
+        floatLocals.add(name);
+        changed = true;
+      }
+    }
+    for (const assignment of assignments) {
+      const name = assignment.left.name;
+      if (numericLocals.has(name) && !floatLocals.has(name) && suggestsFloat(assignment.right)) {
+        floatLocals.add(name);
+        changed = true;
+      }
+    }
+  }
   return floatLocals;
 }
 
@@ -5192,6 +5273,28 @@ function convertEnvelope(payload) {
   DICT_RETURNING_FUNCS = new Set();
   DICT_RETURN_FIELD_TYPES = new Map();
   MODULE_MAP_BINDINGS = new Set();
+  NUMBER_RETURNING_FUNCS = new Set();
+  LOCAL_CLASSES = new Set();
+  for (const item of body) {
+    const declaration = item?.type === "ExportNamedDeclaration" ? item.declaration : item;
+    if (declaration?.type === "ClassDeclaration" && declaration.id?.type === "Identifier") {
+      LOCAL_CLASSES.add(declaration.id.name);
+    }
+    if (declaration?.type === "FunctionDeclaration" && declaration.id?.name
+      && declaration.returnType?.typeAnnotation?.type === "TSNumberKeyword") {
+      NUMBER_RETURNING_FUNCS.add(declaration.id.name);
+    }
+    if (declaration?.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations ?? []) {
+        const init = declarator.init;
+        if (declarator.id?.type === "Identifier"
+          && (init?.type === "ArrowFunctionExpression" || init?.type === "FunctionExpression")
+          && init.returnType?.typeAnnotation?.type === "TSNumberKeyword") {
+          NUMBER_RETURNING_FUNCS.add(declarator.id.name);
+        }
+      }
+    }
+  }
   const typeAliases = collectTypeAliases(body);
   // V2.12: collect functions whose TS return annotation is an object type —
   // their call results are dict values, so member access lowers to subscripts.
@@ -5251,24 +5354,6 @@ function convertEnvelope(payload) {
       }
     };
     walkReturns(body);
-  }
-  // V2.12: local class names (for `new LocalClass(...)` -> call construction).
-  LOCAL_CLASSES = new Set();
-  {
-    const seenCls = new Set();
-    const walkClasses = (n) => {
-      if (!n || typeof n !== "object" || seenCls.has(n)) return;
-      seenCls.add(n);
-      if (Array.isArray(n)) { for (const x of n) walkClasses(x); return; }
-      if (n.type === "ClassDeclaration" && n.id?.type === "Identifier") LOCAL_CLASSES.add(n.id.name);
-      for (const k of Object.keys(n)) {
-        if (k === "type" || k === "loc" || k === "range" || k === "start" || k === "end"
-          || k.endsWith("Comments")) continue;
-        const v = n[k];
-        if (v && typeof v === "object") walkClasses(v);
-      }
-    };
-    walkClasses(body);
   }
   // V2.12: module-level regex-const names (for `.test(x)` on them).
   REGEX_CONSTS = new Set();
