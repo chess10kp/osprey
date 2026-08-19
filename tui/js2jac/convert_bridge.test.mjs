@@ -114,6 +114,49 @@ test("repeat casts a TS number count to int", () => {
   assertJacChecks(result.jac);
 });
 
+test("C-style index loops lower to checked Jac while loops", () => {
+  const result = convert(`
+    export function sum(values: number[]): number {
+      let total: number = 0;
+      for (let i = 0; i < values.length; ++i) {
+        total += values[i];
+      }
+      for (let i = values.length - 1; i >= 0; i -= 1) {
+        total += values[i];
+      }
+      return total;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /i: int = 0;\n    while \(i < len\(values\)\)/);
+  assert.match(result.jac, /i \+= 1;/);
+  assert.match(result.jac, /i -= 1;/);
+  assertJacChecks(result.jac);
+});
+
+test("binary in expressions preserve dictionary-key membership", () => {
+  const result = convert(`
+    export function hasName(value: string): boolean {
+      return value in { name: true };
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /return \(value in \{"name": True\}\);/);
+  assertJacChecks(result.jac);
+});
+
+test("TypeScript type-predicate returns lower to bool", () => {
+  const result = convert(`
+    export function isText(value: unknown): value is string {
+      return typeof value === "string";
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /def:pub isText\(value: any\) -> bool/);
+  assert.match(result.jac, /return isinstance\(value, str\);/);
+  assertJacChecks(result.jac);
+});
+
 test("discard-result splice deletes start through start plus count", () => {
   const result = convert(`
     export function remove(values: string[], start: number, count: number): void {
@@ -243,7 +286,7 @@ test("nullish coalescing evaluates a side-effecting left operand once", () => {
   `);
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.equal((result.jac.match(/nextValue\(\)/g) ?? []).length, 1);
-  assert.match(result.jac, /def nextValue\(\) -> str \| None;/);
+  assert.match(result.jac, /def nextValue -> str \| None;/);
   assert.match(result.jac, /lambda \(_jx_null0: any\)/);
   assertJacChecks(result.jac);
 });

@@ -401,6 +401,10 @@ function joinUnionTypes(types) {
 
 function tsTypeToJac(typeNode, path, diags) {
   const kind = typeNode?.type ?? "";
+  // A TypeScript type predicate (`value is Foo`) is a refinement annotation on
+  // a boolean-returning function. Jac cannot express the refinement at the
+  // signature boundary, but preserving the runtime result as `bool` is exact.
+  if (kind === "TSTypePredicate") return "bool";
   if (kind === "TSStringKeyword") return "str";
   if (kind === "TSNumberKeyword") return "float";
   if (kind === "TSBooleanKeyword") return "bool";
@@ -3491,6 +3495,9 @@ const BINARY_OPS = {
   "==": "==", "!=": "!=",
   "===": "==", "!==": "!=",
   ">": ">", "<": "<", ">=": ">=", "<=": "<=",
+  // Both languages define this as membership of the left value in the right
+  // collection. Object prototype-chain details remain a runtime-model concern.
+  "in": "in",
 };
 const LOGICAL_OPS = {
   "&&": "and",
@@ -4434,17 +4441,16 @@ function tryEmitCStyleFor(stmt, ctx) {
   let updateLine = null;
   if (update.type === "UpdateExpression"
     && update.argument?.type === "Identifier"
-    && update.argument.name === varName
-    && !update.prefix) {
+    && update.argument.name === varName) {
     const delta = update.operator === "++" ? "1" : "-1";
     updateLine = `${varName} += ${delta};`;
   } else if (update.type === "AssignmentExpression"
     && update.left?.type === "Identifier"
     && update.left.name === varName
-    && update.operator === "+=") {
+    && (update.operator === "+=" || update.operator === "-=")) {
     const rhs = emitExpr(update.right, path, diags, ctx);
     if (rhs === null) return null;
-    updateLine = `${varName} += ${rhs};`;
+    updateLine = `${varName} ${update.operator} ${rhs};`;
   } else {
     return null;
   }
@@ -4933,7 +4939,10 @@ function parseDeclareFunction(decl, exported, path, diags) {
   const retType = returnAnn ? tsTypeToJac(returnAnn, path, diags) : "any";
   if (!retType) return null;
   const pubKw = exported ? ":pub" : "";
-  const paramText = jacParams.length ? `(${jacParams.join(", ")})` : "()";
+  // Jac's canonical zero-parameter declaration omits parentheses. Besides
+  // avoiding W3005, this keeps source-level call counting meaningful in
+  // single-evaluation regression tests.
+  const paramText = jacParams.length ? `(${jacParams.join(", ")})` : "";
   return {
     jac: `def${pubKw} ${identText(name)}${paramText} -> ${retType};\n`,
     mappings: [{
