@@ -212,6 +212,17 @@ test("Math max lowers a spread iterable with numeric normalization", () => {
   assertJacChecks(result.jac);
 });
 
+test("discarded push of one spread iterable lowers to list extension", () => {
+  const result = convert(`
+    export function appendAll(values: string[], added: string[]): void {
+      values.push(...added);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /values\.extend\(added\);/);
+  assertJacChecks(result.jac);
+});
+
 test("zero-argument Math max fails closed", () => {
   const result = convert(`
     export function largest(): number { return Math.max(); }

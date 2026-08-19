@@ -1816,6 +1816,13 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     if (recv === null) return null;
     const arg = node.arguments?.[0];
     if (!arg) return undefined;
+    // A single spread push is exactly list extension when the JS return value
+    // (the new length) is discarded by the surrounding statement.
+    if ((node.arguments ?? []).length === 1 && arg.type === "SpreadElement") {
+      const spreadText = emitExpr(arg.argument, path, diags, ctx);
+      if (spreadText === null) return null;
+      return `${recv}.extend(${spreadText})`;
+    }
     const argText = emitExpr(arg, path, diags, ctx);
     if (argText === null) return null;
     return `${recv}.append(${argText})`;
