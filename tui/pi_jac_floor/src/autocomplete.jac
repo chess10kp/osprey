@@ -129,97 +129,53 @@ obj:pub CombinedAutocompleteProvider {
         self.basePath = basePath;
         self.fdPath = fdPath;
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | async getSuggestions(
-    # | 		lines: string[],
-    # | 		cursorLine: number,
-    # | 		cursorCol: number,
-    # | 		options: { signal: AbortSignal; force?: boolean },
-    # | 	): Promise<AutocompleteSuggestions | null> {
-    # | 		const currentLine = lines[cursorLine] || "";
-    # | 		const textBeforeCursor = currentLine.slice(0, cursorCol);
-    # | 
-    # | 		const atPrefix = this.extractAtPrefix(textBeforeCursor);
-    # | 		if (atPrefix) {
-    # | 			const { rawPrefix, isQuotedPrefix } = parsePathPrefix(atPrefix);
-    # | 			const suggestions = await this.getFuzzyFileSuggestions(rawPrefix, {
-    # | 				isQuotedPrefix,
-    # | 				signal: options.signal,
-    # | 			});
-    # | 			if (suggestions.length === 0) return null;
-    # | 
-    # | 			return {
-    # | 				items: suggestions,
-    # | 				prefix: atPrefix,
-    # | 			};
-    # | 		}
-    # | 
-    # | 		if (!options.force && textBeforeCursor.startsWith("/")) {
-    # | 			const spaceIndex = textBeforeCursor.indexOf(" ");
-    # | 
-    # | 			if (spaceIndex === -1) {
-    # | 				const prefix = textBeforeCursor.slice(1);
-    # | 				const commandItems = this.commands.map((cmd) => {
-    # | 					const name = "name" in cmd ? cmd.name : cmd.value;
-    # | 					const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
-    # | 					const desc = cmd.description ?? "";
-    # | 					const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
-    # | 					return {
-    # | 						name,
-    # | 						label: name,
-    # | 						description: fullDesc || undefined,
-    # | 					};
-    # | 				});
-    # | 
-    # | 				const filtered = fuzzyFilter(commandItems, prefix, (item) => item.name).map((item) => ({
-    # | 					value: item.name,
-    # | 					label: item.label,
-    # | 					...(item.description && { description: item.description }),
-    # | 				}));
-    # | 
-    # | 				if (filtered.length === 0) return null;
-    # | 
-    # | 				return {
-    # | 					items: filtered,
-    # | 					prefix: textBeforeCursor,
-    # | 				};
-    # | 			}
-    # | 
-    # | 			const commandName = textBeforeCursor.slice(1, spaceIndex);
-    # | 			const argumentText = textBeforeCursor.slice(spaceIndex + 1);
-    # | 
-    # | 			const command = this.commands.find((cmd) => {
-    # | 				const name = "name" in cmd ? cmd.name : cmd.value;
-    # | 				return name === commandName;
-    # | 			});
-    # | 			if (!command || !("getArgumentCompletions" in command) || !command.getArgumentCompletions) {
-    # | 				return null;
-    # | 			}
-    # | 
-    # | 			const argumentSuggestions = await command.getArgumentCompletions(argumentText);
-    # | 			if (!Array.isArray(argumentSuggestions) || argumentSuggestions.length === 0) {
-    # | 				return null;
-    # | 			}
-    # | 
-    # | 			return {
-    # | 				items: argumentSuggestions,
-    # | 				prefix: argumentText,
-    # | 			};
-    # | 		}
-    # | 
-    # | 		const pathMatch = this.extractPathPrefix(textBeforeCursor, options.force ?? false);
-    # | 		if (pathMatch === null) {
-    # | 			return null;
-    # | 		}
-    # | 
-    # | 		const suggestions = this.getFileSuggestions(pathMatch);
-    # | 		if (suggestions.length === 0) return null;
-    # | 
-    # | 		return {
-    # | 			items: suggestions,
-    # | 			prefix: pathMatch,
-    # | 		};
-    # | 	}
+    async def getSuggestions(lines: list[str], cursorLine: float, cursorCol: float, options: dict[str, any | bool | None]) -> any {
+        currentLine = (lines[cursorLine] or "");
+        textBeforeCursor = currentLine[0:cursorCol];
+        atPrefix = self.extractAtPrefix(textBeforeCursor);
+        if atPrefix {
+            _jx_d0: any = parsePathPrefix(atPrefix);
+            rawPrefix = _jx_d0.rawPrefix;
+            isQuotedPrefix = _jx_d0.isQuotedPrefix;
+            suggestions = await self.getFuzzyFileSuggestions(rawPrefix, {"isQuotedPrefix": isQuotedPrefix, "signal": options.signal});
+            if (len(suggestions) == 0) {
+                return None;
+            }
+            return {"items": suggestions, "prefix": atPrefix};
+        }
+        if (not options.force and textBeforeCursor.startswith("/")) {
+            spaceIndex = (-1 if " " not in textBeforeCursor else textBeforeCursor.index(" "));
+            if (spaceIndex == -1) {
+                prefix = textBeforeCursor[1:];
+                commandItems = self.commands.map(lambda (cmd: any) -> any { name = (cmd.name if ("name" in cmd) else cmd.value); hint = (cmd.argumentHint if (("argumentHint" in cmd) and cmd.argumentHint) else None); desc = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else ""); })(cmd.description)); fullDesc = ((f"{hint} — {desc}" if desc else hint) if hint else desc); return {"name": name, "label": name, "description": (fullDesc or None)}; });
+                filtered = [{"value": item.name, "label": item.label, **(item.description and {"description": item.description})} for item in fuzzyFilter(commandItems, prefix, lambda (item: any) -> any { return item.name; })];
+                if (len(filtered) == 0) {
+                    return None;
+                }
+                return {"items": filtered, "prefix": textBeforeCursor};
+            }
+            commandName = textBeforeCursor[1:spaceIndex];
+            argumentText = textBeforeCursor[(spaceIndex + 1):];
+            command = self.commands.find(lambda (cmd: any) -> any { name = (cmd.name if ("name" in cmd) else cmd.value); return (name == commandName); });
+            if ((not command or not ("getArgumentCompletions" in command)) or not command.getArgumentCompletions) {
+                return None;
+            }
+            argumentSuggestions = await command.getArgumentCompletions(argumentText);
+            if (not Array.isArray(argumentSuggestions) or (len(argumentSuggestions) == 0)) {
+                return None;
+            }
+            return {"items": argumentSuggestions, "prefix": argumentText};
+        }
+        pathMatch = self.extractPathPrefix(textBeforeCursor, ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else False); })(options.force)));
+        if (pathMatch == None) {
+            return None;
+        }
+        suggestions = self.getFileSuggestions(pathMatch);
+        if (len(suggestions) == 0) {
+            return None;
+        }
+        return {"items": suggestions, "prefix": pathMatch};
+    }
     def applyCompletion(lines: list[str], cursorLine: float, cursorCol: float, item: any, prefix: str) -> dict[str, list[str] | float] {
         currentLine = (lines[cursorLine] or "");
         beforePrefix = currentLine[0:(cursorCol - len(prefix))];
@@ -265,7 +221,7 @@ obj:pub CombinedAutocompleteProvider {
     }
     def extractAtPrefix(text: str) -> str | None {
         quotedPrefix = extractQuotedPrefix(text);
-        if ((lambda (_jx_opt2: any) -> any { return (_jx_opt2.startsWith("@\"") if _jx_opt2 is not None else None); })(quotedPrefix)) {
+        if ((lambda (_jx_opt4: any) -> any { return (_jx_opt4.startsWith("@\"") if _jx_opt4 is not None else None); })(quotedPrefix)) {
             return quotedPrefix;
         }
         lastDelimiterIndex: float = float(findLastDelimiter(text));
@@ -471,45 +427,26 @@ obj:pub CombinedAutocompleteProvider {
         }
         try {
             scopedQuery = self.resolveScopedFuzzyQuery(query);
-            fdBaseDir = ((lambda (_jx_null4: any) -> any { return (_jx_null4 if _jx_null4 is not None else self.basePath); })(((lambda (_jx_opt3: any) -> any { return (_jx_opt3.baseDir if _jx_opt3 is not None else None); })(scopedQuery))));
-            fdQuery = ((lambda (_jx_null6: any) -> any { return (_jx_null6 if _jx_null6 is not None else query); })(((lambda (_jx_opt5: any) -> any { return (_jx_opt5.query if _jx_opt5 is not None else None); })(scopedQuery))));
-            # JS2JAC-HOLE[E7215] `this` is not supported (component helpers must not rely on receiver binding):
-            # | const entries = await walkDirectoryWithFd(fdBaseDir, this.fdPath, fdQuery, 100, options.signal);
+            fdBaseDir = ((lambda (_jx_null6: any) -> any { return (_jx_null6 if _jx_null6 is not None else self.basePath); })(((lambda (_jx_opt5: any) -> any { return (_jx_opt5.baseDir if _jx_opt5 is not None else None); })(scopedQuery))));
+            fdQuery = ((lambda (_jx_null8: any) -> any { return (_jx_null8 if _jx_null8 is not None else query); })(((lambda (_jx_opt7: any) -> any { return (_jx_opt7.query if _jx_opt7 is not None else None); })(scopedQuery))));
+            entries = await walkDirectoryWithFd(fdBaseDir, self.fdPath, fdQuery, 100, options.signal);
             if options.signal.aborted {
                 return [];
             }
-            # JS2JAC-HOLE[transitive-stmt] references dropped binding 'entries':
-            # | const scoredEntries = entries
-            # | 				.map((entry) => ({
-            # | 					...entry,
-            # | 					score: fdQuery ? this.scoreEntry(entry.path, fdQuery, entry.isDirectory) : 1,
-            # | 				}))
-            # | 				.filter((entry) => entry.score > 0);
-            # JS2JAC-HOLE[transitive-stmt] references dropped binding 'scoredEntries':
-            # | scoredEntries.sort((a, b) => b.score - a.score);
-            # JS2JAC-HOLE[transitive-stmt] references dropped binding 'scoredEntries':
-            # | const topEntries = scoredEntries.slice(0, 20);
+            scoredEntries = [entry_j for entry_j in [{**entry_j, "score": (self.scoreEntry(entry_j.path, fdQuery, entry_j.isDirectory) if fdQuery else 1)} for entry in entries] if (entry_j.score > 0)];
+            scoredEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort["score"]; }, reverse=True);
+            topEntries = scoredEntries[0:20];
             suggestions: list[any] = [];
-            # JS2JAC-HOLE[transitive-stmt] references dropped binding 'topEntries':
-            # | for (const { path: entryPath, isDirectory } of topEntries) {
-            # | 				const pathWithoutSlash = isDirectory ? entryPath.slice(0, -1) : entryPath;
-            # | 				const displayPath = scopedQuery
-            # | 					? this.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash)
-            # | 					: pathWithoutSlash;
-            # | 				const entryName = basename(pathWithoutSlash);
-            # | 				const completionPath = isDirectory ? `${displayPath}/` : displayPath;
-            # | 				const value = buildCompletionValue(completionPath, {
-            # | 					isDirectory,
-            # | 					isAtPrefix: true,
-            # | 					isQuotedPrefix: options.isQuotedPrefix,
-            # | 				});
-            # | 
-            # | 				suggestions.push({
-            # | 					value,
-            # | 					label: entryName + (isDirectory ? "/" : ""),
-            # | 					description: displayPath,
-            # | 				});
-            # | 			}
+            for _jx_item0 in topEntries {
+                entryPath = _jx_item0.path;
+                isDirectory = _jx_item0.isDirectory;
+                pathWithoutSlash = (entryPath[0:-1] if isDirectory else entryPath);
+                displayPath = (self.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash) if scopedQuery else pathWithoutSlash);
+                entryName = basename(pathWithoutSlash);
+                completionPath = (f"{displayPath}/" if isDirectory else displayPath);
+                value = buildCompletionValue(completionPath, {"isDirectory": isDirectory, "isAtPrefix": True, "isQuotedPrefix": options.isQuotedPrefix});
+                suggestions.append({"value": value, "label": (entryName + ("/" if isDirectory else "")), "description": displayPath});
+            }
             return suggestions;
         }
         except Exception {

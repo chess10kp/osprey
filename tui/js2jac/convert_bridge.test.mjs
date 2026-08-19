@@ -91,6 +91,20 @@ test("async class methods emit Jac async abilities and preserve await", () => {
   assertJacChecks(result.jac);
 });
 
+test("await preserves class receiver context in nested call arguments", () => {
+  const result = convert(`
+    export class Loader {
+      client: any;
+      async load(value: any): Promise<string> {
+        return await fetchValue(this.client, value);
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /return await fetchValue\(self\.client, value\);/);
+  assertJacChecks(result.jac);
+});
+
 test("class method object parameters lower through a synthetic typed boundary", () => {
   const result = convert(`
     export class FocusManager {
@@ -171,6 +185,39 @@ test("binary in expressions preserve dictionary-key membership", () => {
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /return \(value in \{"name": True\}\);/);
   assertJacChecks(result.jac);
+});
+
+test("switch groups consecutive empty case labels into one branch", () => {
+  const result = convert(`
+    export function anchor(value: string): number {
+      switch (value) {
+        case "left":
+        case "center":
+        case "right":
+          return 1;
+        case "bottom":
+          return 2;
+        default:
+          return 0;
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /\(_sw == "left"\) or \(_sw == "center"\) or \(_sw == "right"\)/);
+  assertJacChecks(result.jac);
+});
+
+test("switch still rejects genuine statement fallthrough", () => {
+  const result = convert(`
+    export function unsafe(value: string): number {
+      switch (value) {
+        case "left": value = "right";
+        case "right": return 1;
+      }
+    }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7230"));
 });
 
 test("TypeScript type-predicate returns lower to bool", () => {
@@ -561,6 +608,29 @@ test("bitwise operators preserve masks and shifts", () => {
   assert.match(result.jac, /float\(int\(value\) & int\(float\(~int\(lock\)\)\)\)/);
   assert.match(result.jac, /float\(int\(1\) << int\(4\)\)/);
   assertJacChecks(result.jac);
+});
+
+test("statement bitwise compound assignments coerce simple bindings", () => {
+  const result = convert(`
+    export function mask(enabled: boolean): number {
+      let value: number = 0;
+      if (enabled) value |= 4;
+      value ^= 1;
+      return value;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /value = float\(int\(value\) \| int\(4\)\);/);
+  assert.match(result.jac, /value = float\(int\(value\) \^ int\(1\)\);/);
+  assertJacChecks(result.jac);
+});
+
+test("bitwise compound assignment to a member remains fail closed", () => {
+  const result = convert(`
+    export function mask(box: any): void { box.value |= 4; }
+  `);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diag) => diag.code === "E7215"));
 });
 
 test("for-of flat destructuring binds through a synthetic item", () => {

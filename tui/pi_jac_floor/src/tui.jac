@@ -669,49 +669,39 @@ obj:pub TUI(Container) {
             col = self.resolveAnchorCol(anchor, width, availWidth, marginLeft);
         }
         if (opt.offsetY != None) {
-            row += opt.offsetY;
+            row = float(row + opt.offsetY);
         }
         if (opt.offsetX != None) {
-            col += opt.offsetX;
+            col = float(col + opt.offsetX);
         }
         row = max(float(marginTop), float(min(float(row), float(((termHeight - marginBottom) - effectiveHeight)))));
         col = max(float(marginLeft), float(min(float(col), float(((termWidth - marginRight) - width)))));
         return {"width": width, "row": row, "col": col, "maxHeight": maxHeight};
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private resolveAnchorRow(anchor: OverlayAnchor, height: number, availHeight: number, marginTop: number): number {
-    # | 		switch (anchor) {
-    # | 			case "top-left":
-    # | 			case "top-center":
-    # | 			case "top-right":
-    # | 				return marginTop;
-    # | 			case "bottom-left":
-    # | 			case "bottom-center":
-    # | 			case "bottom-right":
-    # | 				return marginTop + availHeight - height;
-    # | 			case "left-center":
-    # | 			case "center":
-    # | 			case "right-center":
-    # | 				return marginTop + Math.floor((availHeight - height) / 2);
-    # | 		}
-    # | 	}
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private resolveAnchorCol(anchor: OverlayAnchor, width: number, availWidth: number, marginLeft: number): number {
-    # | 		switch (anchor) {
-    # | 			case "top-left":
-    # | 			case "left-center":
-    # | 			case "bottom-left":
-    # | 				return marginLeft;
-    # | 			case "top-right":
-    # | 			case "right-center":
-    # | 			case "bottom-right":
-    # | 				return marginLeft + availWidth - width;
-    # | 			case "top-center":
-    # | 			case "center":
-    # | 			case "bottom-center":
-    # | 				return marginLeft + Math.floor((availWidth - width) / 2);
-    # | 		}
-    # | 	}
+    override def resolveAnchorRow(anchor: any, height: float, availHeight: float, marginTop: float) -> float {
+        _sw = anchor;
+        if (_sw == "top-left") or (_sw == "top-center") or (_sw == "top-right") {
+            return marginTop;
+        }
+        elif (_sw == "bottom-left") or (_sw == "bottom-center") or (_sw == "bottom-right") {
+            return ((marginTop + availHeight) - height);
+        }
+        elif (_sw == "left-center") or (_sw == "center") or (_sw == "right-center") {
+            return (marginTop + int((((availHeight - height) / 2)) // 1));
+        }
+    }
+    override def resolveAnchorCol(anchor: any, width: float, availWidth: float, marginLeft: float) -> float {
+        _sw = anchor;
+        if (_sw == "top-left") or (_sw == "left-center") or (_sw == "bottom-left") {
+            return marginLeft;
+        }
+        elif (_sw == "top-right") or (_sw == "right-center") or (_sw == "bottom-right") {
+            return ((marginLeft + availWidth) - width);
+        }
+        elif (_sw == "top-center") or (_sw == "center") or (_sw == "bottom-center") {
+            return (marginLeft + int((((availWidth - width) / 2)) // 1));
+        }
+    }
     override def compositeOverlays(lines: list[str], termWidth: float, termHeight: float) -> list[str] {
         if (len(self.overlayStack) == 0) {
             return lines;

@@ -1484,8 +1484,7 @@ obj:pub Editor {
         # | 
         # | 			await this.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
         # | 		})();
-        # JS2JAC-HOLE[E7215] `this` is not supported (component helpers must not rely on receiver binding):
-        # | await this.autocompleteRequestTask;
+        await self.autocompleteRequestTask;
     }
     def setAutocompleteTriggerCharacters(triggerCharacters: list[str]) -> None {
         next_j = [*DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS];
@@ -1507,58 +1506,37 @@ obj:pub Editor {
         textBeforeCursor = currentLine[0:self.state.cursorCol];
         return (ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS if self.autocompleteDebouncePattern.test(textBeforeCursor) else 0);
     }
-    # JS2JAC-HOLE[E7205] Class method produced no output:
-    # | private async runAutocompleteRequest(
-    # | 		requestId: number,
-    # | 		controller: AbortController,
-    # | 		snapshotText: string,
-    # | 		snapshotLine: number,
-    # | 		snapshotCol: number,
-    # | 		options: { force: boolean; explicitTab: boolean },
-    # | 	): Promise<void> {
-    # | 		if (!this.autocompleteProvider) return;
-    # | 
-    # | 		const suggestions = await this.autocompleteProvider.getSuggestions(
-    # | 			this.state.lines,
-    # | 			this.state.cursorLine,
-    # | 			this.state.cursorCol,
-    # | 			{ signal: controller.signal, force: options.force },
-    # | 		);
-    # | 
-    # | 		if (!this.isAutocompleteRequestCurrent(requestId, controller, snapshotText, snapshotLine, snapshotCol)) {
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		this.autocompleteAbort = undefined;
-    # | 
-    # | 		if (!suggestions || !Array.isArray(suggestions.items) || suggestions.items.length === 0) {
-    # | 			this.cancelAutocomplete();
-    # | 			this.tui.requestRender();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		if (options.force && options.explicitTab && suggestions.items.length === 1) {
-    # | 			const item = suggestions.items[0]!;
-    # | 			this.pushUndoSnapshot();
-    # | 			this.lastAction = null;
-    # | 			const result = this.autocompleteProvider.applyCompletion(
-    # | 				this.state.lines,
-    # | 				this.state.cursorLine,
-    # | 				this.state.cursorCol,
-    # | 				item,
-    # | 				suggestions.prefix,
-    # | 			);
-    # | 			this.state.lines = result.lines;
-    # | 			this.state.cursorLine = result.cursorLine;
-    # | 			this.setCursorCol(result.cursorCol);
-    # | 			if (this.onChange) this.onChange(this.getText());
-    # | 			this.tui.requestRender();
-    # | 			return;
-    # | 		}
-    # | 
-    # | 		this.applyAutocompleteSuggestions(suggestions, options.force ? "force" : "regular");
-    # | 		this.tui.requestRender();
-    # | 	}
+    async def runAutocompleteRequest(requestId: float, controller: any, snapshotText: str, snapshotLine: float, snapshotCol: float, options: dict[str, bool]) -> any {
+        if not self.autocompleteProvider {
+            return;
+        }
+        suggestions = await self.autocompleteProvider.getSuggestions(self.state.lines, self.state.cursorLine, self.state.cursorCol, {"signal": controller.signal, "force": options.force});
+        if not self.isAutocompleteRequestCurrent(requestId, controller, snapshotText, snapshotLine, snapshotCol) {
+            return;
+        }
+        self.autocompleteAbort = None;
+        if ((not suggestions or not Array.isArray(suggestions.items)) or (len(suggestions.items) == 0)) {
+            self.cancelAutocomplete();
+            self.tui.requestRender();
+            return;
+        }
+        if ((options.force and options.explicitTab) and (len(suggestions.items) == 1)) {
+            item = (suggestions.items[0] as any);
+            self.pushUndoSnapshot();
+            self.lastAction = None;
+            result = self.autocompleteProvider.applyCompletion(self.state.lines, self.state.cursorLine, self.state.cursorCol, item, suggestions.prefix);
+            self.state.lines = result.lines;
+            self.state.cursorLine = result.cursorLine;
+            self.setCursorCol(result.cursorCol);
+            if self.onChange {
+                self.onChange(self.getText());
+            }
+            self.tui.requestRender();
+            return;
+        }
+        self.applyAutocompleteSuggestions(suggestions, ("force" if options.force else "regular"));
+        self.tui.requestRender();
+    }
     def isAutocompleteRequestCurrent(requestId: float, controller: any, snapshotText: str, snapshotLine: float, snapshotCol: float) -> bool {
         return ((((not controller.signal.aborted and (requestId == self.autocompleteRequestId)) and (self.getText() == snapshotText)) and (self.state.cursorLine == snapshotLine)) and (self.state.cursorCol == snapshotCol));
     }

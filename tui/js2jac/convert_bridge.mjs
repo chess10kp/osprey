@@ -2218,6 +2218,17 @@ function emitStatement(stmt, ctx) {
       if (left === null) return null;
       let right = emitExpr(expr.right, path, diags, ctx);
       if (right === null) return null;
+      // JS bitwise compound assignments coerce both operands to integers and
+      // store a number. Restrict this lowering to a simple binding so the LHS
+      // is evaluated exactly once; member/index targets remain fail-closed.
+      if (["|=", "&=", "^="].includes(expr.operator)
+        && expr.left?.type === "Identifier") {
+        const bitOp = expr.operator.slice(0, -1);
+        const value = `int(${left}) ${bitOp} int(${right})`;
+        return [ctx.floatLocals?.has(expr.left.name)
+          ? `${left} = float(${value});`
+          : `${left} = ${value};`];
+      }
       const op = COMPOUND_ASSIGN_OPS[expr.operator];
       if (op === undefined) {
         diags.push(diag("E7215", `Unsupported assignment operator: ${expr.operator}`, path));
@@ -2345,22 +2356,31 @@ function emitStatement(stmt, ctx) {
     if (disc === null) return null;
     const groups = [];
     let defaultGroup = null;
+    let pendingTests = [];
     for (const c of stmt.cases ?? []) {
       if (c.test === null || c.test === undefined) {
         if (defaultGroup) {
           diags.push(diag("E7230", "Multiple switch defaults are not supported", path));
           return null;
         }
+        if (pendingTests.length) {
+          // Empty named labels falling into default would require the named
+          // branch and the final else branch to share a body. Keep that rarer
+          // shape fail-closed rather than duplicating statements.
+          diags.push(diag("E7230", "Switch labels falling through to default are not supported", path));
+          return null;
+        }
         defaultGroup = { body: c.consequent ?? [] };
         continue;
       }
-      if ((c.consequent ?? []).length === 0 && groups.length
-        && !groups[groups.length - 1].sealed) {
-        groups[groups.length - 1].tests.push(c.test);
-        continue;
+      pendingTests.push(c.test);
+      if ((c.consequent ?? []).length > 0) {
+        groups.push({ tests: pendingTests, body: c.consequent ?? [] });
+        pendingTests = [];
       }
-      groups.push({ tests: [c.test], body: c.consequent ?? [], sealed: false });
     }
+    // Trailing empty labels are a valid no-op branch.
+    if (pendingTests.length) groups.push({ tests: pendingTests, body: [] });
     const endsWithJump = (body) => {
       const last = body[body.length - 1];
       if (!last) return false;
@@ -3247,7 +3267,10 @@ function emitExpr(node, path, diags, ctx = {}) {
     // in an async helper body we are emitting as `async def`. Nested async
     // callbacks are still rejected upstream (E7215), so this never leaks into a
     // sync context.
-    const inner = emitExpr(node.argument, path, diags);
+    // Preserve the enclosing receiver/dict context while descending.  Dropping
+    // it here made `await call(this.field)` inside class methods reject `this`
+    // even though ordinary class expressions correctly lower it to `self`.
+    const inner = emitExpr(node.argument, path, diags, ctx);
     if (inner === null) return null;
     return `await ${inner}`;
   }
@@ -4268,7 +4291,14 @@ function collectFloatLocals(body) {
     }
   };
   walk(body, (node) => {
-    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier" || node.id.typeAnnotation) return;
+    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier") return;
+    if (node.id.typeAnnotation) {
+      if (node.id.typeAnnotation.typeAnnotation?.type === "TSNumberKeyword") {
+        numericLocals.add(node.id.name);
+        floatLocals.add(node.id.name);
+      }
+      return;
+    }
     const init = unwrapTsValue(node.init);
     declarations.push({ name: node.id.name, init });
     if ((init?.type === "Literal" && typeof init.value === "number") || init?.type === "NumericLiteral") {
