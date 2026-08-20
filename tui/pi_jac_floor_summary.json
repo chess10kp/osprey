@@ -2,72 +2,79 @@
   {
     "path": "src/autocomplete.ts",
     "status": "floor",
-    "bytes": 22325,
+    "bytes": 22348,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
+  },
+  {
+    "path": "src/autocomplete_support.jac",
+    "status": "adapter",
+    "bytes": 2963,
+    "holes": 0,
+    "jac_check": true
   },
   {
     "path": "src/components/box.ts",
     "status": "floor",
-    "bytes": 3234,
+    "bytes": 3439,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/cancellable-loader.ts",
     "status": "floor",
-    "bytes": 795,
+    "bytes": 1312,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/editor.ts",
     "status": "floor",
-    "bytes": 69760,
+    "bytes": 73194,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/image.ts",
     "status": "floor",
-    "bytes": 3427,
+    "bytes": 3631,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/input.ts",
     "status": "floor",
-    "bytes": 12660,
+    "bytes": 12809,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/loader.ts",
     "status": "floor",
-    "bytes": 2775,
+    "bytes": 3793,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/markdown.ts",
     "status": "floor",
-    "bytes": 27784,
+    "bytes": 28303,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/select-list.ts",
     "status": "floor",
-    "bytes": 7513,
+    "bytes": 7381,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/settings-list.ts",
     "status": "floor",
-    "bytes": 7665,
+    "bytes": 8019,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/spacer.ts",
@@ -79,16 +86,16 @@
   {
     "path": "src/components/text.ts",
     "status": "floor",
-    "bytes": 2935,
+    "bytes": 2928,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/components/truncated-text.ts",
     "status": "floor",
-    "bytes": 1540,
+    "bytes": 1533,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/editor-component.ts",
@@ -105,46 +112,74 @@
     "jac_check": true
   },
   {
+    "path": "src/image_support.jac",
+    "status": "adapter",
+    "bytes": 2870,
+    "holes": 0,
+    "jac_check": true
+  },
+  {
     "path": "src/index.ts",
     "status": "floor",
-    "bytes": 1764,
+    "bytes": 1610,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
+  },
+  {
+    "path": "src/input_support.jac",
+    "status": "adapter",
+    "bytes": 5725,
+    "holes": 0,
+    "jac_check": true
   },
   {
     "path": "src/keybindings.ts",
     "status": "floor",
-    "bytes": 6594,
+    "bytes": 6285,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/keys.ts",
     "status": "floor",
-    "bytes": 36297,
+    "bytes": 36561,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/kill-ring.ts",
     "status": "floor",
-    "bytes": 779,
+    "bytes": 783,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
+  },
+  {
+    "path": "src/markdown_support.jac",
+    "status": "adapter",
+    "bytes": 18134,
+    "holes": 0,
+    "jac_check": true
   },
   {
     "path": "src/native-modifiers.ts",
     "status": "floor",
-    "bytes": 1753,
+    "bytes": 1809,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/stdin-buffer.ts",
     "status": "floor",
-    "bytes": 9453,
+    "bytes": 10048,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
+  },
+  {
+    "path": "src/terminal.ts",
+    "status": "floor",
+    "bytes": 13712,
+    "holes": 0,
+    "jac_check": true
   },
   {
     "path": "src/terminal-colors.ts",
@@ -156,43 +191,50 @@
   {
     "path": "src/terminal-image.ts",
     "status": "floor",
-    "bytes": 13367,
+    "bytes": 13559,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
-    "path": "src/terminal.ts",
-    "status": "floor",
-    "bytes": 14340,
+    "path": "src/terminal_support.jac",
+    "status": "adapter",
+    "bytes": 10000,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/tui.ts",
     "status": "floor",
-    "bytes": 53691,
+    "bytes": 58345,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   },
   {
     "path": "src/undo-stack.ts",
     "status": "floor",
-    "bytes": 341,
+    "bytes": 364,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
+  },
+  {
+    "path": "src/unicode_support.jac",
+    "status": "adapter",
+    "bytes": 5448,
+    "holes": 0,
+    "jac_check": true
   },
   {
     "path": "src/utils.ts",
     "status": "floor",
-    "bytes": 31725,
+    "bytes": 31758,
     "holes": 0,
     "jac_check": true
   },
   {
     "path": "src/word-navigation.ts",
     "status": "floor",
-    "bytes": 4710,
+    "bytes": 5128,
     "holes": 0,
-    "jac_check": false
+    "jac_check": true
   }
 ]

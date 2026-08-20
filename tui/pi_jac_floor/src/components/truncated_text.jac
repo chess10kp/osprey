@@ -1,4 +1,4 @@
-import from "../utils.jac" { truncateToWidth, visibleWidth }
+import from ..utils { truncateToWidth, visibleWidth }
 
 obj:pub TruncatedText {
     has text: str;

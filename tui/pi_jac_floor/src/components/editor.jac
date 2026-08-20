@@ -1,13 +1,36 @@
-import from "../keybindings.jac" { getKeybindings }
-import from "../keys.jac" { decodePrintableKey, matchesKey }
-import from "../kill-ring.jac" { KillRing }
-import from "../tui.jac" { CURSOR_MARKER }
-import from "../undo-stack.jac" { UndoStack }
-import from "../utils.jac" { cjkBreakRegex, getGraphemeSegmenter, getWordSegmenter, isWhitespaceChar, truncateToWidth, visibleWidth }
-import from "../word-navigation.jac" { findWordBackward, findWordForward }
-import from "./select-list.jac" { SelectList }
-import from re { compile, search, sub }
+import from ..keybindings { getKeybindings, KeybindingsManager }
+import from ..keys { decodePrintableKey, matchesKey }
+import from ..kill_ring { KillRing }
+import from ..tui { CURSOR_MARKER }
+import from ..undo_stack { UndoStack }
+import from ..utils { cjkBreakRegex, getGraphemeSegmenter, getWordSegmenter, isWhitespaceChar, truncateToWidth, visibleWidth }
+import from ..word_navigation { findWordBackward, findWordForward }
+import from ..unicode_support { Seg }
+import from .select_list { SelectList }
+import from re { compile, finditer, search, sub }
+import from math { isfinite }
 import asyncio;
+
+obj EditorState {
+    has lines: any = [""];
+    has cursorLine: any = 0;
+    has cursorCol: any = 0;
+}
+
+obj RegExp {
+    has source: str;
+    has flags: str = "";
+    has pattern: any = None;
+    def postinit() -> None {
+        self.pattern = compile(self.source);
+    }
+    def test(text: str) -> bool {
+        return (search(self.pattern, text) is not None);
+    }
+    def exec(text: str) -> any | None {
+        return search(self.pattern, text);
+    }
+}
 
 glob graphemeSegmenter = getGraphemeSegmenter();
 
@@ -22,32 +45,32 @@ def isPasteMarker(segment: str) -> bool {
 }
 
 def segmentWithMarkers(text: str, baseSegmenter: any, validIds: any) -> any {
-    if ((validIds.size == 0) or not ("[paste #" in text)) {
+    if ((len(validIds) == 0) or not ("[paste #" in text)) {
         return baseSegmenter.segment(text);
     }
-    markers: list[dict[str, float]] = [];
-    for m in text.matchAll(PASTE_MARKER_REGEX) {
-        id_j = int((m[1] as any), 10);
-        if not validIds.has(id_j) {
+    markers: list[dict[str, int]] = [];
+    for m in finditer(PASTE_MARKER_REGEX, text) {
+        id_j = int(m.group(1));
+        if (id_j not in validIds) {
             continue;
         }
-        markers.append({"start": m.index, "end": (m.index + len(m[0]))});
+        markers.append({"start": m.start(), "end": (m.start() + len(m.group(0)))});
     }
     if (len(markers) == 0) {
         return baseSegmenter.segment(text);
     }
-    baseSegments = baseSegmenter.segment(text);
+    baseSegments: list[any] = list(baseSegmenter.segment(text));
     result: list[any] = [];
     markerIdx = 0;
     for seg in baseSegments {
-        while ((markerIdx < len(markers)) and ((markers[markerIdx] as any).end <= seg.index)) {
+        while ((markerIdx < len(markers)) and (markers[markerIdx]["end"] <= seg.index)) {
             markerIdx += 1;
         }
-        marker = ((markers[markerIdx] as any) if (markerIdx < len(markers)) else None);
-        if ((marker and (seg.index >= marker.start)) and (seg.index < marker.end)) {
-            if (seg.index == marker.start) {
-                markerText = text[marker.start:marker.end];
-                result.append({"segment": markerText, "index": marker.start, "input": text});
+        marker = (markers[markerIdx] if (markerIdx < len(markers)) else None);
+        if (((marker is not None) and (seg.index >= marker["start"])) and (seg.index < marker["end"])) {
+            if (seg.index == marker["start"]) {
+                markerText = text[marker["start"]:marker["end"]];
+                result.append(Seg(segment=markerText, index=marker["start"]));
             }
         }
         else {
@@ -57,7 +80,7 @@ def segmentWithMarkers(text: str, baseSegmenter: any, validIds: any) -> any {
     return result;
 }
 
-def:pub wordWrapLine(line: str, maxWidth: float, preSegmented: list[any]) -> list[any] {
+def:pub wordWrapLine(line: str, maxWidth: float, preSegmented: list[any] | None = None) -> list[any] {
     if (not line or (maxWidth <= 0)) {
         return [{"text": "", "startIndex": 0, "endIndex": 0}];
     }
@@ -67,10 +90,10 @@ def:pub wordWrapLine(line: str, maxWidth: float, preSegmented: list[any]) -> lis
     }
     chunks: list[any] = [];
     segments = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else [*graphemeSegmenter.segment(line)]); })(preSegmented));
-    currentWidth = 0;
+    currentWidth: float = 0;
     chunkStart: float = float(0);
     wrapOppIndex = -1;
-    wrapOppWidth = 0;
+    wrapOppWidth: float = 0;
     i: int = 0;
     while (i < len(segments)) {
         seg = (segments[i] as any);
@@ -96,12 +119,12 @@ def:pub wordWrapLine(line: str, maxWidth: float, preSegmented: list[any]) -> lis
             j: int = 0;
             while (j < (len(subChunks) - 1)) {
                 sc = (subChunks[j] as any);
-                chunks.append({"text": sc.text, "startIndex": (charIndex + sc.startIndex), "endIndex": (charIndex + sc.endIndex)});
+                chunks.append({"text": sc["text"], "startIndex": (charIndex + sc["startIndex"]), "endIndex": (charIndex + sc["endIndex"])});
                 j += 1;
             }
             last = (subChunks[(len(subChunks) - 1)] as any);
-            chunkStart = (charIndex + last.startIndex);
-            currentWidth = visibleWidth(last.text);
+            chunkStart = ((charIndex + last["startIndex"]) as float);
+            currentWidth = visibleWidth(last["text"]);
             wrapOppIndex = -1;
             continue;
         }
@@ -132,40 +155,39 @@ glob ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
 glob DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS = ["@", "#"];
 
 def escapeCharacterClass(value: str) -> str {
-    return sub(r"[\\^$.*+?()[\]{}|-]", "\\$&", value);
+    return sub(r"[\^$.*+?()[\]{}|\-]", r"\\\g<0>", value);
 }
 
-def buildTriggerPattern(triggerCharacters: list[str]) -> any {
-    return RegExp(f"(?:^|[\\\\s])[{"".join(triggerCharacters.map(escapeCharacterClass))}][^\\\\s]*$");
+def buildTriggerPattern(triggerCharacters: list[str]) -> RegExp {
+    escaped = "".join([escapeCharacterClass(character) for character in triggerCharacters]);
+    return RegExp(f"(?:^|[\\s])[{escaped}][^\\s]*$");
 }
 
-def buildDebouncePattern(triggerCharacters: list[str]) -> any {
-    escapedWithoutAt = [character for character in triggerCharacters if (character != "@")].map(escapeCharacterClass);
-    return RegExp(f"(?:^|[ \\\\t])(?:@(?:\"[^\"]*|[^\\\\s]*)|[{"".join(escapedWithoutAt)}][^\\\\s]*)$");
+def buildDebouncePattern(triggerCharacters: list[str]) -> RegExp {
+    escapedWithoutAt = "".join([escapeCharacterClass(character) for character in triggerCharacters if (character != "@")]);
+    return RegExp(f"(?:^|[ \\t])(?:@(?:\"[^\"]*|[^\\s]*)|[{escapedWithoutAt}][^\\s]*)$");
 }
 
 obj:pub Editor {
     has tui: any;
     has theme: any;
     has borderColor: any;
-    has autocompleteProvider: any | None = None;
-    has autocompleteList: any | None = None;
-    has autocompleteAbort: any | None = None;
-    has autocompleteDebounceTimer: any | None = None;
-    has onSubmit: any | None = None;
-    has onChange: any | None = None;
-    has state: any = {"lines": [""], "cursorLine": 0, "cursorCol": 0};
+    has state: EditorState = EditorState();
     has focused: bool = False;
     has paddingX: float = 0;
     has lastWidth: float = 80;
     has scrollOffset: float = 0;
-    has autocompleteTriggerCharacters: list = [*DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS];
-    has autocompleteTriggerPattern: any = buildTriggerPattern(self.autocompleteTriggerCharacters);
-    has autocompleteDebouncePattern: any = buildDebouncePattern(self.autocompleteTriggerCharacters);
+    has autocompleteProvider: any | None = None;
+    has autocompleteTriggerCharacters: list[str] = [*DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS];
+    has autocompleteTriggerPattern: any = None;
+    has autocompleteDebouncePattern: any = None;
+    has autocompleteList: any | None = None;
     has autocompleteState: any | None = None;
     has autocompletePrefix: str = "";
     has autocompleteMaxVisible: float = 5;
-    has autocompleteRequestTask: any = Promise.resolve();
+    has autocompleteAbort: any | None = None;
+    has autocompleteDebounceTimer: any | None = None;
+    has autocompleteRequestTask: any = None;
     has autocompleteStartToken: float = 0;
     has autocompleteRequestId: float = 0;
     has pastes: any = {};
@@ -181,15 +203,51 @@ obj:pub Editor {
     has preferredVisualCol: float | None = None;
     has snappedFromCursorCol: float | None = None;
     has undoStack: any = UndoStack();
+    has onSubmit: any | None = None;
+    has onChange: any | None = None;
     has disableSubmit: bool = False;
     def __init__(tui: any, theme: any, options: any = {}) -> None {
+        # A custom __init__ suppresses Jac's has-default application, so every
+        # defaulted field must be established here with a fresh instance.
+        self.focused = False;
+        self.lastWidth = 80;
+        self.scrollOffset = 0;
+        self.state = EditorState();
+        self.autocompleteProvider = None;
+        self.autocompleteList = None;
+        self.autocompleteState = None;
+        self.autocompletePrefix = "";
+        self.autocompleteAbort = None;
+        self.autocompleteDebounceTimer = None;
+        self.autocompleteRequestTask = None;
+        self.autocompleteStartToken = 0;
+        self.autocompleteRequestId = 0;
+        self.pastes = {};
+        self.pasteCounter = 0;
+        self.pasteBuffer = "";
+        self.isInPaste = False;
+        self.history = [];
+        self.historyIndex = -1;
+        self.historyDraft = None;
+        self.killRing = KillRing();
+        self.lastAction = None;
+        self.jumpMode = None;
+        self.preferredVisualCol = None;
+        self.snappedFromCursorCol = None;
+        self.undoStack = UndoStack();
+        self.onSubmit = None;
+        self.onChange = None;
+        self.disableSubmit = False;
         self.tui = tui;
         self.theme = theme;
         self.borderColor = theme.borderColor;
-        paddingX = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else 0); })(options.paddingX));
-        self.paddingX = (max(float(0), float(int((paddingX) // 1))) if Number.isFinite(paddingX) else 0);
-        maxVisible = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else 5); })(options.autocompleteMaxVisible));
-        self.autocompleteMaxVisible = (max(float(3), float(min(float(20), float(int((maxVisible) // 1))))) if Number.isFinite(maxVisible) else 5);
+        self.autocompleteTriggerCharacters = [*DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS];
+        self.autocompleteTriggerPattern = buildTriggerPattern(self.autocompleteTriggerCharacters);
+        self.autocompleteDebouncePattern = buildDebouncePattern(self.autocompleteTriggerCharacters);
+        paddingX = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else 0); })(options.get("paddingX")));
+        self.paddingX = (max(float(0), float(int((paddingX) // 1))) if isfinite(float(paddingX)) else 0);
+        maxVisible = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else 5); })(options.get("autocompleteMaxVisible")));
+        self.autocompleteMaxVisible = (max(float(3), float(min(float(20), float(int((maxVisible) // 1))))) if isfinite(float(maxVisible)) else 5);
     }
     def validPasteIds() -> any {
         return set(self.pastes.keys());
@@ -201,7 +259,7 @@ obj:pub Editor {
         return self.paddingX;
     }
     def setPaddingX(padding: float) -> None {
-        newPadding = (max(float(0), float(int((padding) // 1))) if Number.isFinite(padding) else 0);
+        newPadding = (max(float(0), float(int((padding) // 1))) if isfinite(float(padding)) else 0);
         if (self.paddingX != newPadding) {
             self.paddingX = newPadding;
             self.tui.requestRender();
@@ -211,7 +269,7 @@ obj:pub Editor {
         return self.autocompleteMaxVisible;
     }
     def setAutocompleteMaxVisible(maxVisible: float) -> None {
-        newMaxVisible = (max(float(3), float(min(float(20), float(int((maxVisible) // 1))))) if Number.isFinite(maxVisible) else 5);
+        newMaxVisible = (max(float(3), float(min(float(20), float(int((maxVisible) // 1))))) if isfinite(float(maxVisible)) else 5);
         if (self.autocompleteMaxVisible != newMaxVisible) {
             self.autocompleteMaxVisible = newMaxVisible;
             self.tui.requestRender();
@@ -230,7 +288,7 @@ obj:pub Editor {
         if ((len(self.history) > 0) and (self.history[0] == trimmed)) {
             return;
         }
-        self.history.unshift(trimmed);
+        self.history.insert(0, trimmed);
         if (len(self.history) > 100) {
             self.history.pop();
         }
@@ -279,7 +337,7 @@ obj:pub Editor {
             }
         }
         else {
-            self.setTextInternal((self.history[self.historyIndex] or ""), ("start" if (direction == -1) else "end"));
+            self.setTextInternal((self.history[int(self.historyIndex)] or ""), ("start" if (direction == -1) else "end"));
         }
     }
     def exitHistoryBrowsing() -> None {
@@ -308,7 +366,13 @@ obj:pub Editor {
         layoutLines = self.layoutText(layoutWidth);
         terminalRows = self.tui.terminal.rows;
         maxVisibleLines = max(float(5), float(int(((terminalRows * 0.3)) // 1)));
-        cursorLineIndex = layoutLines.findIndex(lambda (line: any) -> any { return line.hasCursor; });
+        cursorLineIndex: float = -1;
+        for _jx_ci in range(len(layoutLines)) {
+            if layoutLines[_jx_ci]["hasCursor"] {
+                cursorLineIndex = _jx_ci;
+                break;
+            }
+        }
         if (cursorLineIndex == -1) {
             cursorLineIndex = 0;
         }
@@ -320,7 +384,7 @@ obj:pub Editor {
         }
         maxScrollOffset = max(float(0), float((len(layoutLines) - maxVisibleLines)));
         self.scrollOffset = max(float(0), float(min(float(self.scrollOffset), float(maxScrollOffset))));
-        visibleLines = layoutLines[self.scrollOffset:(self.scrollOffset + maxVisibleLines)];
+        visibleLines = layoutLines[int(self.scrollOffset):int(self.scrollOffset + maxVisibleLines)];
         result: list[str] = [];
         leftPadding = (" " * int(paddingX));
         rightPadding = leftPadding;
@@ -335,16 +399,16 @@ obj:pub Editor {
             }
         }
         else {
-            result.append((horizontal * int(width)));
+            result.append(((horizontal * int(width)) as str));
         }
         emitCursorMarker = self.focused;
         for layoutLine in visibleLines {
-            displayText = layoutLine.text;
-            lineVisibleWidth = visibleWidth(layoutLine.text);
+            displayText = layoutLine["text"];
+            lineVisibleWidth = visibleWidth(layoutLine["text"]);
             cursorInPadding: bool = False;
-            if (layoutLine.hasCursor and (layoutLine.cursorPos != None)) {
-                before = displayText[0:layoutLine.cursorPos];
-                after = displayText[layoutLine.cursorPos:];
+            if (layoutLine["hasCursor"] and (layoutLine["cursorPos"] != None)) {
+                before: str = (displayText[0:layoutLine["cursorPos"]] as str);
+                after: str = (displayText[layoutLine["cursorPos"]:] as str);
                 marker = (CURSOR_MARKER if emitCursorMarker else "");
                 if (len(after) > 0) {
                     afterGraphemes = [*self.segment(after, "grapheme")];
@@ -373,7 +437,7 @@ obj:pub Editor {
             result.append(self.borderColor((indicator + ("─" * int(max(float(0), float(remaining)))))));
         }
         else {
-            result.append((horizontal * int(width)));
+            result.append(((horizontal * int(width)) as str));
         }
         if (self.autocompleteState and self.autocompleteList) {
             autocompleteResult = self.autocompleteList.render(contentWidth);
@@ -636,7 +700,7 @@ obj:pub Editor {
                 chunks = wordWrapLine(line, contentWidth, [*self.segment(line, "grapheme")]);
                 chunkIndex: int = 0;
                 while (chunkIndex < len(chunks)) {
-                    chunk = chunks[chunkIndex];
+                    chunk = (chunks[chunkIndex] as any);
                     if not chunk {
                         continue;
                     }
@@ -646,24 +710,24 @@ obj:pub Editor {
                     adjustedCursorPos: float = float(0);
                     if isCurrentLine {
                         if isLastChunk {
-                            hasCursorInChunk = (cursorPos >= chunk.startIndex);
-                            adjustedCursorPos = (cursorPos - chunk.startIndex);
+                            hasCursorInChunk = (float(cursorPos) >= float(chunk["startIndex"]));
+                            adjustedCursorPos = ((cursorPos - chunk["startIndex"]) as float);
                         }
                         else {
-                            hasCursorInChunk = ((cursorPos >= chunk.startIndex) and (cursorPos < chunk.endIndex));
+                            hasCursorInChunk = ((float(cursorPos) >= float(chunk["startIndex"])) and (float(cursorPos) < float(chunk["endIndex"])));
                             if hasCursorInChunk {
-                                adjustedCursorPos = (cursorPos - chunk.startIndex);
-                                if (adjustedCursorPos > len(chunk.text)) {
-                                    adjustedCursorPos = len(chunk.text);
+                                adjustedCursorPos = ((cursorPos - chunk["startIndex"]) as float);
+                                if (adjustedCursorPos > len(chunk["text"])) {
+                                    adjustedCursorPos = len(chunk["text"]);
                                 }
                             }
                         }
                     }
                     if hasCursorInChunk {
-                        layoutLines.append({"text": chunk.text, "hasCursor": True, "cursorPos": adjustedCursorPos});
+                        layoutLines.append({"text": chunk["text"], "hasCursor": True, "cursorPos": adjustedCursorPos});
                     }
                     else {
-                        layoutLines.append({"text": chunk.text, "hasCursor": False});
+                        layoutLines.append({"text": chunk["text"], "hasCursor": False});
                     }
                     chunkIndex += 1;
                 }
@@ -677,11 +741,11 @@ obj:pub Editor {
     }
     def expandPasteMarkers(text: str) -> str {
         result = text;
-        for _jx_item0 in self.pastes {
+        for _jx_item0 in self.pastes.items() {
             pasteId = _jx_item0[0];
             pasteContent = _jx_item0[1];
-            markerRegex = RegExp(f"\\\\[paste #{pasteId}( (\\\\+\\\\d+ lines|\\\\d+ chars))?\\\\]", "g");
-            result = result.replace(markerRegex, lambda () -> any { return pasteContent; });
+            markerRegex = f"\\[paste #{pasteId}( (\\+\\d+ lines|\\d+ chars))?\\]";
+            result = sub(markerRegex, (lambda (match_j: any) -> str { return pasteContent; }), result);
         }
         return result;
     }
@@ -789,9 +853,9 @@ obj:pub Editor {
         self.exitHistoryBrowsing();
         self.lastAction = None;
         self.pushUndoSnapshot();
-        decodedText = sub(r"\x1b\[(\d+);5u", lambda (match_j: any, code: any) -> any { cp = Number(code); if ((cp >= 97) and (cp <= 122)) {     return String.fromCharCode((cp - 96)); } if ((cp >= 65) and (cp <= 90)) {     return String.fromCharCode((cp - 64)); } return match_j; }, pastedText);
+        decodedText = (sub(r"\x1b\[(\d+);5u", (lambda (match_j: any) -> str { cp = int(match_j.group(1)); if ((cp >= 97) and (cp <= 122)) {     return chr(int(cp - 96)); } if ((cp >= 65) and (cp <= 90)) {     return chr(int(cp - 64)); } return match_j.group(0); }), pastedText) as str);
         cleanText = self.normalizeText(decodedText);
-        filteredText = "".join([char for char in cleanText.split("") if ((char == "\n") or (ord(char[0]) >= 32))]);
+        filteredText = "".join([char for char in cleanText if ((char == "\n") or (ord(char) >= 32))]);
         if (search(r"^[/~.]", filteredText) is not None) {
             currentLine = (self.state.lines[self.state.cursorLine] or "");
             charBeforeCursor = (currentLine[(self.state.cursorCol - 1)] if (self.state.cursorCol > 0) else "");
@@ -803,8 +867,8 @@ obj:pub Editor {
         totalChars = len(filteredText);
         if ((len(pastedLines) > 10) or (totalChars > 1000)) {
             self.pasteCounter += 1;
-            pasteId = self.pasteCounter;
-            self.pastes.set(pasteId, filteredText);
+            pasteId = int(self.pasteCounter);
+            self.pastes[pasteId] = filteredText;
             marker = (f"[paste #{pasteId} +{len(pastedLines)} lines]" if (len(pastedLines) > 10) else f"[paste #{pasteId} {totalChars} chars]");
             self.insertTextAtCursorInternal(marker);
             return;
@@ -831,7 +895,7 @@ obj:pub Editor {
             self.onChange(self.getText());
         }
     }
-    def shouldSubmitOnBackslashEnter(data: str, kb: any) -> bool {
+    def shouldSubmitOnBackslashEnter(data: str, kb: KeybindingsManager) -> bool {
         if self.disableSubmit {
             return False;
         }
@@ -849,7 +913,7 @@ obj:pub Editor {
     def submitValue() -> None {
         self.cancelAutocomplete();
         result: str = self.expandPasteMarkers("\n".join(self.state.lines)).strip();
-        self.state = {"lines": [""], "cursorLine": 0, "cursorCol": 0};
+        self.state = EditorState();
         self.pastes.clear();
         self.pasteCounter = 0;
         self.exitHistoryBrowsing();
@@ -871,14 +935,16 @@ obj:pub Editor {
             line = (self.state.lines[self.state.cursorLine] or "");
             beforeCursor = line[0:self.state.cursorCol];
             graphemes = [*self.segment(beforeCursor, "grapheme")];
-            lastGrapheme = graphemes[(len(graphemes) - 1)];
+            lastGrapheme = (graphemes[(len(graphemes) - 1)] as any);
             graphemeLength = (len(lastGrapheme.segment) if lastGrapheme else 1);
-            isPastedSegmented = PASTE_MARKER_SINGLE.exec(lastGrapheme.segment);
+            isPastedSegmented = search(PASTE_MARKER_SINGLE, lastGrapheme.segment);
             if isPastedSegmented {
-                targetId = Number(isPastedSegmented[1]);
-                self.pastes.delete(targetId);
+                targetId = int(isPastedSegmented.group(1));
+                if (targetId in self.pastes) {
+                    del self.pastes[targetId];
+                }
                 self.pasteCounter += -1;
-                self.state.lines = [sub(PASTE_MARKER_REGEX, lambda (fullMatch: any, idGroup: any, suffixGroup: any) -> any { x = Number(idGroup); if (x <= targetId) {     return fullMatch; } newText: str = f"[paste #{(x - 1)}{suffixGroup}]"; self.pastes.set((x - 1), ((lambda (_jx_null7: any) -> any { return (_jx_null7 if _jx_null7 is not None else newText); })(self.pastes.get(x)))); self.pastes.delete(x); return newText; }, line) for line in self.state.lines];
+                self.state.lines = [sub(PASTE_MARKER_REGEX, (lambda (match_j: any) -> str { x = int(match_j.group(1)); if (x <= targetId) {     return match_j.group(0); } suffixGroup: str = (match_j.group(2) or ""); newText: str = f"[paste #{(x - 1)}{suffixGroup}]"; existing = self.pastes.get(x); self.pastes[(x - 1)] = (existing if existing is not None else newText); if (x in self.pastes) {     del self.pastes[x]; } return newText; }), line) for line in self.state.lines];
             }
             line = (self.state.lines[self.state.cursorLine] or "");
             before = line[0:(self.state.cursorCol - graphemeLength)];
@@ -913,48 +979,49 @@ obj:pub Editor {
         }
     }
     def setCursorCol(col: float) -> None {
-        self.state.cursorCol = col;
+        self.state.cursorCol = int(col);
         self.preferredVisualCol = None;
         self.snappedFromCursorCol = None;
     }
     def moveToVisualLine(visualLines: list[dict[str, float]], currentVisualLine: float, targetVisualLine: float) -> None {
-        currentVL = visualLines[currentVisualLine];
-        targetVL = visualLines[targetVisualLine];
+        currentVL = visualLines[int(currentVisualLine)];
+        targetVL = visualLines[int(targetVisualLine)];
         if not (currentVL and targetVL) {
             return;
         }
         currentVisualCol: float;
         if (self.snappedFromCursorCol != None) {
-            vlIndex = self.findVisualLineAt(visualLines, currentVL.logicalLine, self.snappedFromCursorCol);
-            currentVisualCol = (self.snappedFromCursorCol - visualLines[vlIndex].startCol);
+            vlIndex = self.findVisualLineAt(visualLines, currentVL["logicalLine"], self.snappedFromCursorCol);
+            currentVisualCol = ((self.snappedFromCursorCol - visualLines[int(vlIndex)]["startCol"]) as float);
         }
         else {
-            currentVisualCol = (self.state.cursorCol - currentVL.startCol);
+            currentVisualCol = ((self.state.cursorCol - currentVL["startCol"]) as float);
         }
-        isLastSourceSegment = ((currentVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt8: any) -> any { return (_jx_opt8.logicalLine if _jx_opt8 is not None else None); })(visualLines[(currentVisualLine + 1)])) != currentVL.logicalLine));
+        isLastSourceSegment = ((currentVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt8: any) -> any { return (_jx_opt8["logicalLine"] if _jx_opt8 is not None else None); })(visualLines[int((currentVisualLine + 1))])) != currentVL["logicalLine"]));
         sourceMaxVisualCol = (len(currentVL) if isLastSourceSegment else max(float(0), float((len(currentVL) - 1))));
-        isLastTargetSegment = ((targetVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt9: any) -> any { return (_jx_opt9.logicalLine if _jx_opt9 is not None else None); })(visualLines[(targetVisualLine + 1)])) != targetVL.logicalLine));
+        isLastTargetSegment = ((targetVisualLine == (len(visualLines) - 1)) or (((lambda (_jx_opt9: any) -> any { return (_jx_opt9["logicalLine"] if _jx_opt9 is not None else None); })(visualLines[int((targetVisualLine + 1))])) != targetVL["logicalLine"]));
         targetMaxVisualCol = (len(targetVL) if isLastTargetSegment else max(float(0), float((len(targetVL) - 1))));
         moveToVisualCol = self.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol);
-        self.state.cursorLine = targetVL.logicalLine;
-        targetCol = (targetVL.startCol + moveToVisualCol);
-        logicalLine = (self.state.lines[targetVL.logicalLine] or "");
+        self.state.cursorLine = targetVL["logicalLine"];
+        targetCol = ((targetVL["startCol"] + moveToVisualCol) as float);
+        logicalLine = (self.state.lines[int(targetVL["logicalLine"])] or "");
         self.state.cursorCol = min(float(targetCol), float(len(logicalLine)));
-        segments = [*self.segment(logicalLine, "grapheme")];
+        segments: list[any] = [*self.segment(logicalLine, "grapheme")];
         for seg in segments {
+            seg = (seg as any);
             if (seg.index > self.state.cursorCol) {
                 break;
             }
             if (len(seg.segment) <= 1) {
                 continue;
             }
-            if (self.state.cursorCol < (seg.index + len(seg.segment))) {
-                isContinuation = (seg.index < targetVL.startCol);
+            if (self.state.cursorCol < ((seg.index + len(seg.segment)) as float)) {
+                isContinuation = (seg.index < targetVL["startCol"]);
                 isMovingDown = (targetVisualLine > currentVisualLine);
                 if (isContinuation and isMovingDown) {
-                    segEnd = (seg.index + len(seg.segment));
+                    segEnd = ((seg.index + len(seg.segment)) as float);
                     next_j = (targetVisualLine + 1);
-                    while (((next_j < len(visualLines)) and (visualLines[next_j].logicalLine == targetVL.logicalLine)) and (visualLines[next_j].startCol < segEnd)) {
+                    while (((next_j < len(visualLines)) and (visualLines[int(next_j)]["logicalLine"] == targetVL["logicalLine"])) and (visualLines[int(next_j)]["startCol"] < segEnd)) {
                         next_j += 1;
                     }
                     if (next_j < len(visualLines)) {
@@ -1004,14 +1071,14 @@ obj:pub Editor {
         if (self.state.cursorCol > 0) {
             self.pushUndoSnapshot();
             deletedText = currentLine[0:self.state.cursorCol];
-            self.killRing.append(deletedText);
+            self.killRing.push(deletedText, {"prepend": True, "accumulate": (self.lastAction == "kill")});
             self.lastAction = "kill";
             self.state.lines[self.state.cursorLine] = currentLine[self.state.cursorCol:];
             self.setCursorCol(0);
         }
         elif (self.state.cursorLine > 0) {
             self.pushUndoSnapshot();
-            self.killRing.append("\n");
+            self.killRing.push("\n", {"prepend": True, "accumulate": (self.lastAction == "kill")});
             self.lastAction = "kill";
             previousLine = (self.state.lines[(self.state.cursorLine - 1)] or "");
             self.state.lines[(self.state.cursorLine - 1)] = (previousLine + currentLine);
@@ -1029,13 +1096,13 @@ obj:pub Editor {
         if (self.state.cursorCol < len(currentLine)) {
             self.pushUndoSnapshot();
             deletedText = currentLine[self.state.cursorCol:];
-            self.killRing.append(deletedText);
+            self.killRing.push(deletedText, {"prepend": False, "accumulate": (self.lastAction == "kill")});
             self.lastAction = "kill";
             self.state.lines[self.state.cursorLine] = currentLine[0:self.state.cursorCol];
         }
         elif (self.state.cursorLine < (len(self.state.lines) - 1)) {
             self.pushUndoSnapshot();
-            self.killRing.append("\n");
+            self.killRing.push("\n", {"prepend": False, "accumulate": (self.lastAction == "kill")});
             self.lastAction = "kill";
             nextLine = (self.state.lines[(self.state.cursorLine + 1)] or "");
             self.state.lines[self.state.cursorLine] = (currentLine + nextLine);
@@ -1051,7 +1118,7 @@ obj:pub Editor {
         if (self.state.cursorCol == 0) {
             if (self.state.cursorLine > 0) {
                 self.pushUndoSnapshot();
-                self.killRing.append("\n");
+                self.killRing.push("\n", {"prepend": True, "accumulate": (self.lastAction == "kill")});
                 self.lastAction = "kill";
                 previousLine = (self.state.lines[(self.state.cursorLine - 1)] or "");
                 self.state.lines[(self.state.cursorLine - 1)] = (previousLine + currentLine);
@@ -1065,12 +1132,12 @@ obj:pub Editor {
             wasKill = (self.lastAction == "kill");
             oldCursorCol = self.state.cursorCol;
             self.moveWordBackwards();
-            deleteFrom = self.state.cursorCol;
+            deleteFrom = int(self.state.cursorCol);
             self.setCursorCol(oldCursorCol);
-            deletedText = currentLine[deleteFrom:self.state.cursorCol];
-            self.killRing.append(deletedText);
+            deletedText = currentLine[deleteFrom:int(self.state.cursorCol)];
+            self.killRing.push(deletedText, {"prepend": True, "accumulate": wasKill});
             self.lastAction = "kill";
-            self.state.lines[self.state.cursorLine] = (currentLine[0:deleteFrom] + currentLine[self.state.cursorCol:]);
+            self.state.lines[self.state.cursorLine] = (currentLine[0:deleteFrom] + currentLine[int(self.state.cursorCol):]);
             self.setCursorCol(deleteFrom);
         }
         if self.onChange {
@@ -1083,7 +1150,7 @@ obj:pub Editor {
         if (self.state.cursorCol >= len(currentLine)) {
             if (self.state.cursorLine < (len(self.state.lines) - 1)) {
                 self.pushUndoSnapshot();
-                self.killRing.append("\n");
+                self.killRing.push("\n", {"prepend": False, "accumulate": (self.lastAction == "kill")});
                 self.lastAction = "kill";
                 nextLine = (self.state.lines[(self.state.cursorLine + 1)] or "");
                 self.state.lines[self.state.cursorLine] = (currentLine + nextLine);
@@ -1097,10 +1164,10 @@ obj:pub Editor {
             self.moveWordForwards();
             deleteTo = self.state.cursorCol;
             self.setCursorCol(oldCursorCol);
-            deletedText = currentLine[self.state.cursorCol:deleteTo];
-            self.killRing.append(deletedText);
+            deletedText = currentLine[int(self.state.cursorCol):int(deleteTo)];
+            self.killRing.push(deletedText, {"prepend": False, "accumulate": wasKill});
             self.lastAction = "kill";
-            self.state.lines[self.state.cursorLine] = (currentLine[0:self.state.cursorCol] + currentLine[deleteTo:]);
+            self.state.lines[self.state.cursorLine] = (currentLine[0:int(self.state.cursorCol)] + currentLine[int(deleteTo):]);
         }
         if self.onChange {
             self.onChange(self.getText());
@@ -1114,7 +1181,7 @@ obj:pub Editor {
             self.pushUndoSnapshot();
             afterCursor = currentLine[self.state.cursorCol:];
             graphemes = [*self.segment(afterCursor, "grapheme")];
-            firstGrapheme = graphemes[0];
+            firstGrapheme = (graphemes[0] as any);
             graphemeLength = (len(firstGrapheme.segment) if firstGrapheme else 1);
             before = currentLine[0:self.state.cursorCol];
             after = currentLine[(self.state.cursorCol + graphemeLength):];
@@ -1158,7 +1225,7 @@ obj:pub Editor {
             else {
                 chunks = wordWrapLine(line, width, [*self.segment(line, "grapheme")]);
                 for chunk in chunks {
-                    visualLines.append({"logicalLine": i, "startCol": chunk.startIndex, "length": (chunk.endIndex - chunk.startIndex)});
+                    visualLines.append({"logicalLine": i, "startCol": chunk["startIndex"], "length": (chunk["endIndex"] - chunk["startIndex"])});
                 }
             }
             i += 1;
@@ -1169,11 +1236,11 @@ obj:pub Editor {
         i: int = 0;
         while (i < len(visualLines)) {
             vl = visualLines[i];
-            if (not vl or (vl.logicalLine != line)) {
+            if (not vl or (vl["logicalLine"] != line)) {
                 continue;
             }
-            offset = (col - vl.startCol);
-            isLastSegmentOfLine = ((i == (len(visualLines) - 1)) or (((lambda (_jx_opt10: any) -> any { return (_jx_opt10.logicalLine if _jx_opt10 is not None else None); })(visualLines[(i + 1)])) != vl.logicalLine));
+            offset = (col - vl["startCol"]);
+            isLastSegmentOfLine = ((i == (len(visualLines) - 1)) or (((lambda (_jx_opt10: any) -> any { return (_jx_opt10["logicalLine"] if _jx_opt10 is not None else None); })(visualLines[(i + 1)])) != vl["logicalLine"]));
             if ((offset >= 0) and ((offset < len(vl)) or (isLastSegmentOfLine and (offset == len(vl))))) {
                 return i;
             }
@@ -1200,7 +1267,7 @@ obj:pub Editor {
                 if (self.state.cursorCol < len(currentLine)) {
                     afterCursor = currentLine[self.state.cursorCol:];
                     graphemes = [*self.segment(afterCursor, "grapheme")];
-                    firstGrapheme = graphemes[0];
+                    firstGrapheme = (graphemes[0] as any);
                     self.setCursorCol((self.state.cursorCol + (len(firstGrapheme.segment) if firstGrapheme else 1)));
                 }
                 elif (self.state.cursorLine < (len(self.state.lines) - 1)) {
@@ -1208,9 +1275,9 @@ obj:pub Editor {
                     self.setCursorCol(0);
                 }
                 else {
-                    currentVL = visualLines[currentVisualLine];
+                    currentVL = visualLines[int(currentVisualLine)];
                     if currentVL {
-                        self.preferredVisualCol = (self.state.cursorCol - currentVL.startCol);
+                        self.preferredVisualCol = ((self.state.cursorCol - currentVL["startCol"]) as float);
                     }
                 }
             }
@@ -1218,7 +1285,7 @@ obj:pub Editor {
                 if (self.state.cursorCol > 0) {
                     beforeCursor = currentLine[0:self.state.cursorCol];
                     graphemes = [*self.segment(beforeCursor, "grapheme")];
-                    lastGrapheme = graphemes[(len(graphemes) - 1)];
+                    lastGrapheme = (graphemes[(len(graphemes) - 1)] as any);
                     self.setCursorCol((self.state.cursorCol - (len(lastGrapheme.segment) if lastGrapheme else 1)));
                 }
                 elif (self.state.cursorLine > 0) {
@@ -1255,7 +1322,7 @@ obj:pub Editor {
         self.setCursorCol(findWordBackward(currentLine, self.state.cursorCol, {"segment": lambda (text: any) -> any { return self.segment(text, "word"); }, "isAtomicSegment": isPasteMarker}));
     }
     def yank() -> None {
-        if (len(self.killRing) == 0) {
+        if (self.killRing.length() == 0) {
             return;
         }
         self.pushUndoSnapshot();
@@ -1264,7 +1331,7 @@ obj:pub Editor {
         self.lastAction = "yank";
     }
     def yankPop() -> None {
-        if ((self.lastAction != "yank") or (len(self.killRing) <= 1)) {
+        if ((self.lastAction != "yank") or (self.killRing.length() <= 1)) {
             return;
         }
         self.pushUndoSnapshot();
@@ -1331,7 +1398,7 @@ obj:pub Editor {
         }
     }
     def pushUndoSnapshot() -> None {
-        self.undoStack.append(self.state);
+        self.undoStack.push(self.state);
     }
     def undo() -> None {
         self.exitHistoryBrowsing();
@@ -1339,7 +1406,9 @@ obj:pub Editor {
         if not snapshot {
             return;
         }
-        Object.assign(self.state, snapshot);
+        self.state.lines = snapshot.lines;
+        self.state.cursorLine = snapshot.cursorLine;
+        self.state.cursorCol = snapshot.cursorCol;
         self.lastAction = None;
         self.preferredVisualCol = None;
         if self.onChange {
@@ -1352,12 +1421,19 @@ obj:pub Editor {
         lines = self.state.lines;
         end = (len(lines) if isForward else -1);
         step = (1 if isForward else -1);
-        lineIdx: int = self.state.cursorLine;
+        lineIdx: int = int(self.state.cursorLine);
         while (lineIdx != end) {
             line = (lines[lineIdx] or "");
             isCurrentLine = (lineIdx == self.state.cursorLine);
             searchFrom = (((self.state.cursorCol + 1) if isForward else (self.state.cursorCol - 1)) if isCurrentLine else None);
-            idx = (line.indexOf(char, searchFrom) if isForward else line.lastIndexOf(char, searchFrom));
+            idx: int = -1;
+            if isForward {
+                idx = line.find(char, (int(searchFrom) if (searchFrom is not None) else 0));
+            } elif (searchFrom is not None) {
+                idx = line.rfind(char, 0, (int(searchFrom) + 1));
+            } else {
+                idx = line.rfind(char);
+            }
             if (idx != -1) {
                 self.state.cursorLine = lineIdx;
                 self.setCursorCol(idx);
@@ -1411,7 +1487,7 @@ obj:pub Editor {
         return firstPrefixIndex;
     }
     def createAutocompleteList(prefix: str, items: list[dict[str, str | str | None]]) -> any {
-        layout = (SLASH_COMMAND_SELECT_LIST_LAYOUT if prefix.startswith("/") else None);
+        layout: any = (SLASH_COMMAND_SELECT_LIST_LAYOUT if prefix.startswith("/") else None);
         return SelectList(items, self.autocompleteMaxVisible, self.theme.selectList, layout);
     }
     def tryTriggerAutocomplete(explicitTab: bool = False) -> None {
@@ -1440,7 +1516,7 @@ obj:pub Editor {
         if not self.autocompleteProvider {
             return;
         }
-        if options.force {
+        if options["force"] {
             shouldTrigger = (not self.autocompleteProvider.shouldTriggerFileCompletion or self.autocompleteProvider.shouldTriggerFileCompletion(self.state.lines, self.state.cursorLine, self.state.cursorCol));
             if not shouldTrigger {
                 return;
@@ -1486,7 +1562,7 @@ obj:pub Editor {
         self.autocompleteDebouncePattern = buildDebouncePattern(next_j);
     }
     def getAutocompleteDebounceMs(options: dict[str, bool]) -> float {
-        if (options.explicitTab or options.force) {
+        if (options["explicitTab"] or options["force"]) {
             return 0;
         }
         currentLine = (self.state.lines[self.state.cursorLine] or "");
@@ -1497,17 +1573,17 @@ obj:pub Editor {
         if not self.autocompleteProvider {
             return;
         }
-        suggestions = await self.autocompleteProvider.getSuggestions(self.state.lines, self.state.cursorLine, self.state.cursorCol, {"signal": controller.signal, "force": options.force});
+        suggestions = await self.autocompleteProvider.getSuggestions(self.state.lines, self.state.cursorLine, self.state.cursorCol, {"signal": controller.signal, "force": options["force"]});
         if not self.isAutocompleteRequestCurrent(requestId, controller, snapshotText, snapshotLine, snapshotCol) {
             return;
         }
         self.autocompleteAbort = None;
-        if ((not suggestions or not Array.isArray(suggestions.items)) or (len(suggestions.items) == 0)) {
+        if ((not suggestions or not isinstance(suggestions.items, list)) or (len(suggestions.items) == 0)) {
             self.cancelAutocomplete();
             self.tui.requestRender();
             return;
         }
-        if ((options.force and options.explicitTab) and (len(suggestions.items) == 1)) {
+        if ((options["force"] and options["explicitTab"]) and (len(suggestions.items) == 1)) {
             item = (suggestions.items[0] as any);
             self.pushUndoSnapshot();
             self.lastAction = None;
@@ -1521,7 +1597,7 @@ obj:pub Editor {
             self.tui.requestRender();
             return;
         }
-        self.applyAutocompleteSuggestions(suggestions, ("force" if options.force else "regular"));
+        self.applyAutocompleteSuggestions(suggestions, ("force" if options["force"] else "regular"));
         self.tui.requestRender();
     }
     def isAutocompleteRequestCurrent(requestId: float, controller: any, snapshotText: str, snapshotLine: float, snapshotCol: float) -> bool {

@@ -406,6 +406,40 @@ test("discarded push of one spread iterable lowers to list extension", () => {
   assertJacChecks(result.jac);
 });
 
+test("discarded unshift lowers to a front insert", () => {
+  const result = convert(`
+    export function prepend(values: string[], item: string): void {
+      values.unshift(item);
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /values\.insert\(0, item\);/);
+  assertJacChecks(result.jac);
+});
+
+test("shift lowers to pop of the first element", () => {
+  const result = convert(`
+    export function takeFirst(values: string[]): string {
+      return values.shift();
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /values\.pop\(0\)/);
+  assertJacChecks(result.jac);
+});
+
+test("length-reset assignment lowers to clear", () => {
+  const result = convert(`
+    export function reset(values: string[]): void {
+      values.length = 0;
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /values\.clear\(\);/);
+  assert.doesNotMatch(result.jac, /len\(values\) = 0/);
+  assertJacChecks(result.jac);
+});
+
 test("zero-argument Math max fails closed", () => {
   const result = convert(`
     export function largest(): number { return Math.max(); }
@@ -877,9 +911,61 @@ test("re-exports erase type-only specifiers from runtime imports", () => {
     export type { OnlyType } from "./types.ts";
   `, "index.ts", { failOpen: true, emitHoles: true });
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
-  assert.match(result.jac, /import from "\.\/values\.jac" \{ Runtime \}/);
+  assert.match(result.jac, /import from \.values \{ Runtime \}/);
   assert.doesNotMatch(result.jac, /Shape|Config|OnlyType|types\.jac/);
   assert.equal(result.droppedCount, 0);
+});
+
+test("relative imports lower to dotted module syntax, not quoted string paths", () => {
+  // jac 0.36.0 drops cross-file return types to Unknown for quoted string-path
+  // relative imports (`import from "./a.jac" { ... }`); the dotted form
+  // (`import from .a { ... }`) type-checks clean. See jac#8371.
+  const result = convert(`
+    import { helper } from "./utils";
+    import { sub } from "./components/box";
+    import { up } from "../shared";
+    export function run(): void {
+      helper(); sub(); up();
+    }
+  `, "index.ts");
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import from \.utils \{ helper \}/);
+  assert.match(result.jac, /import from \.components\.box \{ sub \}/);
+  assert.match(result.jac, /import from \.\.shared \{ up \}/);
+  assert.doesNotMatch(result.jac, /import from "\./);
+});
+
+test("relative imports to kebab-case source files snake_case the module path and still lower to dotted syntax", () => {
+  // Dotted syntax has no escape for '-' in a segment, and source basenames
+  // are commonly kebab-case (`kill-ring.ts`). Rather than falling back to the
+  // buggy quoted form for these, jacModulePath() snake_cases every path
+  // segment (kill-ring -> kill_ring) so the rewritten specifier is always a
+  // valid Jac identifier and qualifies for the dotted import form. The
+  // regeneration driver (tui/scripts/js2jac_pi_tui.sh) names the on-disk
+  // `.jac` file with the identical transform so the import resolves.
+  const result = convert(`
+    import { KillRing } from "./kill-ring";
+    import { NativeMod } from "../native-modifiers";
+    export function run(): void {
+      new KillRing(); new NativeMod();
+    }
+  `, "index.ts");
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import from \.kill_ring \{ KillRing \}/);
+  assert.match(result.jac, /import from \.\.native_modifiers \{ NativeMod \}/);
+  assert.doesNotMatch(result.jac, /import from "\./);
+  assert.doesNotMatch(result.jac, /kill-ring|native-modifiers/);
+});
+
+test("re-exports from kebab-case source files also snake_case the module path", () => {
+  // lowerReExport() routes through jacModulePath() too; a barrel re-export
+  // of a kebab-case sibling must get the same snake_case + dotted treatment
+  // as a plain import.
+  const result = convert(`
+    export { KillRing } from "./kill-ring.ts";
+  `, "index.ts", { failOpen: true, emitHoles: true });
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /import from \.kill_ring \{ KillRing \}/);
 });
 
 test("callback parameters apply reserved-name renames at binding sites", () => {
@@ -1046,5 +1132,32 @@ test("segmenter destructuring and string-method locals keep string types", () =>
   assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
   assert.match(result.jac, /segment: str = \(_jx_item0\.segment as str\)/);
   assert.match(result.jac, /trimmed: str = result\.rstrip\(\)/);
+  assertJacChecks(result.jac);
+});
+
+test("inline object-literal params lower member access to dict subscript", () => {
+  const result = convert(`
+    export function push(text: string, opts: { accumulate?: boolean; prepend?: boolean }): string {
+      if (opts.accumulate) return text + "!";
+      if (opts?.prepend) return "!" + text;
+      return text;
+    }
+    export class Ring {
+      add(entry: string, flags: { force: boolean }): boolean {
+        return flags.force;
+      }
+    }
+  `);
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  // Free function: dict subscript, not dict-DOT access.
+  assert.match(result.jac, /opts\["accumulate"\]/);
+  // Optional chaining (`opts?.prepend`) still lowers to bracket access, wrapped
+  // in a None-guard over a synthetic receiver.
+  assert.match(result.jac, /\["prepend"\] if .* is not None/);
+  assert.doesNotMatch(result.jac, /opts\.accumulate/);
+  assert.doesNotMatch(result.jac, /\.prepend/);
+  // Method param typed with an inline object literal.
+  assert.match(result.jac, /flags\["force"\]/);
+  assert.doesNotMatch(result.jac, /flags\.force/);
   assertJacChecks(result.jac);
 });

@@ -1,5 +1,5 @@
-import from "../keybindings.jac" { getKeybindings }
-import from "../utils.jac" { truncateToWidth, visibleWidth }
+import from ..keybindings { getKeybindings }
+import from ..utils { truncateToWidth, visibleWidth }
 import from re { sub }
 
 glob DEFAULT_PRIMARY_COLUMN_WIDTH = 32;
@@ -19,13 +19,13 @@ def clamp(value: float, min_j: float, max_j: float) -> float {
 obj:pub SelectList {
     has theme: any;
     has layout: any;
-    has onSelect: any | None = None;
-    has onCancel: any | None = None;
-    has onSelectionChange: any | None = None;
     has items: list[any] = [];
     has filteredItems: list[any] = [];
     has selectedIndex: float = 0;
     has maxVisible: float = 5;
+    has onSelect: any | None = None;
+    has onCancel: any | None = None;
+    has onSelectionChange: any | None = None;
     def __init__(items: list[any], maxVisible: float, theme: any, layout: any = {}) -> None {
         self.items = items;
         self.filteredItems = items;
@@ -34,7 +34,7 @@ obj:pub SelectList {
         self.layout = layout;
     }
     def setFilter(filter_j: str) -> None {
-        self.filteredItems = [item for item in self.items if item.value.lower().startswith(filter_j.lower())];
+        self.filteredItems = [item for item in self.items if item["value"].lower().startswith(filter_j.lower())];
         self.selectedIndex = 0;
     }
     def setSelectedIndex(index: float) -> None {
@@ -51,14 +51,14 @@ obj:pub SelectList {
         primaryColumnWidth = self.getPrimaryColumnWidth();
         startIndex = max(float(0), float(min(float((self.selectedIndex - int(((self.maxVisible / 2)) // 1))), float((len(self.filteredItems) - self.maxVisible)))));
         endIndex = min(float((startIndex + self.maxVisible)), float(len(self.filteredItems)));
-        i: int = startIndex;
+        i: int = int(startIndex);
         while (i < endIndex) {
             item = self.filteredItems[i];
             if not item {
                 continue;
             }
             isSelected = (i == self.selectedIndex);
-            descriptionSingleLine = (normalizeToSingleLine(item.description) if item.description else None);
+            descriptionSingleLine = (normalizeToSingleLine(item.get("description")) if item.get("description") else None);
             lines.append(self.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));
             i += 1;
         }
@@ -119,23 +119,29 @@ obj:pub SelectList {
     }
     def getPrimaryColumnWidth() -> float {
         _jx_d0: any = self.getPrimaryColumnBounds();
-        min = _jx_d0.min;
-        max = _jx_d0.max;
-        widestPrimary = self.filteredItems.reduce(lambda (widest: any, item: any) -> any { return max(float(widest), float((visibleWidth(self.getDisplayValue(item)) + PRIMARY_COLUMN_GAP))); }, 0);
+        min_j = _jx_d0["min"];
+        max_j = _jx_d0["max"];
+        widestPrimary: float = 0;
+        for item in self.filteredItems {
+            widestPrimary = max(float(widestPrimary), float((visibleWidth(self.getDisplayValue(item)) + PRIMARY_COLUMN_GAP)));
+        }
         return clamp(widestPrimary, min_j, max_j);
     }
     def getPrimaryColumnBounds() -> dict[str, float] {
-        rawMin = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else DEFAULT_PRIMARY_COLUMN_WIDTH); })(((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else self.layout.maxPrimaryColumnWidth); })(self.layout.minPrimaryColumnWidth))));
-        rawMax = ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else DEFAULT_PRIMARY_COLUMN_WIDTH); })(((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else self.layout.minPrimaryColumnWidth); })(self.layout.maxPrimaryColumnWidth))));
+        layout = (self.layout if self.layout is not None else {});
+        rawMin: any = layout.get("minPrimaryColumnWidth", layout.get("maxPrimaryColumnWidth", DEFAULT_PRIMARY_COLUMN_WIDTH));
+        rawMax: any = layout.get("maxPrimaryColumnWidth", layout.get("minPrimaryColumnWidth", DEFAULT_PRIMARY_COLUMN_WIDTH));
         return {"min": max(float(1), float(min(float(rawMin), float(rawMax)))), "max": max(float(1), float(max(float(rawMin), float(rawMax))))};
     }
     def truncatePrimary(item: any, isSelected: bool, maxWidth: float, columnWidth: float) -> str {
         displayValue = self.getDisplayValue(item);
-        truncatedValue = (self.layout.truncatePrimary({"text": displayValue, "maxWidth": maxWidth, "columnWidth": columnWidth, "item": item, "isSelected": isSelected}) if self.layout.truncatePrimary else truncateToWidth(displayValue, maxWidth, ""));
+        layout = (self.layout if self.layout is not None else {});
+        truncateFn = layout.get("truncatePrimary");
+        truncatedValue: any = (truncateFn({"text": displayValue, "maxWidth": maxWidth, "columnWidth": columnWidth, "item": item, "isSelected": isSelected}) if truncateFn else truncateToWidth(displayValue, maxWidth, ""));
         return truncateToWidth(truncatedValue, maxWidth, "");
     }
     def getDisplayValue(item: any) -> str {
-        return (item.label or item.value);
+        return (item.get("label") or item.get("value"));
     }
     def notifySelectionChange() -> None {
         selectedItem = self.filteredItems[self.selectedIndex];

@@ -1,4 +1,4 @@
-import from "../terminal-image.jac" { allocateImageId, getCapabilities, getCellDimensions, getImageDimensions, imageFallback, renderImage }
+import from ..terminal_image { allocateImageId, getCapabilities, getCellDimensions, getImageDimensions, imageFallback, renderImage }
 
 obj:pub Image {
     has base64Data: str;
@@ -15,7 +15,7 @@ obj:pub Image {
         self.theme = theme;
         self.options = options;
         self.dimensions = ((dimensions or getImageDimensions(base64Data, mimeType)) or {"widthPx": 800, "heightPx": 600});
-        self.imageId = options.imageId;
+        self.imageId = options.get("imageId");
     }
     def getImageId() -> float | None {
         return self.imageId;
@@ -28,25 +28,30 @@ obj:pub Image {
         if (self.cachedLines and (self.cachedWidth == width)) {
             return self.cachedLines;
         }
-        maxWidth = max(float(1), float(min(float((width - 2)), float(((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else 60); })(self.options.maxWidthCells))))));
+        optMaxWidthCells = self.options.get("maxWidthCells");
+        maxWidth = max(float(1), float(min(float((width - 2)), float((optMaxWidthCells if optMaxWidthCells is not None else 60)))));
         cellDimensions = getCellDimensions();
-        defaultMaxHeight = max(float(1), float(int(-((-((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx)) // 1))));
-        maxHeight = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else defaultMaxHeight); })(self.options.maxHeightCells));
+        defaultMaxHeight = max(float(1), float(int(-((-((maxWidth * cellDimensions["widthPx"]) / cellDimensions["heightPx"])) // 1))));
+        optMaxHeightCells = self.options.get("maxHeightCells");
+        maxHeight = (optMaxHeightCells if optMaxHeightCells is not None else defaultMaxHeight);
         caps = getCapabilities();
         lines: list[str];
-        if caps.images {
-            if ((caps.images == "kitty") and (self.imageId == None)) {
+        if caps["images"] {
+            if ((caps["images"] == "kitty") and (self.imageId == None)) {
                 self.imageId = allocateImageId();
             }
             result = renderImage(self.base64Data, self.dimensions, {"maxWidthCells": maxWidth, "maxHeightCells": maxHeight, "imageId": self.imageId, "moveCursor": False});
             if result {
-                if result.imageId {
-                    self.imageId = result.imageId;
+                resultImageId = result.get("imageId");
+                if resultImageId {
+                    self.imageId = float(resultImageId);
                 }
-                if (caps.images == "kitty") {
-                    lines = [result.sequence];
+                resultRows = int(result.get("rows"));
+                resultSequence = str(result.get("sequence"));
+                if (caps["images"] == "kitty") {
+                    lines = [resultSequence];
                     i: int = 0;
-                    while (i < (result.rows - 1)) {
+                    while (i < (resultRows - 1)) {
                         lines.append("");
                         i += 1;
                     }
@@ -54,22 +59,22 @@ obj:pub Image {
                 else {
                     lines = [];
                     i: int = 0;
-                    while (i < (result.rows - 1)) {
+                    while (i < (resultRows - 1)) {
                         lines.append("");
                         i += 1;
                     }
-                    rowOffset = (result.rows - 1);
-                    moveUp = (f"\\x1b[{rowOffset}A" if (rowOffset > 0) else "");
-                    lines.append((moveUp + result.sequence));
+                    rowOffset = (resultRows - 1);
+                    moveUp = (f"\x1b[{rowOffset}A" if (rowOffset > 0) else "");
+                    lines.append((moveUp + resultSequence));
                 }
             }
             else {
-                fallback = imageFallback(self.mimeType, self.dimensions, self.options.filename);
+                fallback = imageFallback(self.mimeType, self.dimensions, self.options.get("filename"));
                 lines = [self.theme.fallbackColor(fallback)];
             }
         }
         else {
-            fallback = imageFallback(self.mimeType, self.dimensions, self.options.filename);
+            fallback = imageFallback(self.mimeType, self.dimensions, self.options.get("filename"));
             lines = [self.theme.fallbackColor(fallback)];
         }
         self.cachedLines = lines;

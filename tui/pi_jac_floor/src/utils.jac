@@ -1,11 +1,12 @@
-# interop import: get-east-asian-width { eastAsianWidth }
 import from re { compile, search, sub }
+import from .unicode_support {
+    GraphemeSegmenter, WordSegmenter, CjkBreakRegex,
+    eastAsianWidth, isZeroWidth, stripLeadingNonPrinting, isRgiEmoji
+}
 
-glob Intl: any = None;
+glob graphemeSegmenter: any = GraphemeSegmenter();
 
-glob graphemeSegmenter: any = Intl.Segmenter(None, {"granularity": "grapheme"});
-
-glob wordSegmenter: any = Intl.Segmenter(None, {"granularity": "word"});
+glob wordSegmenter: any = WordSegmenter();
 
 def:pub getGraphemeSegmenter() -> any {
     return graphemeSegmenter;
@@ -20,17 +21,11 @@ def couldBeEmoji(segment: str) -> bool {
     return (((((((cp >= 126976) and (cp <= 130047)) or ((cp >= 8960) and (cp <= 9215))) or ((cp >= 9728) and (cp <= 10175))) or ((cp >= 11088) and (cp <= 11093))) or ("️" in segment)) or (len(segment) > 2));
 }
 
-glob zeroWidthRegex = compile(r"^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark}|\p{Surrogate})+$");
-
-glob leadingNonPrintingRegex = compile(r"^[\p{Default_Ignorable_Code_Point}\p{Control}\p{Format}\p{Mark}\p{Surrogate}]+");
-
-glob rgiEmojiRegex = compile(r"^\p{RGI_Emoji}$");
-
 glob WIDTH_CACHE_SIZE = 512;
 
 glob widthCache = {};
 
-glob:pub cjkBreakRegex = compile(r"[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}\p{Script_Extensions=Bopomofo}]");
+glob:pub cjkBreakRegex = CjkBreakRegex();
 
 def isPrintableAscii(str_j: str) -> bool {
     i: int = 0;
@@ -135,13 +130,13 @@ def graphemeWidth(segment: str) -> float {
     if (segment == "\t") {
         return 3;
     }
-    if (search(zeroWidthRegex, segment) is not None) {
+    if isZeroWidth(segment) {
         return 0;
     }
-    if (couldBeEmoji(segment) and (search(rgiEmojiRegex, segment) is not None)) {
+    if (couldBeEmoji(segment) and isRgiEmoji(segment)) {
         return 2;
     }
-    base = sub(leadingNonPrintingRegex, "", segment);
+    base = stripLeadingNonPrinting(segment);
     cp = ord(base[0]);
     if (cp == None) {
         return 0;
@@ -506,7 +501,11 @@ def splitIntoTokensWithAnsi(text: str) -> list[str] {
     pendingAnsi: str = "";
     currentKind: any | None = None;
     i = 0;
-    flushCurrent = lambda () -> any { if not current {     return; } tokens.append(current); current = ""; currentKind = None; };
+    # NOTE(port): the js2jac output emitted `flushCurrent` as a lambda that
+    # reassigns the captured `current`/`currentKind` locals. Python closures
+    # cannot rebind captured names without `nonlocal`, so that both crashed
+    # (UnboundLocalError) and would have lost mutations. Inlined at both call
+    # sites below to preserve the original tokenizer semantics.
     while (i < len(text)) {
         ansiResult = extractAnsiCode(text, i);
         if ansiResult {
@@ -521,8 +520,12 @@ def splitIntoTokensWithAnsi(text: str) -> list[str] {
         for _jx_item0 in graphemeSegmenter.segment(text[i:end]) {
             segment: str = (_jx_item0.segment as str);
             segmentIsSpace = (segment == " ");
-            if (not segmentIsSpace and (search(cjkBreakRegex, segment) is not None)) {
-                flushCurrent();
+            if (not segmentIsSpace and cjkBreakRegex.test(segment)) {
+                if current {
+                    tokens.append(current);
+                    current = "";
+                    currentKind = None;
+                }
                 token = (pendingAnsi + segment);
                 pendingAnsi = "";
                 tokens.append(token);
@@ -530,7 +533,11 @@ def splitIntoTokensWithAnsi(text: str) -> list[str] {
             }
             segmentKind = ("space" if segmentIsSpace else "word");
             if (current and (currentKind != segmentKind)) {
-                flushCurrent();
+                if current {
+                    tokens.append(current);
+                    current = "";
+                    currentKind = None;
+                }
             }
             if pendingAnsi {
                 current += pendingAnsi;
@@ -740,7 +747,7 @@ def:pub truncateToWidth(text: str, maxWidth: float, ellipsis: str = "...", pad: 
             return ((text + (" " * int((maxWidth - len(text))))) if pad else text);
         }
         targetWidth: float = float((maxWidth - ellipsisWidth));
-        return finalizeTruncatedResult(text[0:targetWidth], targetWidth, ellipsis, ellipsisWidth, maxWidth, pad);
+        return finalizeTruncatedResult(text[0:int(targetWidth)], targetWidth, ellipsis, ellipsisWidth, maxWidth, pad);
     }
     targetWidth: float = float((maxWidth - ellipsisWidth));
     result: str = "";

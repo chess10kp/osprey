@@ -4,9 +4,9 @@ obj:pub KillRing {
         if not text {
             return;
         }
-        if (opts.accumulate and (len(self.ring) > 0)) {
-            last = (self.ring.pop() as any);
-            self.ring.append(((text + last) if opts.prepend else (last + text)));
+        if (opts["accumulate"] and (len(self.ring) > 0)) {
+            last: str = self.ring.pop();
+            self.ring.append(((text + last) if opts["prepend"] else (last + text)));
         }
         else {
             self.ring.append(text);
@@ -18,7 +18,7 @@ obj:pub KillRing {
     def rotate() -> None {
         if (len(self.ring) > 1) {
             last = (self.ring.pop() as any);
-            self.ring.unshift(last);
+            self.ring.insert(0, last);
         }
     }
     def length() -> float {

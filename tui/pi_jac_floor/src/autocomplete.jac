@@ -1,9 +1,24 @@
-# interop import: child_process { spawn }
-# interop import: fs { readdirSync, statSync }
-# interop import: os { homedir }
-# interop import: path { basename, dirname, join }
-import from "./fuzzy.jac" { fuzzyFilter }
+"""Command/path/fuzzy-file autocomplete, ported from pi-tui's autocomplete.ts.
+
+Async/subprocess note: the original `walkDirectoryWithFd` shelled out via
+Node's `child_process.spawn`, wired to an `AbortSignal` through a `Promise`,
+and callers awaited it. A headless `jac run` has no ambient event loop to
+drive that dance, so this port makes the whole fd-walk path SYNCHRONOUS:
+`walkDirectoryWithFd` and `getFuzzyFileSuggestions`/`getSuggestions` are plain
+`def`s that call `autocomplete_support.run_fd`, a `subprocess.run(...,
+timeout=...)` wrapper. Any failure -- missing `fd` binary, non-zero exit,
+timeout, or an already-aborted `signal` -- yields `[]`, preserving the
+observable contract without needing Promises or async/await. `signal.aborted`
+is still honored (checked before and after the run) and `AbortController`/
+`AbortSignal` (from `.input_support`) remain the public cancellation surface;
+the listener-based `child.kill()` path is unnecessary since `run_fd`'s own
+timeout already bounds the subprocess.
+"""
+
+import from .fuzzy { fuzzyFilter }
 import from re { sub }
+import from .input_support { AbortSignal }
+import from .autocomplete_support { readdirSync, statSync, homedir, basename, dirname, join, run_fd }
 
 glob PATH_DELIMITERS = set([" ", "\t", "\"", "'", "="]);
 
@@ -18,42 +33,42 @@ def escapeRegex(value: str) -> str {
 def buildFdPathQuery(query: str) -> str {
     normalized = toDisplayPath(query);
     if not ("/" in normalized) {
-        return (normalized as str);
+        return normalized;
     }
-    hasTrailingSeparator: str = normalized.endswith("/");
+    hasTrailingSeparator: bool = normalized.endswith("/");
     trimmed = sub(r"^\/+|\/+$", "", normalized);
     if not trimmed {
-        return (normalized as str);
+        return normalized;
     }
     separatorPattern: str = "[\\\\/]";
-    segments = [escapeRegex(segment) for segment in trimmed.split("/").filter(Boolean)];
-    if (len(segments) == 0) {
-        return (normalized as str);
+    segments = [escapeRegex(segment) for segment in trimmed.split("/") if segment];
+    if len(segments) == 0 {
+        return normalized;
     }
-    pattern = separatorPattern.join(segments);
+    pattern: str = separatorPattern.join(segments);
     if hasTrailingSeparator {
         pattern += separatorPattern;
     }
-    return (pattern as str);
+    return pattern;
 }
 
-def findLastDelimiter(text: str) -> float {
-    i: int = (len(text) - 1);
-    while (i >= 0) {
-        if PATH_DELIMITERS.has(((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else ""); })(text[i]))) {
-            return (i as float);
+def findLastDelimiter(text: str) -> int {
+    i: int = len(text) - 1;
+    while i >= 0 {
+        if text[i] in PATH_DELIMITERS {
+            return i;
         }
         i -= 1;
     }
     return -1;
 }
 
-def findUnclosedQuoteStart(text: str) -> float | None {
+def findUnclosedQuoteStart(text: str) -> int | None {
     inQuotes: bool = False;
-    quoteStart = -1;
+    quoteStart: int = -1;
     i: int = 0;
-    while (i < len(text)) {
-        if (text[i] == "\"") {
+    while i < len(text) {
+        if text[i] == "\"" {
             inQuotes = not inQuotes;
             if inQuotes {
                 quoteStart = i;
@@ -64,20 +79,20 @@ def findUnclosedQuoteStart(text: str) -> float | None {
     return (quoteStart if inQuotes else None);
 }
 
-def isTokenStart(text: str, index: float) -> bool {
-    return ((index == 0) or PATH_DELIMITERS.has(((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else ""); })(text[(index - 1)]))));
+def isTokenStart(text: str, index: int) -> bool {
+    return (index == 0) or (text[index - 1] in PATH_DELIMITERS);
 }
 
 def extractQuotedPrefix(text: str) -> str | None {
     quoteStart = findUnclosedQuoteStart(text);
-    if (quoteStart == None) {
+    if quoteStart is None {
         return None;
     }
-    if ((quoteStart > 0) and (text[(quoteStart - 1)] == "@")) {
-        if not isTokenStart(text, (quoteStart - 1)) {
+    if (quoteStart > 0) and (text[quoteStart - 1] == "@") {
+        if not isTokenStart(text, quoteStart - 1) {
             return None;
         }
-        return text[(quoteStart - 1):];
+        return text[quoteStart - 1:];
     }
     if not isTokenStart(text, quoteStart) {
         return None;
@@ -99,8 +114,8 @@ def parsePathPrefix(prefix: str) -> dict[str, str | bool] {
 }
 
 def buildCompletionValue(path: str, options: dict[str, bool]) -> str {
-    needsQuotes = (options.isQuotedPrefix or (" " in path));
-    prefix = ("@" if options.isAtPrefix else "");
+    needsQuotes = (options["isQuotedPrefix"] or (" " in path));
+    prefix = ("@" if options["isAtPrefix"] else "");
     if not needsQuotes {
         return f"{prefix}{path}";
     }
@@ -109,354 +124,400 @@ def buildCompletionValue(path: str, options: dict[str, bool]) -> str {
     return f"{openQuote}{path}{closeQuote}";
 }
 
-async def walkDirectoryWithFd(baseDir: str, fdPath: str, query: str, maxResults: float, signal: any) -> any {
-    args = ["--base-directory", baseDir, "--max-results", str(maxResults), "--type", "f", "--type", "d", "--follow", "--hidden", "--exclude", ".git", "--exclude", ".git/*", "--exclude", ".git/**"];
-    if ("/" in toDisplayPath(query)) {
+def walkDirectoryWithFd(baseDir: str, fdPath: str, query: str, maxResults: int, signal: AbortSignal | None) -> list[dict[str, str | bool]] {
+    if (signal is not None) and signal.aborted {
+        return [];
+    }
+    args: list[str] = ["--base-directory", baseDir, "--max-results", str(maxResults), "--type", "f", "--type", "d", "--follow", "--hidden", "--exclude", ".git", "--exclude", ".git/*", "--exclude", ".git/**"];
+    if "/" in toDisplayPath(query) {
         args.append("--full-path");
     }
     if query {
         args.append(buildFdPathQuery(query));
     }
-    return await Promise(lambda (resolve: any) -> any { if signal.aborted {     resolve([]);     return; } child = spawn(fdPath, args, {"stdio": ["ignore", "pipe", "pipe"]}); stdout: str = ""; resolved: bool = False; finish = lambda (results: list[dict[str, str | bool]]) -> any { if resolved {     return; } resolved = True; signal.removeEventListener("abort", onAbort); resolve(results); }; onAbort = lambda () -> any { if (child.exitCode == None) {     child.kill("SIGKILL"); } }; signal.addEventListener("abort", onAbort, {"once": True}); child.stdout.setEncoding("utf-8"); child.stdout.on("data", lambda (chunk: str) -> any { stdout += chunk; }); child.on("error", lambda () -> any { finish([]); }); child.on("close", lambda (code: any) -> any { if ((signal.aborted or (code != 0)) or not stdout) {     finish([]);     return; } lines = stdout.strip().split("\n").filter(Boolean); results: list[dict[str, str | bool]] = []; for line in lines {     displayLine = toDisplayPath(line);     hasTrailingSeparator: str = displayLine.endswith("/");     normalizedPath = (displayLine[0:-1] if hasTrailingSeparator else displayLine);     if (((normalizedPath == ".git") or normalizedPath.startswith(".git/")) or ("/.git/" in normalizedPath)) {         continue;     }     results.append({"path": displayLine, "isDirectory": hasTrailingSeparator}); } finish(results); }); });
+    run = run_fd(fdPath, args, 2.0);
+    if (signal is not None) and signal.aborted {
+        return [];
+    }
+    if not (run["ok"] as bool) {
+        return [];
+    }
+    stdout = (run["stdout"] as str);
+    if not stdout {
+        return [];
+    }
+    lines = [line for line in stdout.strip().split("\n") if line];
+    results: list[dict[str, str | bool]] = [];
+    for line in lines {
+        displayLine = toDisplayPath(line);
+        hasTrailingSeparator: bool = displayLine.endswith("/");
+        normalizedPath = (displayLine[0:-1] if hasTrailingSeparator else displayLine);
+        if (normalizedPath == ".git") or normalizedPath.startswith(".git/") or ("/.git/" in normalizedPath) {
+            continue;
+        }
+        results.append({"path": displayLine, "isDirectory": hasTrailingSeparator});
+    }
+    return results;
 }
 
 obj:pub CombinedAutocompleteProvider {
-    has commands: list[any];
     has basePath: str;
-    has fdPath: str | None;
-    def __init__(commands: list[any] = [], basePath: str, fdPath: str | None = None) -> None {
-        self.commands = commands;
+    has commands: list[any] = [];
+    has fdPath: str | None = None;
+
+    def __init__(basePath: str, commands: list[any] = [], fdPath: str | None = None) -> None {
         self.basePath = basePath;
+        self.commands = commands;
         self.fdPath = fdPath;
     }
-    async def getSuggestions(lines: list[str], cursorLine: float, cursorCol: float, options: dict[str, any | bool | None]) -> any {
+
+    def getSuggestions(lines: list[str], cursorLine: int, cursorCol: int, options: dict[str, any]) -> dict[str, any] | None {
         currentLine = (lines[cursorLine] or "");
         textBeforeCursor = currentLine[0:cursorCol];
         atPrefix = self.extractAtPrefix(textBeforeCursor);
         if atPrefix {
-            _jx_d0: any = parsePathPrefix(atPrefix);
-            rawPrefix = _jx_d0.rawPrefix;
-            isQuotedPrefix = _jx_d0.isQuotedPrefix;
-            suggestions = await self.getFuzzyFileSuggestions(rawPrefix, {"isQuotedPrefix": isQuotedPrefix, "signal": options.signal});
-            if (len(suggestions) == 0) {
+            parsed = parsePathPrefix(atPrefix);
+            rawPrefix = (parsed["rawPrefix"] as str);
+            isQuotedPrefix = (parsed["isQuotedPrefix"] as bool);
+            suggestions = self.getFuzzyFileSuggestions(rawPrefix, {"isQuotedPrefix": isQuotedPrefix, "signal": options.get("signal")});
+            if len(suggestions) == 0 {
                 return None;
             }
             return {"items": suggestions, "prefix": atPrefix};
         }
-        if (not options.force and textBeforeCursor.startswith("/")) {
+        if (not options.get("force")) and textBeforeCursor.startswith("/") {
             spaceIndex = (-1 if " " not in textBeforeCursor else textBeforeCursor.index(" "));
-            if (spaceIndex == -1) {
+            if spaceIndex == -1 {
                 prefix = textBeforeCursor[1:];
-                commandItems = self.commands.map(lambda (cmd: any) -> any { name = (cmd.name if ("name" in cmd) else cmd.value); hint = (cmd.argumentHint if (("argumentHint" in cmd) and cmd.argumentHint) else None); desc = ((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else ""); })(cmd.description)); fullDesc = ((f"{hint} — {desc}" if desc else hint) if hint else desc); return {"name": name, "label": name, "description": (fullDesc or None)}; });
-                filtered = [{"value": item.name, "label": item.label, **(item.description and {"description": item.description})} for item in fuzzyFilter(commandItems, prefix, lambda (item: any) -> any { return item.name; })];
-                if (len(filtered) == 0) {
+                commandItems = [];
+                for cmd_j in self.commands {
+                    cmd: dict[str, any] = cmd_j;
+                    name = (cmd["name"] if ("name" in cmd) else cmd["value"]);
+                    hint = (cmd.get("argumentHint") if (("argumentHint" in cmd) and cmd.get("argumentHint")) else None);
+                    desc = (cmd.get("description") if cmd.get("description") is not None else "");
+                    fullDesc = ((f"{hint} — {desc}" if desc else hint) if hint else desc);
+                    commandItems.append({"name": name, "label": name, "description": (fullDesc or None)});
+                }
+                filtered = [];
+                getCommandName = lambda (ci: any) -> str { return (ci["name"] as str); };
+                for matched in fuzzyFilter(commandItems, prefix, getCommandName) {
+                    filteredItem: dict[str, any] = {"value": matched["name"], "label": matched["label"]};
+                    if matched.get("description") {
+                        filteredItem["description"] = matched["description"];
+                    }
+                    filtered.append(filteredItem);
+                }
+                if len(filtered) == 0 {
                     return None;
                 }
                 return {"items": filtered, "prefix": textBeforeCursor};
             }
             commandName = textBeforeCursor[1:spaceIndex];
-            argumentText = textBeforeCursor[(spaceIndex + 1):];
-            command = self.commands.find(lambda (cmd: any) -> any { name = (cmd.name if ("name" in cmd) else cmd.value); return (name == commandName); });
-            if ((not command or not ("getArgumentCompletions" in command)) or not command.getArgumentCompletions) {
+            argumentText = textBeforeCursor[spaceIndex + 1:];
+            command: dict[str, any] | None = None;
+            for cmd_j in self.commands {
+                cmd: dict[str, any] = cmd_j;
+                cmdName = (cmd["name"] if ("name" in cmd) else cmd["value"]);
+                if cmdName == commandName {
+                    command = cmd;
+                    break;
+                }
+            }
+            if (command is None) or (not ("getArgumentCompletions" in command)) or (not command.get("getArgumentCompletions")) {
                 return None;
             }
-            argumentSuggestions = await command.getArgumentCompletions(argumentText);
-            if (not Array.isArray(argumentSuggestions) or (len(argumentSuggestions) == 0)) {
+            argumentSuggestions = command["getArgumentCompletions"](argumentText);
+            if (not isinstance(argumentSuggestions, list)) or (len(argumentSuggestions) == 0) {
                 return None;
             }
             return {"items": argumentSuggestions, "prefix": argumentText};
         }
-        pathMatch = self.extractPathPrefix(textBeforeCursor, ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else False); })(options.force)));
-        if (pathMatch == None) {
+        pathMatch = self.extractPathPrefix(textBeforeCursor, bool(options.get("force")));
+        if pathMatch is None {
             return None;
         }
         suggestions = self.getFileSuggestions(pathMatch);
-        if (len(suggestions) == 0) {
+        if len(suggestions) == 0 {
             return None;
         }
         return {"items": suggestions, "prefix": pathMatch};
     }
-    def applyCompletion(lines: list[str], cursorLine: float, cursorCol: float, item: any, prefix: str) -> dict[str, list[str] | float] {
+
+    def applyCompletion(lines: list[str], cursorLine: int, cursorCol: int, item: dict[str, any], prefix: str) -> dict[str, any] {
         currentLine = (lines[cursorLine] or "");
-        beforePrefix = currentLine[0:(cursorCol - len(prefix))];
+        beforePrefix = currentLine[0:cursorCol - len(prefix)];
         afterCursor = currentLine[cursorCol:];
         isQuotedPrefix = (prefix.startswith("\"") or prefix.startswith("@\""));
-        hasLeadingQuoteAfterCursor: str = afterCursor.startswith("\"");
-        hasTrailingQuoteInItem: str = item.value.endswith("\"");
-        adjustedAfterCursor = (afterCursor[1:] if ((isQuotedPrefix and hasTrailingQuoteInItem) and hasLeadingQuoteAfterCursor) else afterCursor);
-        isSlashCommand = ((prefix.startswith("/") and (beforePrefix.strip() == "")) and not ("/" in prefix[1:]));
+        hasLeadingQuoteAfterCursor: bool = afterCursor.startswith("\"");
+        itemValue = (item["value"] as str);
+        hasTrailingQuoteInItem: bool = itemValue.endswith("\"");
+        adjustedAfterCursor = (afterCursor[1:] if (isQuotedPrefix and hasTrailingQuoteInItem and hasLeadingQuoteAfterCursor) else afterCursor);
+        isSlashCommand = (prefix.startswith("/") and (beforePrefix.strip() == "") and not ("/" in prefix[1:]));
+        itemLabel = (item["label"] as str);
         if isSlashCommand {
-            newLine: str = f"{beforePrefix}/{item.value} {adjustedAfterCursor}";
+            newLine: str = f"{beforePrefix}/{itemValue} {adjustedAfterCursor}";
             newLines = [*lines];
             newLines[cursorLine] = newLine;
-            return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": ((len(beforePrefix) + len(item.value)) + 2)};
+            return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": len(beforePrefix) + len(itemValue) + 2};
         }
         if prefix.startswith("@") {
-            isDirectory: str = item.label.endswith("/");
+            isDirectory: bool = itemLabel.endswith("/");
             suffix = ("" if isDirectory else " ");
-            newLine: str = f"{(beforePrefix + item.value)}{suffix}{adjustedAfterCursor}";
+            newLine: str = f"{beforePrefix + itemValue}{suffix}{adjustedAfterCursor}";
             newLines = [*lines];
             newLines[cursorLine] = newLine;
-            hasTrailingQuote: str = item.value.endswith("\"");
-            cursorOffset = ((len(item.value) - 1) if (isDirectory and hasTrailingQuote) else len(item.value));
-            return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": ((len(beforePrefix) + cursorOffset) + len(suffix))};
+            hasTrailingQuote: bool = itemValue.endswith("\"");
+            cursorOffset = (len(itemValue) - 1 if (isDirectory and hasTrailingQuote) else len(itemValue));
+            return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": len(beforePrefix) + cursorOffset + len(suffix)};
         }
         textBeforeCursor = currentLine[0:cursorCol];
-        if (("/" in textBeforeCursor) and (" " in textBeforeCursor)) {
-            newLine = ((beforePrefix + item.value) + adjustedAfterCursor);
-            newLines = [*lines];
-            newLines[cursorLine] = newLine;
-            isDirectory: str = item.label.endswith("/");
-            hasTrailingQuote: str = item.value.endswith("\"");
-            cursorOffset = ((len(item.value) - 1) if (isDirectory and hasTrailingQuote) else len(item.value));
-            return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": (len(beforePrefix) + cursorOffset)};
-        }
-        newLine = ((beforePrefix + item.value) + adjustedAfterCursor);
+        newLine = beforePrefix + itemValue + adjustedAfterCursor;
         newLines = [*lines];
         newLines[cursorLine] = newLine;
-        isDirectory: str = item.label.endswith("/");
-        hasTrailingQuote: str = item.value.endswith("\"");
-        cursorOffset = ((len(item.value) - 1) if (isDirectory and hasTrailingQuote) else len(item.value));
-        return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": (len(beforePrefix) + cursorOffset)};
+        isDirectory: bool = itemLabel.endswith("/");
+        hasTrailingQuote: bool = itemValue.endswith("\"");
+        cursorOffset = (len(itemValue) - 1 if (isDirectory and hasTrailingQuote) else len(itemValue));
+        return {"lines": newLines, "cursorLine": cursorLine, "cursorCol": len(beforePrefix) + cursorOffset};
     }
+
     def extractAtPrefix(text: str) -> str | None {
         quotedPrefix = extractQuotedPrefix(text);
-        if ((lambda (_jx_opt4: any) -> any { return (_jx_opt4.startsWith("@\"") if _jx_opt4 is not None else None); })(quotedPrefix)) {
+        if (quotedPrefix is not None) and quotedPrefix.startswith("@\"") {
             return quotedPrefix;
         }
-        lastDelimiterIndex: float = float(findLastDelimiter(text));
-        tokenStart = (0 if (lastDelimiterIndex == -1) else (lastDelimiterIndex + 1));
-        if (text[tokenStart] == "@") {
+        lastDelimiterIndex: int = findLastDelimiter(text);
+        tokenStart: int = (0 if (lastDelimiterIndex == -1) else lastDelimiterIndex + 1);
+        if (tokenStart < len(text)) and (text[tokenStart] == "@") {
             return text[tokenStart:];
         }
         return None;
     }
+
     def extractPathPrefix(text: str, forceExtract: bool = False) -> str | None {
         quotedPrefix = extractQuotedPrefix(text);
         if quotedPrefix {
             return quotedPrefix;
         }
-        lastDelimiterIndex: float = float(findLastDelimiter(text));
-        pathPrefix = (text if (lastDelimiterIndex == -1) else text[(lastDelimiterIndex + 1):]);
+        lastDelimiterIndex: int = findLastDelimiter(text);
+        pathPrefix = (text if (lastDelimiterIndex == -1) else text[lastDelimiterIndex + 1:]);
         if forceExtract {
             return pathPrefix;
         }
-        if ((("/" in pathPrefix) or pathPrefix.startswith(".")) or pathPrefix.startswith("~/")) {
+        if ("/" in pathPrefix) or pathPrefix.startswith(".") or pathPrefix.startswith("~/") {
             return pathPrefix;
         }
-        if ((pathPrefix == "") and text.endswith(" ")) {
+        if (pathPrefix == "") and text.endswith(" ") {
             return pathPrefix;
         }
         return None;
     }
+
     def expandHomePath(path: str) -> str {
         if path.startswith("~/") {
             expandedPath = join(homedir(), path[2:]);
             return (f"{expandedPath}/" if (path.endswith("/") and not expandedPath.endswith("/")) else expandedPath);
-        }
-        elif (path == "~") {
+        } elif path == "~" {
             return homedir();
         }
         return path;
     }
+
     def resolveScopedFuzzyQuery(rawQuery: str) -> dict[str, str] | None {
         normalizedQuery = toDisplayPath(rawQuery);
-        slashIndex = normalizedQuery.lastIndexOf("/");
-        if (slashIndex == -1) {
+        slashIndex = normalizedQuery.rfind("/");
+        if slashIndex == -1 {
             return None;
         }
-        displayBase = normalizedQuery[0:(slashIndex + 1)];
-        query = normalizedQuery[(slashIndex + 1):];
+        displayBase = normalizedQuery[0:slashIndex + 1];
+        query = normalizedQuery[slashIndex + 1:];
         baseDir: str;
         if displayBase.startswith("~/") {
             baseDir = self.expandHomePath(displayBase);
-        }
-        elif displayBase.startswith("/") {
+        } elif displayBase.startswith("/") {
             baseDir = displayBase;
-        }
-        else {
+        } else {
             baseDir = join(self.basePath, displayBase);
         }
         try {
             if not statSync(baseDir).isDirectory() {
                 return None;
             }
-        }
-        except Exception {
+        } except Exception {
             return None;
         }
         return {"baseDir": baseDir, "query": query, "displayBase": displayBase};
     }
+
     def scopedPathForDisplay(displayBase: str, relativePath: str) -> str {
         normalizedRelativePath = toDisplayPath(relativePath);
-        if (displayBase == "/") {
+        if displayBase == "/" {
             return f"/{normalizedRelativePath}";
         }
         return f"{toDisplayPath(displayBase)}{normalizedRelativePath}";
     }
-    def getFileSuggestions(prefix: str) -> list[any] {
+
+    def getFileSuggestions(prefix: str) -> list[dict[str, str]] {
         try {
             searchDir: str;
             searchPrefix: str;
-            _jx_d0: any = parsePathPrefix(prefix);
-            rawPrefix = _jx_d0.rawPrefix;
-            isAtPrefix = _jx_d0.isAtPrefix;
-            isQuotedPrefix = _jx_d0.isQuotedPrefix;
+            parsed = parsePathPrefix(prefix);
+            rawPrefix = (parsed["rawPrefix"] as str);
+            isAtPrefix = (parsed["isAtPrefix"] as bool);
+            isQuotedPrefix = (parsed["isQuotedPrefix"] as bool);
             expandedPrefix = rawPrefix;
             if expandedPrefix.startswith("~") {
                 expandedPrefix = self.expandHomePath(expandedPrefix);
             }
-            isRootPrefix = (((((((rawPrefix == "") or (rawPrefix == "./")) or (rawPrefix == "../")) or (rawPrefix == "~")) or (rawPrefix == "~/")) or (rawPrefix == "/")) or (isAtPrefix and (rawPrefix == "")));
+            isRootPrefix = (rawPrefix == "") or (rawPrefix == "./") or (rawPrefix == "../") or (rawPrefix == "~") or (rawPrefix == "~/") or (rawPrefix == "/") or (isAtPrefix and (rawPrefix == ""));
             if isRootPrefix {
-                if (rawPrefix.startswith("~") or expandedPrefix.startswith("/")) {
+                if rawPrefix.startswith("~") or expandedPrefix.startswith("/") {
                     searchDir = expandedPrefix;
-                }
-                else {
+                } else {
                     searchDir = join(self.basePath, expandedPrefix);
                 }
                 searchPrefix = "";
-            }
-            elif rawPrefix.endswith("/") {
-                if (rawPrefix.startswith("~") or expandedPrefix.startswith("/")) {
+            } elif rawPrefix.endswith("/") {
+                if rawPrefix.startswith("~") or expandedPrefix.startswith("/") {
                     searchDir = expandedPrefix;
-                }
-                else {
+                } else {
                     searchDir = join(self.basePath, expandedPrefix);
                 }
                 searchPrefix = "";
-            }
-            else {
+            } else {
                 dir = dirname(expandedPrefix);
                 file = basename(expandedPrefix);
-                if (rawPrefix.startswith("~") or expandedPrefix.startswith("/")) {
+                if rawPrefix.startswith("~") or expandedPrefix.startswith("/") {
                     searchDir = dir;
-                }
-                else {
+                } else {
                     searchDir = join(self.basePath, dir);
                 }
                 searchPrefix = file;
             }
             entries = readdirSync(searchDir, {"withFileTypes": True});
-            suggestions: list[any] = [];
+            suggestions: list[dict[str, str]] = [];
             for entry_j in entries {
                 if not entry_j.name.lower().startswith(searchPrefix.lower()) {
                     continue;
                 }
                 isDirectory = entry_j.isDirectory();
-                if (not isDirectory and entry_j.isSymbolicLink()) {
+                if (not isDirectory) and entry_j.isSymbolicLink() {
                     try {
                         fullPath = join(searchDir, entry_j.name);
                         isDirectory = statSync(fullPath).isDirectory();
-                    }
-                    except Exception {
+                    } except Exception {
                     }
                 }
                 relativePath: str;
                 name = entry_j.name;
                 displayPrefix = rawPrefix;
                 if displayPrefix.endswith("/") {
-                    relativePath = (displayPrefix + name);
-                }
-                elif (("/" in displayPrefix) or ("\\" in displayPrefix)) {
+                    relativePath = displayPrefix + name;
+                } elif ("/" in displayPrefix) or ("\\" in displayPrefix) {
                     if displayPrefix.startswith("~/") {
                         homeRelativeDir = displayPrefix[2:];
                         dir = dirname(homeRelativeDir);
-                        relativePath = f"~/{(name if (dir == ".") else join(dir, name))}";
-                    }
-                    elif displayPrefix.startswith("/") {
+                        relativePath = f"~/{(name if (dir == '.') else join(dir, name))}";
+                    } elif displayPrefix.startswith("/") {
                         dir = dirname(displayPrefix);
-                        if (dir == "/") {
+                        if dir == "/" {
                             relativePath = f"/{name}";
-                        }
-                        else {
+                        } else {
                             relativePath = f"{dir}/{name}";
                         }
-                    }
-                    else {
+                    } else {
                         relativePath = join(dirname(displayPrefix), name);
-                        if (displayPrefix.startswith("./") and not relativePath.startswith("./")) {
+                        if displayPrefix.startswith("./") and not relativePath.startswith("./") {
                             relativePath = f"./{relativePath}";
                         }
                     }
-                }
-                else {
+                } else {
                     if displayPrefix.startswith("~") {
                         relativePath = f"~/{name}";
-                    }
-                    else {
+                    } else {
                         relativePath = name;
                     }
                 }
                 relativePath = toDisplayPath(relativePath);
                 pathValue = (f"{relativePath}/" if isDirectory else relativePath);
                 value = buildCompletionValue(pathValue, {"isDirectory": isDirectory, "isAtPrefix": isAtPrefix, "isQuotedPrefix": isQuotedPrefix});
-                suggestions.append({"value": value, "label": (name + ("/" if isDirectory else ""))});
+                suggestions.append({"value": value, "label": name + ("/" if isDirectory else "")});
             }
-            suggestions.sort(lambda (a: any, b: any) -> any { aIsDir: str = a.value.endswith("/"); bIsDir: str = b.value.endswith("/"); if (aIsDir and not bIsDir) {     return -1; } if (not aIsDir and bIsDir) {     return 1; } return a.label.localeCompare(b.label); });
+
+            def sortKey(sugg: dict[str, str]) -> tuple {
+                isDir = sugg["value"].endswith("/");
+                return (0 if isDir else 1, sugg["label"].lower());
+            }
+            suggestions.sort(key=sortKey);
             return suggestions;
-        }
-        except Exception as _e {
+        } except Exception {
             return [];
         }
     }
-    def scoreEntry(filePath: str, query: str, isDirectory: bool) -> float {
+
+    def scoreEntry(filePath: str, query: str, isDirectory: bool) -> int {
         fileName = basename(filePath);
         lowerFileName: str = fileName.lower();
         lowerQuery: str = query.lower();
         score = 0;
-        if (lowerFileName == lowerQuery) {
+        if lowerFileName == lowerQuery {
             score = 100;
-        }
-        elif lowerFileName.startswith(lowerQuery) {
+        } elif lowerFileName.startswith(lowerQuery) {
             score = 80;
-        }
-        elif (lowerQuery in lowerFileName) {
+        } elif lowerQuery in lowerFileName {
             score = 50;
-        }
-        elif (lowerQuery in filePath.lower()) {
+        } elif lowerQuery in filePath.lower() {
             score = 30;
         }
-        if (isDirectory and (score > 0)) {
+        if isDirectory and (score > 0) {
             score += 10;
         }
         return score;
     }
-    async def getFuzzyFileSuggestions(query: str, options: dict[str, bool | any]) -> any {
-        if (not self.fdPath or options.signal.aborted) {
+
+    def getFuzzyFileSuggestions(query: str, options: dict[str, any]) -> list[dict[str, str]] {
+        signal = options.get("signal");
+        if (not self.fdPath) or ((signal is not None) and signal.aborted) {
             return [];
         }
         try {
             scopedQuery = self.resolveScopedFuzzyQuery(query);
-            fdBaseDir = ((lambda (_jx_null6: any) -> any { return (_jx_null6 if _jx_null6 is not None else self.basePath); })(((lambda (_jx_opt5: any) -> any { return (_jx_opt5.baseDir if _jx_opt5 is not None else None); })(scopedQuery))));
-            fdQuery = ((lambda (_jx_null8: any) -> any { return (_jx_null8 if _jx_null8 is not None else query); })(((lambda (_jx_opt7: any) -> any { return (_jx_opt7.query if _jx_opt7 is not None else None); })(scopedQuery))));
-            entries = await walkDirectoryWithFd(fdBaseDir, self.fdPath, fdQuery, 100, options.signal);
-            if options.signal.aborted {
+            fdBaseDir = (scopedQuery["baseDir"] if scopedQuery is not None else self.basePath);
+            fdQuery = (scopedQuery["query"] if scopedQuery is not None else query);
+            entries = walkDirectoryWithFd(fdBaseDir, self.fdPath, fdQuery, 100, signal);
+            if (signal is not None) and signal.aborted {
                 return [];
             }
-            scoredEntries = [entry_j for entry_j in [{**entry_j, "score": (self.scoreEntry(entry_j.path, fdQuery, entry_j.isDirectory) if fdQuery else 1)} for entry in entries] if (entry_j.score > 0)];
-            scoredEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort["score"]; }, reverse=True);
+            scoredEntries = [];
+            for entry in entries {
+                score = (self.scoreEntry((entry["path"] as str), fdQuery, (entry["isDirectory"] as bool)) if fdQuery else 1);
+                if score > 0 {
+                    scoredEntries.append({**entry, "score": score});
+                }
+            }
+            scoredEntries.sort(key=lambda (e: any) -> int { return -(e["score"] as int); });
             topEntries = scoredEntries[0:20];
-            suggestions: list[any] = [];
-            for _jx_item0 in topEntries {
-                entryPath = _jx_item0.path;
-                isDirectory = _jx_item0.isDirectory;
+            isQuotedPrefix = bool(options.get("isQuotedPrefix"));
+            suggestions: list[dict[str, str]] = [];
+            for entry_j in topEntries {
+                entryPath = (entry_j["path"] as str);
+                isDirectory = (entry_j["isDirectory"] as bool);
                 pathWithoutSlash = (entryPath[0:-1] if isDirectory else entryPath);
-                displayPath = (self.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash) if scopedQuery else pathWithoutSlash);
+                displayPath = (self.scopedPathForDisplay((scopedQuery["displayBase"] as str), pathWithoutSlash) if scopedQuery is not None else pathWithoutSlash);
                 entryName = basename(pathWithoutSlash);
                 completionPath = (f"{displayPath}/" if isDirectory else displayPath);
-                value = buildCompletionValue(completionPath, {"isDirectory": isDirectory, "isAtPrefix": True, "isQuotedPrefix": options.isQuotedPrefix});
-                suggestions.append({"value": value, "label": (entryName + ("/" if isDirectory else "")), "description": displayPath});
+                value = buildCompletionValue(completionPath, {"isDirectory": isDirectory, "isAtPrefix": True, "isQuotedPrefix": isQuotedPrefix});
+                suggestions.append({"value": value, "label": entryName + ("/" if isDirectory else ""), "description": displayPath});
             }
             return suggestions;
-        }
-        except Exception {
+        } except Exception {
             return [];
         }
     }
-    def shouldTriggerFileCompletion(lines: list[str], cursorLine: float, cursorCol: float) -> bool {
+
+    def shouldTriggerFileCompletion(lines: list[str], cursorLine: int, cursorCol: int) -> bool {
         currentLine = (lines[cursorLine] or "");
         textBeforeCursor = currentLine[0:cursorCol];
-        if (textBeforeCursor.strip().startswith("/") and not (" " in textBeforeCursor.strip())) {
+        if textBeforeCursor.strip().startswith("/") and not (" " in textBeforeCursor.strip()) {
             return False;
         }
         return True;

@@ -1,18 +1,18 @@
-import from "../keybindings.jac" { getKeybindings }
-import from "../keys.jac" { decodeKittyPrintable }
-import from "../kill-ring.jac" { KillRing }
-import from "../tui.jac" { CURSOR_MARKER }
-import from "../undo-stack.jac" { UndoStack }
-import from "../utils.jac" { getGraphemeSegmenter, isWhitespaceChar, sliceByColumn, visibleWidth }
-import from "../word-navigation.jac" { findWordBackward, findWordForward }
+import from ..keybindings { getKeybindings }
+import from ..keys { decodeKittyPrintable }
+import from ..kill_ring { KillRing }
+import from ..tui { CURSOR_MARKER }
+import from ..undo_stack { UndoStack }
+import from ..utils { getGraphemeSegmenter, isWhitespaceChar, sliceByColumn, visibleWidth }
+import from ..word_navigation { findWordBackward, findWordForward }
 
 glob segmenter = getGraphemeSegmenter();
 
 obj:pub Input {
+    has value: str = "";
+    has cursor: int = 0;
     has onSubmit: any | None = None;
     has onEscape: any | None = None;
-    has value: str = "";
-    has cursor: float = 0;
     has focused: bool = False;
     has pasteBuffer: str = "";
     has isInPaste: bool = False;
@@ -24,7 +24,7 @@ obj:pub Input {
     }
     def setValue(value: str) -> None {
         self.value = value;
-        self.cursor = min(float(self.cursor), float(len(value)));
+        self.cursor = min(self.cursor, len(value));
     }
     def handleInput(data: str) -> None {
         if ("\u001b[200~" in data) {
@@ -102,7 +102,7 @@ obj:pub Input {
                 beforeCursor = self.value[0:self.cursor];
                 graphemes = [*segmenter.segment(beforeCursor)];
                 lastGrapheme = graphemes[(len(graphemes) - 1)];
-                self.cursor -= (len(lastGrapheme.segment) if lastGrapheme else 1);
+                self.cursor -= (len((lastGrapheme.segment as str)) if lastGrapheme else 1);
             }
             return;
         }
@@ -112,7 +112,7 @@ obj:pub Input {
                 afterCursor = self.value[self.cursor:];
                 graphemes = [*segmenter.segment(afterCursor)];
                 firstGrapheme = graphemes[0];
-                self.cursor += (len(firstGrapheme.segment) if firstGrapheme else 1);
+                self.cursor += (len((firstGrapheme.segment as str)) if firstGrapheme else 1);
             }
             return;
         }
@@ -139,7 +139,7 @@ obj:pub Input {
             self.insertCharacter(kittyPrintable);
             return;
         }
-        hasControlChars = [*data].some(lambda (ch: any) -> any { code = ord(ch[0]); return (((code < 32) or (code == 127)) or ((code >= 128) and (code <= 159))); });
+        hasControlChars = any((((ord(ch) < 32) or (ord(ch) == 127)) or ((ord(ch) >= 128) and (ord(ch) <= 159))) for ch in data);
         if not hasControlChars {
             self.insertCharacter(data);
         }
@@ -159,7 +159,7 @@ obj:pub Input {
             beforeCursor = self.value[0:self.cursor];
             graphemes = [*segmenter.segment(beforeCursor)];
             lastGrapheme = graphemes[(len(graphemes) - 1)];
-            graphemeLength = (len(lastGrapheme.segment) if lastGrapheme else 1);
+            graphemeLength = (len((lastGrapheme.segment as str)) if lastGrapheme else 1);
             self.value = (self.value[0:(self.cursor - graphemeLength)] + self.value[self.cursor:]);
             self.cursor -= graphemeLength;
         }
@@ -171,7 +171,7 @@ obj:pub Input {
             afterCursor = self.value[self.cursor:];
             graphemes = [*segmenter.segment(afterCursor)];
             firstGrapheme = graphemes[0];
-            graphemeLength = (len(firstGrapheme.segment) if firstGrapheme else 1);
+            graphemeLength = (len((firstGrapheme.segment as str)) if firstGrapheme else 1);
             self.value = (self.value[0:self.cursor] + self.value[(self.cursor + graphemeLength):]);
         }
     }
@@ -181,7 +181,7 @@ obj:pub Input {
         }
         self.pushUndo();
         deletedText = self.value[0:self.cursor];
-        self.killRing.append(deletedText);
+        self.killRing.push(deletedText, {"prepend": True, "accumulate": (self.lastAction == "kill")});
         self.lastAction = "kill";
         self.value = self.value[self.cursor:];
         self.cursor = 0;
@@ -192,7 +192,7 @@ obj:pub Input {
         }
         self.pushUndo();
         deletedText = self.value[self.cursor:];
-        self.killRing.append(deletedText);
+        self.killRing.push(deletedText, {"prepend": False, "accumulate": (self.lastAction == "kill")});
         self.lastAction = "kill";
         self.value = self.value[0:self.cursor];
     }
@@ -207,7 +207,7 @@ obj:pub Input {
         deleteFrom = self.cursor;
         self.cursor = oldCursor;
         deletedText = self.value[deleteFrom:self.cursor];
-        self.killRing.append(deletedText);
+        self.killRing.push(deletedText, {"prepend": True, "accumulate": wasKill});
         self.lastAction = "kill";
         self.value = (self.value[0:deleteFrom] + self.value[self.cursor:]);
         self.cursor = deleteFrom;
@@ -223,7 +223,7 @@ obj:pub Input {
         deleteTo = self.cursor;
         self.cursor = oldCursor;
         deletedText = self.value[self.cursor:deleteTo];
-        self.killRing.append(deletedText);
+        self.killRing.push(deletedText, {"prepend": False, "accumulate": wasKill});
         self.lastAction = "kill";
         self.value = (self.value[0:self.cursor] + self.value[deleteTo:]);
     }
@@ -238,7 +238,7 @@ obj:pub Input {
         self.lastAction = "yank";
     }
     def yankPop() -> None {
-        if ((self.lastAction != "yank") or (len(self.killRing) <= 1)) {
+        if ((self.lastAction != "yank") or (self.killRing.length() <= 1)) {
             return;
         }
         self.pushUndo();
@@ -252,15 +252,15 @@ obj:pub Input {
         self.lastAction = "yank";
     }
     def pushUndo() -> None {
-        self.undoStack.append({"value": self.value, "cursor": self.cursor});
+        self.undoStack.push({"value": self.value, "cursor": self.cursor});
     }
     def undo() -> None {
         snapshot = self.undoStack.pop();
         if not snapshot {
             return;
         }
-        self.value = snapshot.value;
-        self.cursor = snapshot.cursor;
+        self.value = snapshot["value"];
+        self.cursor = int(snapshot["cursor"]);
         self.lastAction = None;
     }
     def moveWordBackwards() -> None {
@@ -268,14 +268,14 @@ obj:pub Input {
             return;
         }
         self.lastAction = None;
-        self.cursor = findWordBackward(self.value, self.cursor);
+        self.cursor = int(findWordBackward(self.value, self.cursor));
     }
     def moveWordForwards() -> None {
         if (self.cursor >= len(self.value)) {
             return;
         }
         self.lastAction = None;
-        self.cursor = findWordForward(self.value, self.cursor);
+        self.cursor = int(findWordForward(self.value, self.cursor));
     }
     def handlePaste(pastedText: str) -> None {
         self.lastAction = None;
@@ -305,7 +305,7 @@ obj:pub Input {
                 halfWidth = int(((scrollWidth / 2)) // 1);
                 startCol: float = float(0);
                 if (cursorCol < halfWidth) {
-                    startCol = 0;
+                    startCol = float(0);
                 }
                 elif (cursorCol > (totalWidth - halfWidth)) {
                     startCol = max(float(0), float((totalWidth - scrollWidth)));
@@ -323,12 +323,13 @@ obj:pub Input {
             }
         }
         graphemes = [*segmenter.segment(visibleText[cursorDisplay:])];
-        cursorGrapheme = graphemes[0];
+        cursorGrapheme = (graphemes[0] if (len(graphemes) > 0) else None);
         beforeCursor = visibleText[0:cursorDisplay];
-        atCursor = ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else " "); })(((lambda (_jx_opt0: any) -> any { return (_jx_opt0.segment if _jx_opt0 is not None else None); })(cursorGrapheme))));
+        cursorSegment = ((cursorGrapheme.segment as str) if cursorGrapheme is not None else None);
+        atCursor: str = (cursorSegment if cursorSegment is not None else " ");
         afterCursor = visibleText[(cursorDisplay + len(atCursor)):];
         marker = (CURSOR_MARKER if self.focused else "");
-        cursorChar: str = f"\\x1b[7m{atCursor}\\x1b[27m";
+        cursorChar: str = f"\x1b[7m{atCursor}\x1b[27m";
         textWithCursor = (((beforeCursor + marker) + cursorChar) + afterCursor);
         visualLength = visibleWidth(textWithCursor);
         padding = (" " * int(max(float(0), float((availableWidth - visualLength)))));

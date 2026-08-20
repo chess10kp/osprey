@@ -1,15 +1,19 @@
-import from "../utils.jac" { applyBackgroundToLine, visibleWidth }
+import from ..utils { applyBackgroundToLine, visibleWidth }
 
 obj:pub Box {
     has paddingX: float;
     has paddingY: float;
+    has children: list[any] = [];
     has bgFn: any | None = None;
     has cache: any | None = None;
-    has children: list[any] = [];
     def __init__(paddingX: float = 1, paddingY: float = 1, bgFn: any | None = None) -> None {
         self.paddingX = paddingX;
         self.paddingY = paddingY;
         self.bgFn = bgFn;
+        # NOTE(port): a custom __init__ suppresses Jac's auto-application of
+        # `has` field defaults, so the defaulted fields must be set explicitly.
+        self.children = [];
+        self.cache = None;
     }
     def addChild(component: any) -> None {
         self.children.append(component);

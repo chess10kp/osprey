@@ -1,6 +1,6 @@
-# interop import: marked { Marked, Tokenizer }
-import from "../terminal-image.jac" { getCapabilities, hyperlink, isImageLine }
-import from "../utils.jac" { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi }
+import from ..markdown_support { Marked, Tokenizer }
+import from ..terminal_image { getCapabilities, hyperlink, isImageLine }
+import from ..utils { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi }
 import from re { compile, split, sub }
 
 glob STRICT_STRIKETHROUGH_REGEX = compile(r"^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)");
@@ -8,31 +8,37 @@ glob STRICT_STRIKETHROUGH_REGEX = compile(r"^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\
 obj StrictStrikethroughTokenizer(Tokenizer) {
     has lexer: any = None;
     override def del(src: str) -> any | None {
-        match_j = STRICT_STRIKETHROUGH_REGEX.exec(src);
+        match_j = STRICT_STRIKETHROUGH_REGEX.match(src);
         if not match_j {
             return None;
         }
-        text = match_j[2];
-        return {"type": "del", "raw": match_j[0], "text": text, "tokens": self.lexer.inlineTokens(text)};
+        text = match_j.group(2);
+        return {"type": "del", "raw": match_j.group(0), "text": text, "tokens": self.lexer.inlineTokens(text)};
     }
 }
 
 def trimPartialClosingFences(tokens: any) -> None {
+    if len(tokens) == 0 {
+        return;
+    }
     token = tokens[(len(tokens) - 1)];
-    if (((lambda (_jx_opt0: any) -> any { return (_jx_opt0.type if _jx_opt0 is not None else None); })(token)) == "list") {
-        trimPartialClosingFences(((lambda (_jx_null2: any) -> any { return (_jx_null2 if _jx_null2 is not None else []); })(((lambda (_jx_opt1: any) -> any { return (_jx_opt1.tokens if _jx_opt1 is not None else None); })(token.items[(len(token.items) - 1)])))));
+    tokenType = token.type if (token is not None) else None;
+    if tokenType == "list" {
+        lastItem = token.items[(len(token.items) - 1)] if (len(token.items) > 0) else None;
+        itemTokens = (lastItem.tokens if (lastItem is not None) else None);
+        trimPartialClosingFences(itemTokens if (itemTokens is not None) else []);
         return;
     }
-    if (((lambda (_jx_opt3: any) -> any { return (_jx_opt3.type if _jx_opt3 is not None else None); })(token)) == "blockquote") {
-        trimPartialClosingFences(((lambda (_jx_null4: any) -> any { return (_jx_null4 if _jx_null4 is not None else []); })(token.tokens)));
+    if tokenType == "blockquote" {
+        trimPartialClosingFences(token.tokens if (token.tokens is not None) else []);
         return;
     }
-    if (((lambda (_jx_opt5: any) -> any { return (_jx_opt5.type if _jx_opt5 is not None else None); })(token)) != "code") {
+    if tokenType != "code" {
         return;
     }
-    marker = ((lambda (_jx_opt6: any) -> any { return (_jx_opt6[1] if _jx_opt6 is not None else None); })(compile(r"^(`{3,}|~{3,})").exec(token.raw)));
+    marker = ((lambda (_jx_opt6: any) -> any { return (_jx_opt6.group(1) if _jx_opt6 is not None else None); })(compile(r"^(`{3,}|~{3,})").match(token.raw)));
     lastLine = token.raw.split("\n").pop();
-    if (((not marker or not lastLine) or (len(lastLine) >= len(marker))) or (lastLine != ((lambda (_jx_opt7: any) -> any { return (_jx_opt7.repeat(len(lastLine)) if _jx_opt7 is not None else None); })(marker[0])))) {
+    if (((not marker or not lastLine) or (len(lastLine) >= len(marker))) or (lastLine != (marker[0] * len(lastLine)))) {
         return;
     }
     token.text = sub(r"\n$", "", token.text[0:-len(lastLine)]);
@@ -44,9 +50,9 @@ obj:pub Markdown {
     has text: str;
     has paddingX: float;
     has paddingY: float;
-    has defaultTextStyle: any | None = None;
     has theme: any;
     has options: any;
+    has defaultTextStyle: any | None = None;
     has defaultStylePrefix: str | None = None;
     has cachedText: str | None = None;
     has cachedWidth: float | None = None;
@@ -87,7 +93,7 @@ obj:pub Markdown {
         i: int = 0;
         while (i < len(tokens)) {
             token = tokens[i];
-            nextToken = tokens[(i + 1)];
+            nextToken = (tokens[(i + 1)] if ((i + 1) < len(tokens)) else None);
             tokenLines = self.renderToken(token, contentWidth, ((lambda (_jx_opt8: any) -> any { return (_jx_opt8.type if _jx_opt8 is not None else None); })(nextToken)));
             for tokenLine in tokenLines {
                 renderedLines.append(tokenLine);
@@ -132,7 +138,7 @@ obj:pub Markdown {
             emptyLines.append(line);
             i += 1;
         }
-        result = emptyLines.concat(contentLines, emptyLines);
+        result = (emptyLines + contentLines) + emptyLines;
         self.cachedText = self.text;
         self.cachedWidth = width;
         self.cachedLines = result;
@@ -190,12 +196,13 @@ obj:pub Markdown {
     }
     def getStylePrefix(styleFn: any) -> str {
         sentinel: str = "\u0000";
-        styled = styleFn(sentinel);
+        styled: str = str(styleFn(sentinel));
         sentinelIndex = (-1 if sentinel not in styled else styled.index(sentinel));
         return (styled[0:sentinelIndex] if (sentinelIndex >= 0) else "");
     }
     def getDefaultInlineStyleContext() -> any {
-        return {"applyText": lambda (text: str) -> any { return self.applyDefaultStyle(text); }, "stylePrefix": self.getDefaultStylePrefix()};
+        applyTextFn = lambda (text: str) -> any { return self.applyDefaultStyle(text); };
+        return {"applyText": applyTextFn, "stylePrefix": self.getDefaultStylePrefix()};
     }
     def renderToken(token: any, width: float, nextTokenType: str | None = None, styleContext: any | None = None) -> list[str] {
         lines: list[str] = [];
@@ -212,12 +219,11 @@ obj:pub Markdown {
             }
             headingStyleContext: any = {"applyText": headingStyleFn, "stylePrefix": self.getStylePrefix(headingStyleFn)};
             headingText = self.renderInlineTokens((token.tokens or []), headingStyleContext);
-            styledHeading = ((headingStyleFn(headingPrefix) + headingText) if (headingLevel >= 3) else headingText);
+            styledHeading: str = ((str(headingStyleFn(headingPrefix)) + headingText) if (headingLevel >= 3) else headingText);
             lines.append(styledHeading);
             if (nextTokenType and (nextTokenType != "space")) {
                 lines.append("");
             }
-            break;
         }
         elif (_sw == "paragraph") {
             paragraphText = self.renderInlineTokens((token.tokens or []), styleContext);
@@ -225,14 +231,13 @@ obj:pub Markdown {
             if ((nextTokenType and (nextTokenType != "list")) and (nextTokenType != "space")) {
                 lines.append("");
             }
-            break;
         }
         elif (_sw == "text") {
             lines.append(self.renderInlineTokens([token], styleContext));
         }
         elif (_sw == "code") {
             indent = ((lambda (_jx_null10: any) -> any { return (_jx_null10 if _jx_null10 is not None else "  "); })(self.theme.codeBlockIndent));
-            lines.append(self.theme.codeBlockBorder(f"\\`\\`\\`{(token.lang or "")}"));
+            lines.append(self.theme.codeBlockBorder(f"```{(token.lang or "")}"));
             if self.theme.highlightCode {
                 highlightedLines = self.theme.highlightCode(token.text, token.lang);
                 for hlLine in highlightedLines {
@@ -249,22 +254,19 @@ obj:pub Markdown {
             if (nextTokenType and (nextTokenType != "space")) {
                 lines.append("");
             }
-            break;
         }
         elif (_sw == "list") {
             listLines = self.renderList(token, 0, width, styleContext);
             lines.extend(listLines);
-            break;
         }
         elif (_sw == "table") {
             tableLines = self.renderTable(token, width, nextTokenType, styleContext);
             lines.extend(tableLines);
-            break;
         }
         elif (_sw == "blockquote") {
             quoteStyle = lambda (text: str) -> any { return self.theme.quote(self.theme.italic(text)); };
             quoteStylePrefix = self.getStylePrefix(quoteStyle);
-            applyQuoteStyle = lambda (line: str) -> any { if not quoteStylePrefix {     return quoteStyle(line); } lineWithReappliedStyle = sub(r"\x1b\[0m", f"\\x1b[0m{quoteStylePrefix}", line); return quoteStyle(lineWithReappliedStyle); };
+            applyQuoteStyle = lambda (line: str) -> any { if not quoteStylePrefix {     return quoteStyle(line); } lineWithReappliedStyle = sub(r"\x1b\[0m", f"\x1b[0m{quoteStylePrefix}", line); return quoteStyle(lineWithReappliedStyle); };
             quoteContentWidth = max(float(1), float((width - 2)));
             quoteInlineStyleContext: any = {"applyText": lambda (text: str) -> any { return text; }, "stylePrefix": quoteStylePrefix};
             quoteTokens = (token.tokens or []);
@@ -272,7 +274,7 @@ obj:pub Markdown {
             i: int = 0;
             while (i < len(quoteTokens)) {
                 quoteToken = quoteTokens[i];
-                nextQuoteToken = quoteTokens[(i + 1)];
+                nextQuoteToken = (quoteTokens[(i + 1)] if ((i + 1) < len(quoteTokens)) else None);
                 renderedQuoteLines.extend(self.renderToken(quoteToken, quoteContentWidth, ((lambda (_jx_opt11: any) -> any { return (_jx_opt11.type if _jx_opt11 is not None else None); })(nextQuoteToken)), quoteInlineStyleContext));
                 i += 1;
             }
@@ -283,13 +285,12 @@ obj:pub Markdown {
                 styledLine = applyQuoteStyle(quoteLine);
                 wrappedLines = wrapTextWithAnsi(styledLine, quoteContentWidth);
                 for wrappedLine in wrappedLines {
-                    lines.append((self.theme.quoteBorder("│ ") + wrappedLine));
+                    lines.append((str(self.theme.quoteBorder("│ ")) + wrappedLine));
                 }
             }
             if (nextTokenType and (nextTokenType != "space")) {
                 lines.append("");
             }
-            break;
         }
         elif (_sw == "hr") {
             lines.append(self.theme.hr(("─" * int(min(float(width), float(80))))));
@@ -314,15 +315,15 @@ obj:pub Markdown {
     }
     def renderInlineTokens(tokens: list[any], styleContext: any | None = None) -> str {
         result: str = "";
-        resolvedStyleContext = ((lambda (_jx_null12: any) -> any { return (_jx_null12 if _jx_null12 is not None else self.getDefaultInlineStyleContext()); })(styleContext));
+        resolvedStyleContext = (styleContext if (styleContext is not None) else self.getDefaultInlineStyleContext());
         _jx_d0: any = resolvedStyleContext;
-        applyText = _jx_d0.applyText;
-        stylePrefix = _jx_d0.stylePrefix;
+        applyText = _jx_d0["applyText"];
+        stylePrefix = _jx_d0["stylePrefix"];
         applyTextWithNewlines = lambda (text: str) -> any { segments: list[str] = text.split("\n"); return "\n".join([applyText(segment) for segment in segments]); };
         for token in tokens {
             _sw = token.type;
             if (_sw == "escape") {
-                result += applyTextWithNewlines((token.raw if self.options.preserveBackslashEscapes else token.text));
+                result += applyTextWithNewlines((token.raw if self.options.get("preserveBackslashEscapes") else token.text));
             }
             elif (_sw == "text") {
                 if (token.tokens and (len(token.tokens) > 0)) {
@@ -338,20 +339,18 @@ obj:pub Markdown {
             elif (_sw == "strong") {
                 boldContent = self.renderInlineTokens((token.tokens or []), resolvedStyleContext);
                 result += (self.theme.bold(boldContent) + stylePrefix);
-                break;
             }
             elif (_sw == "em") {
                 italicContent = self.renderInlineTokens((token.tokens or []), resolvedStyleContext);
                 result += (self.theme.italic(italicContent) + stylePrefix);
-                break;
             }
             elif (_sw == "codespan") {
                 result += (self.theme.code(token.text) + stylePrefix);
             }
             elif (_sw == "link") {
                 linkText = self.renderInlineTokens((token.tokens or []), resolvedStyleContext);
-                styledLink = self.theme.link(self.theme.underline(linkText));
-                if getCapabilities().hyperlinks {
+                styledLink: str = str(self.theme.link(self.theme.underline(linkText)));
+                if getCapabilities()["hyperlinks"] {
                     result += (hyperlink(styledLink, token.href) + stylePrefix);
                 }
                 else {
@@ -360,10 +359,9 @@ obj:pub Markdown {
                         result += (styledLink + stylePrefix);
                     }
                     else {
-                        result += ((styledLink + self.theme.linkUrl(f" ({token.href})")) + stylePrefix);
+                        result += ((styledLink + str(self.theme.linkUrl(f" ({token.href})"))) + stylePrefix);
                     }
                 }
-                break;
             }
             elif (_sw == "br") {
                 result += "\n";
@@ -371,7 +369,6 @@ obj:pub Markdown {
             elif (_sw == "del") {
                 delContent = self.renderInlineTokens((token.tokens or []), resolvedStyleContext);
                 result += (self.theme.strikethrough(delContent) + stylePrefix);
-                break;
             }
             elif (_sw == "html") {
                 if (("raw" in token) and isinstance(token.raw, str)) {
@@ -390,12 +387,12 @@ obj:pub Markdown {
         return result;
     }
     def getOrderedListMarker(item: any) -> str | None {
-        match_j = compile(r"^(?: {0,3})(\d{1,9}[.)])[ \t]+").exec(item.raw);
-        return (f"{match_j[1]} " if match_j else None);
+        match_j = compile(r"^(?: {0,3})(\d{1,9}[.)])[ \t]+").match(item.raw);
+        return (f"{match_j.group(1)} " if match_j else None);
     }
     def getUnorderedListMarker(item: any) -> str | None {
-        match_j = compile(r"^(?: {0,3})([-+*])(?:[ \t]+|(?=\r?\n|$))").exec(item.raw);
-        return (f"{match_j[1]} " if match_j else None);
+        match_j = compile(r"^(?: {0,3})([-+*])(?:[ \t]+|(?=\r?\n|$))").match(item.raw);
+        return (f"{match_j.group(1)} " if match_j else None);
     }
     def renderList(token: any, depth: float, width: float, styleContext: any | None = None) -> list[str] {
         lines: list[str] = [];
@@ -405,7 +402,14 @@ obj:pub Markdown {
         while (i < len(token.items)) {
             item = token.items[i];
             isLastItem = (i == (len(token.items) - 1));
-            bullet = ((((lambda (_jx_null13: any) -> any { return (_jx_null13 if _jx_null13 is not None else f"{(startNumber + i)}. "); })(self.getOrderedListMarker(item))) if self.options.preserveOrderedListMarkers else f"{(startNumber + i)}. ") if token.ordered else (((lambda (_jx_null14: any) -> any { return (_jx_null14 if _jx_null14 is not None else "- "); })(self.getUnorderedListMarker(item))) if self.options.preserveOrderedListMarkers else "- "));
+            defaultOrderedMarker = f"{(startNumber + i)}. ";
+            if token.ordered {
+                orderedMarker = self.getOrderedListMarker(item);
+                bullet = ((orderedMarker if (orderedMarker is not None) else defaultOrderedMarker) if self.options.get("preserveOrderedListMarkers") else defaultOrderedMarker);
+            } else {
+                unorderedMarker = self.getUnorderedListMarker(item);
+                bullet = ((unorderedMarker if (unorderedMarker is not None) else "- ") if self.options.get("preserveOrderedListMarkers") else "- ");
+            }
             taskMarker = (f"[{("x" if item.checked else " ")}] " if item.task else "");
             marker = (bullet + taskMarker);
             firstPrefix = (indent + self.theme.listBullet(marker));
@@ -472,8 +476,8 @@ obj:pub Markdown {
         i: int = 0;
         while (i < numCols) {
             headerText = self.renderInlineTokens((token.header[i].tokens or []), styleContext);
-            naturalWidths[i] = visibleWidth(headerText);
-            minWordWidths[i] = max(float(1), float(self.getLongestWordWidth(headerText, maxUnbrokenWordWidth)));
+            naturalWidths.append(float(visibleWidth(headerText)));
+            minWordWidths.append(max(float(1), float(self.getLongestWordWidth(headerText, maxUnbrokenWordWidth))));
             i += 1;
         }
         for row in token.rows {
@@ -485,20 +489,27 @@ obj:pub Markdown {
                 i += 1;
             }
         }
-        minColumnWidths = minWordWidths;
-        minCellsWidth = minColumnWidths.reduce(lambda (a: any, b: any) -> any { return (a + b); }, 0);
+        minColumnWidths: list[float] = [w for w in minWordWidths];
+        minCellsWidth = sum(minColumnWidths);
         if (minCellsWidth > availableForCells) {
-            minColumnWidths = Array(numCols).fill(1);
+            minColumnWidths = [float(1) for _jx_i in range(int(numCols))];
             remaining = (availableForCells - numCols);
             if (remaining > 0) {
-                totalWeight = minWordWidths.reduce(lambda (total: any, width: any) -> any { return (total + max(float(0), float((width - 1)))); }, 0);
-                growth = minWordWidths.map(lambda (width: any) -> any { weight = max(float(0), float((width - 1))); return (int((((weight / totalWeight) * remaining)) // 1) if (totalWeight > 0) else 0); });
+                totalWeight: float = float(0);
+                for width in minWordWidths {
+                    totalWeight += max(float(0), float((width - 1)));
+                }
+                growth: list[float] = [];
+                for width in minWordWidths {
+                    weight = max(float(0), float((width - 1)));
+                    growth.append(float(int((((weight / totalWeight) * remaining)) // 1)) if (totalWeight > 0) else float(0));
+                }
                 i: int = 0;
                 while (i < numCols) {
-                    minColumnWidths[i] += ((lambda (_jx_null15: any) -> any { return (_jx_null15 if _jx_null15 is not None else 0); })(growth[i]));
+                    minColumnWidths[i] += growth[i];
                     i += 1;
                 }
-                allocated = growth.reduce(lambda (total: any, width: any) -> any { return (total + width); }, 0);
+                allocated = sum(growth);
                 leftover = (remaining - allocated);
                 i: int = 0;
                 while ((leftover > 0) and (i < numCols)) {
@@ -507,18 +518,38 @@ obj:pub Markdown {
                     i += 1;
                 }
             }
-            minCellsWidth = minColumnWidths.reduce(lambda (a: any, b: any) -> any { return (a + b); }, 0);
+            minCellsWidth = sum(minColumnWidths);
         }
-        totalNaturalWidth = (naturalWidths.reduce(lambda (a: any, b: any) -> any { return (a + b); }, 0) + borderOverhead);
-        columnWidths: list[float];
+        totalNaturalWidth = (sum(naturalWidths) + borderOverhead);
+        columnWidths: list[float] = [];
         if (totalNaturalWidth <= availableWidth) {
-            columnWidths = naturalWidths.map(lambda (width: any, index: any) -> any { return max(float(width), float(minColumnWidths[index])); });
+            index: int = 0;
+            while (index < numCols) {
+                columnWidths.append(max(float(naturalWidths[index]), float(minColumnWidths[index])));
+                index += 1;
+            }
         }
         else {
-            totalGrowPotential = naturalWidths.reduce(lambda (total: any, width: any, index: any) -> any { return (total + max(float(0), float((width - minColumnWidths[index])))); }, 0);
+            totalGrowPotential: float = float(0);
+            index: int = 0;
+            while (index < numCols) {
+                totalGrowPotential += max(float(0), float((naturalWidths[index] - minColumnWidths[index])));
+                index += 1;
+            }
             extraWidth = max(float(0), float((availableForCells - minCellsWidth)));
-            columnWidths = minColumnWidths.map(lambda (minWidth: any, index: any) -> any { naturalWidth = naturalWidths[index]; minWidthDelta = max(float(0), float((naturalWidth - minWidth))); grow: float = float(0); if (totalGrowPotential > 0) {     grow = int((((minWidthDelta / totalGrowPotential) * extraWidth)) // 1); } return (minWidth + grow); });
-            allocated = columnWidths.reduce(lambda (a: any, b: any) -> any { return (a + b); }, 0);
+            index: int = 0;
+            while (index < numCols) {
+                minWidth = minColumnWidths[index];
+                naturalWidth = naturalWidths[index];
+                minWidthDelta = max(float(0), float((naturalWidth - minWidth)));
+                grow: float = float(0);
+                if (totalGrowPotential > 0) {
+                    grow = float(int((((minWidthDelta / totalGrowPotential) * extraWidth)) // 1));
+                }
+                columnWidths.append(minWidth + grow);
+                index += 1;
+            }
+            allocated = sum(columnWidths);
             remaining = (availableForCells - allocated);
             while (remaining > 0) {
                 grew: bool = False;
@@ -538,11 +569,26 @@ obj:pub Markdown {
         }
         topBorderCells = [("─" * int(w)) for w in columnWidths];
         lines.append(f"┌─{"─┬─".join(topBorderCells)}─┐");
-        headerCellLines: list[list[str]] = token.header.map(lambda (cell: any, i: any) -> any { text = self.renderInlineTokens((cell.tokens or []), styleContext); return self.wrapCellText(text, columnWidths[i]); });
-        headerLineCount = max(*[float(_jx_math) for _jx_math in [len(c) for c in headerCellLines]]);
+        headerCellLines: list[list[str]] = [];
+        i: int = 0;
+        while (i < numCols) {
+            cell = token.header[i];
+            text = self.renderInlineTokens((cell.tokens or []), styleContext);
+            headerCellLines.append(self.wrapCellText(text, columnWidths[i]));
+            i += 1;
+        }
+        headerLineCount = max(*[float(len(c)) for c in headerCellLines]);
         lineIdx: int = 0;
         while (lineIdx < headerLineCount) {
-            rowParts = headerCellLines.map(lambda (cellLines: any, colIdx: any) -> any { text = (cellLines[lineIdx] or ""); padded = (text + (" " * int(max(float(0), float((columnWidths[colIdx] - visibleWidth(text))))))); return self.theme.bold(padded); });
+            rowParts: list[str] = [];
+            colIdx: int = 0;
+            while (colIdx < len(headerCellLines)) {
+                cellLines = headerCellLines[colIdx];
+                text = (cellLines[lineIdx] if (lineIdx < len(cellLines)) else "");
+                padded = (text + (" " * int(max(float(0), float((columnWidths[colIdx] - visibleWidth(text)))))));
+                rowParts.append(self.theme.bold(padded));
+                colIdx += 1;
+            }
             lines.append(f"│ {" │ ".join(rowParts)} │");
             lineIdx += 1;
         }
@@ -552,11 +598,25 @@ obj:pub Markdown {
         rowIndex: int = 0;
         while (rowIndex < len(token.rows)) {
             row = token.rows[rowIndex];
-            rowCellLines: list[list[str]] = row.map(lambda (cell: any, i: any) -> any { text = self.renderInlineTokens((cell.tokens or []), styleContext); return self.wrapCellText(text, columnWidths[i]); });
-            rowLineCount = max(*[float(_jx_math) for _jx_math in [len(c) for c in rowCellLines]]);
+            rowCellLines: list[list[str]] = [];
+            i: int = 0;
+            while (i < len(row)) {
+                cell = row[i];
+                text = self.renderInlineTokens((cell.tokens or []), styleContext);
+                rowCellLines.append(self.wrapCellText(text, columnWidths[i]));
+                i += 1;
+            }
+            rowLineCount = max(*[float(len(c)) for c in rowCellLines]);
             lineIdx: int = 0;
             while (lineIdx < rowLineCount) {
-                rowParts = rowCellLines.map(lambda (cellLines: any, colIdx: any) -> any { text = (cellLines[lineIdx] or ""); return (text + (" " * int(max(float(0), float((columnWidths[colIdx] - visibleWidth(text))))))); });
+                rowParts: list[str] = [];
+                colIdx: int = 0;
+                while (colIdx < len(rowCellLines)) {
+                    cellLines = rowCellLines[colIdx];
+                    text = (cellLines[lineIdx] if (lineIdx < len(cellLines)) else "");
+                    rowParts.append((text + (" " * int(max(float(0), float((columnWidths[colIdx] - visibleWidth(text))))))));
+                    colIdx += 1;
+                }
                 lines.append(f"│ {" │ ".join(rowParts)} │");
                 lineIdx += 1;
             }

@@ -18,12 +18,31 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 python3 - "$PI_TUI" "$OUT" "$DRIVER" "$JAC_REPO" <<'PY'
-import json, subprocess, sys
+import json, re, subprocess, sys
 from pathlib import Path
 
 pi_tui, out, driver, jac_repo = map(Path, sys.argv[1:5])
 src = pi_tui / "src"
 summary = []
+
+# Mirror convert_bridge.mjs's snakeCasePathSegment() exactly: the emitted
+# imports are rewritten to snake_case sibling paths so kebab-case sources
+# qualify for the dotted relative-import form (jac#8371 workaround). The
+# on-disk .jac filenames MUST use the identical transform or those rewritten
+# imports won't resolve in project mode.
+def snake_seg(seg):
+    if seg in (".", ".."):
+        return seg
+    out_seg = re.sub(r"[^A-Za-z0-9_]+", "_", seg)
+    if re.match(r"^[0-9]", out_seg):
+        out_seg = "_" + out_seg
+    return out_seg or "_"
+
+def jac_out_rel(rel):
+    stem_parts = rel.with_suffix("").parts
+    return Path(*(snake_seg(p) for p in stem_parts)).with_suffix(".jac")
+
+seen_out_paths = {}  # out_path (str) -> source rel path that claimed it
 
 for fp in sorted(src.rglob("*.ts")):
     rel = fp.relative_to(pi_tui)
@@ -42,7 +61,17 @@ for fp in sorted(src.rglob("*.ts")):
         summary.append({"path": str(rel), "status": "reject"})
         continue
     jac = res.get("jac", "")
-    out_path = out / rel.with_suffix(".jac")
+    out_rel = jac_out_rel(rel)
+    out_key = str(out_rel)
+    if out_key in seen_out_paths:
+        print(
+            f"COLLISION: {rel} and {seen_out_paths[out_key]} both snake_case to {out_key}",
+            file=sys.stderr,
+        )
+        summary.append({"path": str(rel), "status": "collision", "conflicts_with": seen_out_paths[out_key]})
+        continue
+    seen_out_paths[out_key] = str(rel)
+    out_path = out / out_rel
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(jac)
     holes = jac.count("JS2JAC-HOLE")

@@ -1,4 +1,4 @@
-import from "../utils.jac" { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi }
+import from ..utils { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi }
 
 obj:pub Text {
     has text: str;

@@ -1,14 +1,12 @@
-# interop import: node:fs { fs }
-# interop import: node:module { createRequire }
-# interop import: node:path { path }
-# interop import: node:url { fileURLToPath }
-import from "./keys.jac" { setKittyProtocolActive }
-import from "./native-modifiers.jac" { isNativeModifierPressed }
-import from "./stdin-buffer.jac" { StdinBuffer }
+# Node fs/module/path/url globals are supplied by the Jac-native terminal_support adapter.
+import time;
+import from .keys { setKittyProtocolActive }
+import from .native_modifiers { isNativeModifierPressed }
+import from .stdin_buffer { StdinBuffer }
+import from .terminal_support { process, fs, path, Number, DateValue, now_ms, set_interval, clear_interval, resolve_write_log_path }
+import from .input_support { set_timeout, clear_timeout }
 import from re { search }
 import from os { environ }
-
-glob cjsRequire = createRequire(__file__);
 
 glob TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
 
@@ -22,7 +20,7 @@ glob DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 
 glob KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 
-glob KITTY_KEYBOARD_PROTOCOL_QUERY = f"\\x1b[>{DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\\x1b[?u\\x1b[c";
+glob KITTY_KEYBOARD_PROTOCOL_QUERY = f"\x1b[>{DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c";
 
 def:pub parseKeyboardProtocolNegotiationSequence(sequence: str) -> any | None {
     kittyFlags = search(r"^\x1b\[\?(\d+)u$", sequence);
@@ -51,18 +49,18 @@ def:pub normalizeAppleTerminalInput(data: str, isAppleTerminal: bool, isShiftPre
 }
 
 obj:pub ProcessTerminal {
+    has wasRaw: bool = False;
     has inputHandler: any | None = None;
     has resizeHandler: any | None = None;
-    has keyboardProtocolBufferFlushTimer: any | None = None;
-    has stdinBuffer: any | None = None;
-    has stdinDataHandler: any | None = None;
-    has progressInterval: any | None = None;
-    has wasRaw: bool = False;
     has _kittyProtocolActive: bool = False;
     has _modifyOtherKeysActive: bool = False;
     has keyboardProtocolPushed: bool = False;
     has keyboardProtocolNegotiationBuffer: str = "";
-    has writeLogPath: any = (lambda () -> any { env = (environ.get("PI_TUI_WRITE_LOG") or ""); if not env {     return ""; } try {     if fs.statSync(env).isDirectory() {         now = Date();         ts: str = f"{now.getFullYear()}-{str((now.getMonth() + 1)).padStart(2, "0")}-{str(now.getDate()).padStart(2, "0")}_{str(now.getHours()).padStart(2, "0")}-{str(now.getMinutes()).padStart(2, "0")}-{str(now.getSeconds()).padStart(2, "0")}";         return env.join(path);     } } except Exception { } return env; })();
+    has keyboardProtocolBufferFlushTimer: any | None = None;
+    has stdinBuffer: any | None = None;
+    has stdinDataHandler: any | None = None;
+    has progressInterval: any | None = None;
+    has writeLogPath: any = resolve_write_log_path();
     def kittyProtocolActive() -> bool {
         return self._kittyProtocolActive;
     }
@@ -89,7 +87,7 @@ obj:pub ProcessTerminal {
     def setupStdinBuffer() -> None {
         self.stdinBuffer = StdinBuffer({"timeout": 10});
         self.stdinBuffer.on("data", lambda (sequence: any) -> any { negotiationSequence = self.readKeyboardProtocolNegotiationSequence(sequence); if (negotiationSequence == "pending") {     self.scheduleKeyboardProtocolNegotiationBufferFlush();     return; } if self.handleKeyboardProtocolNegotiationSequence(negotiationSequence) {     return; } self.forwardInputSequence(sequence); });
-        self.stdinBuffer.on("paste", lambda (content: any) -> any { if self.inputHandler {     self.inputHandler(f"\\x1b[200~{content}\\x1b[201~"); } });
+        self.stdinBuffer.on("paste", lambda (content: any) -> any { if self.inputHandler {     self.inputHandler(f"\x1b[200~{content}\x1b[201~"); } });
         self.stdinDataHandler = lambda (data: str) -> any { (self.stdinBuffer as any).process(data); };
     }
     def queryAndEnableKittyProtocol() -> None {
@@ -104,8 +102,8 @@ obj:pub ProcessTerminal {
             return False;
         }
         self.clearKeyboardProtocolNegotiationBuffer();
-        if (negotiationSequence.type == "kitty-flags") {
-            if (negotiationSequence.flags != 0) {
+        if (negotiationSequence["type"] == "kitty-flags") {
+            if (negotiationSequence["flags"] != 0) {
                 self.disableModifyOtherKeys();
                 if not self._kittyProtocolActive {
                     self._kittyProtocolActive = True;
@@ -166,13 +164,13 @@ obj:pub ProcessTerminal {
         if (not self.keyboardProtocolNegotiationBuffer or self.keyboardProtocolBufferFlushTimer) {
             return;
         }
-        self.keyboardProtocolBufferFlushTimer = setTimeout(lambda () -> any { self.keyboardProtocolBufferFlushTimer = None; self.flushKeyboardProtocolNegotiationBufferAsInput(); }, KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS);
+        self.keyboardProtocolBufferFlushTimer = set_timeout(lambda () -> any { self.keyboardProtocolBufferFlushTimer = None; self.flushKeyboardProtocolNegotiationBufferAsInput(); }, KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS);
     }
     def clearKeyboardProtocolNegotiationBufferFlushTimer() -> None {
         if not self.keyboardProtocolBufferFlushTimer {
             return;
         }
-        clearTimeout(self.keyboardProtocolBufferFlushTimer);
+        clear_timeout(self.keyboardProtocolBufferFlushTimer);
         self.keyboardProtocolBufferFlushTimer = None;
     }
     def forwardInputSequence(sequence: str) -> None {
@@ -198,28 +196,11 @@ obj:pub ProcessTerminal {
         self._modifyOtherKeysActive = False;
     }
     def enableWindowsVTInput() -> None {
+        # Windows-only: enables VT input via a native console-mode helper. The Jac
+        # runtime targets POSIX terminals, where this is a no-op. The original
+        # loaded native/win32/.../win32-console-mode.node through createRequire.
         if (process.platform != "win32") {
             return;
-        }
-        try {
-            arch = process.arch;
-            if ((arch != "x64") and (arch != "arm64")) {
-                return;
-            }
-            moduleDir = path.dirname(fileURLToPath(__file__));
-            nativePath = "native".join(path);
-            candidates = [moduleDir.join(path), moduleDir.join(path), path.dirname(process.execPath).join(path)];
-            for modulePath in candidates {
-                try {
-                    helper = cjsRequire(modulePath);
-                    ((lambda (_jx_opt0: any) -> any { return (_jx_opt0() if _jx_opt0 is not None else None); })(helper.enableVirtualTerminalInput));
-                    return;
-                }
-                except Exception {
-                }
-            }
-        }
-        except Exception {
         }
     }
     async def drainInput(maxMs: float = 1000, idleMs: float = 50) -> any {
@@ -234,21 +215,21 @@ obj:pub ProcessTerminal {
         self.disableModifyOtherKeys();
         previousHandler = self.inputHandler;
         self.inputHandler = None;
-        lastDataTime = Date.now();
-        onData = lambda () -> any { lastDataTime = Date.now(); };
+        state = {"last": now_ms()};
+        onData = lambda (data: any = None) -> any { state["last"] = now_ms(); };
         process.stdin.on("data", onData);
-        endTime = (Date.now() + maxMs);
+        endTime = (now_ms() + maxMs);
         try {
             while True {
-                now = Date.now();
+                now = now_ms();
                 timeLeft = (endTime - now);
                 if (timeLeft <= 0) {
                     break;
                 }
-                if ((now - lastDataTime) >= idleMs) {
+                if ((now - state["last"]) >= idleMs) {
                     break;
                 }
-                await Promise(lambda (resolve: any) -> any { return setTimeout(resolve, min(float(idleMs), float(timeLeft))); });
+                time.sleep(min(float(idleMs), float(timeLeft)) / 1000.0);
             }
         }
         finally {
@@ -299,17 +280,27 @@ obj:pub ProcessTerminal {
         }
     }
     def columns() -> float {
-        return ((process.stdout.columns or Number(environ.get("COLUMNS"))) or 80);
+        # JS relied on Number("")===NaN being falsy in `a || b || 80`; under Jac
+        # a bad parse yields NaN which is truthy, so branch explicitly instead.
+        c = process.stdout.columns;
+        if c { return c; }
+        env = environ.get("COLUMNS");
+        if env { n = Number(env); if (n == n) { return n; } }
+        return 80;
     }
     def rows() -> float {
-        return ((process.stdout.rows or Number(environ.get("LINES"))) or 24);
+        r = process.stdout.rows;
+        if r { return r; }
+        env = environ.get("LINES");
+        if env { n = Number(env); if (n == n) { return n; } }
+        return 24;
     }
     def moveBy(lines: float) -> None {
         if (lines > 0) {
-            process.stdout.write(f"\\x1b[{lines}B");
+            process.stdout.write(f"\x1b[{lines}B");
         }
         elif (lines < 0) {
-            process.stdout.write(f"\\x1b[{-lines}A");
+            process.stdout.write(f"\x1b[{-lines}A");
         }
     }
     def hideCursor() -> None {
@@ -328,13 +319,13 @@ obj:pub ProcessTerminal {
         process.stdout.write("\u001b[2J\u001b[H");
     }
     def setTitle(title: str) -> None {
-        process.stdout.write(f"\\x1b]0;{title}\\x07");
+        process.stdout.write(f"\x1b]0;{title}\x07");
     }
     def setProgress(active: bool) -> None {
         if active {
             process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
             if not self.progressInterval {
-                self.progressInterval = setInterval(lambda () -> any { process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE); }, TERMINAL_PROGRESS_KEEPALIVE_MS);
+                self.progressInterval = set_interval(lambda () -> any { process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE); }, TERMINAL_PROGRESS_KEEPALIVE_MS);
             }
         }
         else {
@@ -346,7 +337,7 @@ obj:pub ProcessTerminal {
         if not self.progressInterval {
             return False;
         }
-        clearInterval(self.progressInterval);
+        clear_interval(self.progressInterval);
         self.progressInterval = None;
         return True;
     }

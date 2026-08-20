@@ -1,5 +1,6 @@
-# interop import: events { EventEmitter }
+# interop import: events { EventEmitter }  -> Jac-native adapter below
 import from re { search }
+import from .input_support { EventEmitter, set_timeout, clear_timeout, is_buffer }
 
 glob ESC = "\u001b";
 
@@ -152,27 +153,36 @@ def extractCompleteSequences(buffer: str) -> dict[str, list[str] | str] {
 }
 
 obj:pub StdinBuffer(EventEmitter) {
-    has timeoutMs: float;
-    has pendingKittyPrintableCodepoint: float | None;
-    has emit: any = None;
+    has timeoutMs: float = 10;
+    has pendingKittyPrintableCodepoint: float | None = None;
     has buffer: str = "";
     has timeout: any | None = None;
     has pasteMode: bool = False;
     has pasteBuffer: str = "";
     def __init__(options: any = {}) -> None {
-        super();
-        self.timeoutMs = ((lambda (_jx_null0: any) -> any { return (_jx_null0 if _jx_null0 is not None else 10); })(options.timeout));
+        # NOTE(port): this Jac runtime cannot lower a zero-arg super() call, so
+        # seed the inherited EventEmitter state directly rather than via super().
+        # A custom __init__ also suppresses Jac's has-default application, so all
+        # mutable/instance fields are seeded explicitly (same pattern as Box).
+        self.listeners = {};
+        tmo = (options.get("timeout") if isinstance(options, dict) else None);
+        self.timeoutMs = (tmo if (tmo is not None) else 10);
+        self.pendingKittyPrintableCodepoint = None;
+        self.buffer = "";
+        self.timeout = None;
+        self.pasteMode = False;
+        self.pasteBuffer = "";
     }
     override def process(data: str | any) -> None {
         if self.timeout {
-            clearTimeout(self.timeout);
+            clear_timeout(self.timeout);
             self.timeout = None;
         }
         str_j: str;
-        if Buffer.isBuffer(data) {
+        if is_buffer(data) {
             if ((len(data) == 1) and ((data[0] as any) > 127)) {
                 byte = ((data[0] as any) - 128);
-                str_j = f"\\x1b{String.fromCharCode(byte)}";
+                str_j = f"{ESC}{chr(int(byte))}";
             }
             else {
                 str_j = str(data);
@@ -237,7 +247,7 @@ obj:pub StdinBuffer(EventEmitter) {
             self.emitDataSequence(sequence);
         }
         if (len(self.buffer) > 0) {
-            self.timeout = setTimeout(lambda () -> any { flushed = self.flush(); for sequence in flushed {     self.emitDataSequence(sequence); } }, self.timeoutMs);
+            self.timeout = set_timeout(lambda () -> any { flushed = self.flush(); for sequence in flushed {     self.emitDataSequence(sequence); } }, self.timeoutMs);
         }
     }
     override def emitDataSequence(sequence: str) -> None {
@@ -251,7 +261,7 @@ obj:pub StdinBuffer(EventEmitter) {
     }
     override def flush() -> list[str] {
         if self.timeout {
-            clearTimeout(self.timeout);
+            clear_timeout(self.timeout);
             self.timeout = None;
         }
         if (len(self.buffer) == 0) {
@@ -264,7 +274,7 @@ obj:pub StdinBuffer(EventEmitter) {
     }
     override def clear() -> None {
         if self.timeout {
-            clearTimeout(self.timeout);
+            clear_timeout(self.timeout);
             self.timeout = None;
         }
         self.buffer = "";

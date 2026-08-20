@@ -193,6 +193,11 @@ const JS_STRING_METHODS = {
   endsWith: "endswith",
 };
 
+// Return-type split of JS_STRING_METHODS for inferExprType: the string-shaped
+// members return `str`, but `startsWith`/`endsWith` return `bool`.
+const JS_STRING_RETURNING_METHODS = new Set(["toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd"]);
+const JS_BOOL_RETURNING_METHODS = new Set(["startsWith", "endsWith"]);
+
 // Number/Date formatting methods that return a locale/precision-formatted STRING
 // with no sound Jac equivalent. Emitting them raw (`x.toFixed(2)`) type-checks as
 // an unknown attribute (E1030) and sinks the whole file; we diagnose so fail-open
@@ -1529,6 +1534,21 @@ function isDictBinding(name, ctx) {
   return Boolean(name && ctx?.dictBindings?.has(name));
 }
 
+/** V2.13: register plain-identifier function/method params whose TS annotation is
+ * an inline object type (`TSTypeLiteral`) into the body ctx's dictBindings, so
+ * member access on them lowers to dict subscript (`opts["field"]`) instead of
+ * dict-DOT access, which Jac rejects with E1030. Destructured params
+ * (ObjectPattern/ArrayPattern) are handled by a separate decomposition path. */
+function registerDictLiteralParams(params, ctx) {
+  if (!ctx?.dictBindings) return;
+  for (const p of params ?? []) {
+    const idNode = p?.type === "AssignmentPattern" ? p.left : p;
+    if (idNode?.type !== "Identifier") continue;
+    const ann = idNode.typeAnnotation?.typeAnnotation;
+    if (ann?.type === "TSTypeLiteral") noteDictBinding(idNode.name, undefined, ann, ctx);
+  }
+}
+
 function isKnownMapReceiver(node, ctx = {}) {
   return node?.type === "Identifier"
     && (ctx.mapBindings?.has(node.name) || MODULE_MAP_BINDINGS.has(node.name));
@@ -1636,6 +1656,18 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
     return `str(${recv})`;
+  }
+  // `X.toString(enc)` (Buffer encoding, number radix, ...) -> a plain Jac
+  // method call `X.toString(enc)`. No single Jac builtin covers every
+  // receiver's `toString(arg)` overload, so this preserves the call shape
+  // literally rather than dropping/garbling it; the receiver's own interop
+  // surface is responsible for exposing a matching `toString` method.
+  if (method === "toString" && (node.arguments ?? []).length === 1) {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    const arg = emitExpr(node.arguments[0], path, diags, ctx);
+    if (arg === null) return null;
+    return `${recv}.toString(${arg})`;
   }
   // No sound Jac form: diagnose so fail-open drops the expression instead of
   // emitting Jac that silently fails the type checker and sinks the whole file.
@@ -1827,6 +1859,25 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     if (argText === null) return null;
     return `${recv}.append(${argText})`;
   }
+  if (method === "unshift") {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    const arg = node.arguments?.[0];
+    if (!arg) return undefined;
+    // A single front-insert; JS returns the new length, discarded as a statement
+    // (same simplification already accepted for push->append).
+    if ((node.arguments ?? []).length !== 1 || arg.type === "SpreadElement") return undefined;
+    const argText = emitExpr(arg, path, diags, ctx);
+    if (argText === null) return null;
+    return `${recv}.insert(0, ${argText})`;
+  }
+  if (method === "shift") {
+    const recv = emitExpr(node.callee.object, path, diags, ctx);
+    if (recv === null) return null;
+    // JS `shift()` removes and returns the first element; `pop(0)` matches.
+    if ((node.arguments ?? []).length !== 0) return undefined;
+    return `${recv}.pop(0)`;
+  }
   if (method === "join") {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
@@ -1836,7 +1887,17 @@ function tryEmitJacNativeCall(node, path, diags, ctx) {
     if (sepText === null) return null;
     return `${sepText}.join(${recv})`;
   }
-  const jacMethod = JS_STRING_METHODS[method];
+  // `Object.prototype.hasOwnProperty` guard: JS_STRING_METHODS is a plain
+  // object literal, so a bracket lookup for a method name that collides with
+  // an inherited Object.prototype member (`toString`, `valueOf`,
+  // `constructor`, `hasOwnProperty`, ...) silently resolves to that *native*
+  // function instead of `undefined`. The old unguarded `JS_STRING_METHODS[method]`
+  // then interpolated that live Function object into the template literal,
+  // which stringifies as `function toString() { [native code] }` — emitting
+  // garbage Jac like `Buffer.from(x).function toString(){[native code]}("base64")`.
+  const jacMethod = Object.prototype.hasOwnProperty.call(JS_STRING_METHODS, method)
+    ? JS_STRING_METHODS[method]
+    : undefined;
   if (jacMethod) {
     const recv = emitExpr(node.callee.object, path, diags, ctx);
     if (recv === null) return null;
@@ -2037,7 +2098,12 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx, fieldTypes = null) {
       if (pr.computed) return null;                      // computed key
       if (pr.key?.type !== "Identifier") return null;
       if (pr.value?.type !== "Identifier") return null;  // nested / default / non-ident
-      binds.push({ target: pr.value.name, access: `.${pr.key.name}`, type: fieldTypes?.get(pr.key.name) ?? null });
+      // `target` must go through identText: a reserved-word binding here
+      // (e.g. `const { root } = x`) is renamed at every *read* site via
+      // identText, so an un-renamed declaration here leaves the reads
+      // pointing at an undefined `root` while the actual binding is `root`
+      // (unrenamed) — a scope-inconsistent half-rename.
+      binds.push({ target: identText(pr.value.name), access: `.${pr.key.name}`, type: fieldTypes?.get(pr.key.name) ?? null });
     }
   } else if (idNode?.type === "ArrayPattern") {
     const els = idNode.elements ?? [];
@@ -2045,7 +2111,7 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx, fieldTypes = null) {
       const el = els[i];
       if (el === null || el === undefined) continue;     // hole, e.g. [, b]
       if (el.type !== "Identifier") return null;         // rest / default / nested
-      binds.push({ target: el.name, access: `[${i}]`, type: null });
+      binds.push({ target: identText(el.name), access: `[${i}]`, type: null });
     }
   } else {
     return null;
@@ -2067,6 +2133,30 @@ function lowerFlatPattern(idNode, valExpr, forParam, ctx, fieldTypes = null) {
       : `${b.target} = ${base}${b.access};`);
   }
   return { lines };
+}
+
+/** Switch->if/elif lowering: a JS `case X: { ...; break; }` braced case body
+ * parses as a single-element consequent array `[BlockStatement]`, not a flat
+ * statement list — so the flat "drop a trailing BreakStatement" filter in the
+ * SwitchStatement case-body loop never sees the `break`, and it survives
+ * verbatim into the emitted `if`/`elif` block, where Jac rejects a bare
+ * `break;` outside a loop. Recursively unwrap only BlockStatement wrappers
+ * (never loops/switches, whose own trailing `break` targets *them*, not the
+ * enclosing switch) to find and drop that trailing break wherever bracing put
+ * it. Returns a new statement array; does not mutate the input. */
+function stripSwitchCaseBreak(bodyStmts) {
+  if (!bodyStmts || bodyStmts.length === 0) return bodyStmts ?? [];
+  const last = bodyStmts[bodyStmts.length - 1];
+  if (last?.type === "BreakStatement") {
+    return bodyStmts.slice(0, -1);
+  }
+  if (last?.type === "BlockStatement") {
+    const strippedInner = stripSwitchCaseBreak(last.body ?? []);
+    const out = bodyStmts.slice(0, -1);
+    out.push({ ...last, body: strippedInner });
+    return out;
+  }
+  return bodyStmts;
 }
 
 /** V2.2 + V2.3: lower a general (non-hook) statement to Jac source lines.
@@ -2254,6 +2344,22 @@ function emitStatement(stmt, ctx) {
       if (arg === null) return null;
       const delta = expr.operator === "++" ? "1" : "-1";
       return [`${arg} += ${delta};`];
+    }
+    // JS `arr.length = 0` truncates the array. The LHS lowers to `len(arr)`,
+    // which is an invalid context-update target in Jac (E2008). Only the
+    // `= 0` reset has a direct equivalent: `arr.clear()`. Other `.length = N`
+    // forms retain their existing (fail-closed) behavior below.
+    if (expr?.type === "AssignmentExpression" && expr.operator === "="
+      && expr.left?.type === "MemberExpression" && !expr.left.computed
+      && expr.left.property?.type === "Identifier" && expr.left.property.name === "length") {
+      const rhs = unwrapTsValue(expr.right);
+      const isZero = (rhs?.type === "NumericLiteral" && rhs.value === 0)
+        || (rhs?.type === "Literal" && rhs.value === 0);
+      if (isZero) {
+        const recv = emitExpr(expr.left.object, path, diags, ctx);
+        if (recv === null) return null;
+        return [`${recv}.clear();`];
+      }
     }
     // Compound assignment (+=, -=, ...) -> Jac compound forms where supported.
     if (expr?.type === "AssignmentExpression") {
@@ -2446,7 +2552,7 @@ function emitStatement(stmt, ctx) {
     for (let i = 0; i < allGroups.length; i += 1) {
       const g = allGroups[i];
       const bodyLines = [];
-      for (const s of g.body) {
+      for (const s of stripSwitchCaseBreak(g.body)) {
         if (s.type === "BreakStatement") continue;
         const lines = emitStatement(s, ctx);
         if (lines === null) return null;
@@ -2711,7 +2817,7 @@ let REGEX_CONSTS = new Set();
 const JAC_RESERVED_LOCALS = new Set([
   "match", "with", "entry", "has", "glob", "del", "edge", "node", "graph",
   "walker", "spawn", "visit", "report", "disengage", "skip", "take",
-  "ignore", "ability", "import", "await", "defer",
+  "ignore", "ability", "import", "await", "defer", "root",
   // Python/Jac builtins a JS local can shadow — a shadowed builtin breaks the
   // lowered call sites (e.g. a `max` param makes `max(...)` resolve to it).
   "min", "max", "len", "abs", "all", "any", "round", "sum", "sorted",
@@ -3501,15 +3607,77 @@ function defaultExportBasename(path) {
   return base;
 }
 
+/** V2.14: sanitize one relative-import path segment to Jac's identifier
+ * grammar (`[A-Za-z_][A-Za-z0-9_]*`). Source basenames are commonly
+ * kebab-case (`kill-ring.ts`, `native-modifiers.ts`, ...); this snake_cases
+ * them (hyphens and any other non-identifier character become `_`) so the
+ * segment is always dotted-import-safe. `.`/`..` traversal segments pass
+ * through untouched. Applied uniformly to every segment (not just the
+ * basename) so an eventually-kebab directory would also come out consistent,
+ * though the current tree has none. The regeneration driver
+ * (`tui/scripts/js2jac_pi_tui.sh`) MUST apply this exact same transform when
+ * naming the on-disk `.jac` file, or these rewritten imports won't resolve. */
+function snakeCasePathSegment(seg) {
+  if (!seg || seg === "." || seg === "..") return seg;
+  let out = seg.replace(/[^A-Za-z0-9_]+/g, "_");
+  if (/^[0-9]/.test(out)) out = "_" + out;
+  return out || "_";
+}
+
 /** V2.12: rewrite relative JS module specifiers to sibling `.jac` files so
  * emitted imports resolve in project-mode `jac check`. Extensionless and
  * `.ts`/`.js`/`.mjs`/`.cjs` specifiers get `.jac`; package specifiers
- * (react, node:*, eventemitter) pass through untouched. */
+ * (react, node:*, eventemitter) pass through untouched. Every path segment is
+ * snake_cased (see snakeCasePathSegment) so kebab-case source basenames
+ * qualify for the dotted relative-import form instead of falling back to the
+ * quoted string-path form that trips jac#8371. */
 function jacModulePath(src) {
   if (typeof src !== "string" || !src) return src;
   if (!src.startsWith("./") && !src.startsWith("../")) return src;
   if (/\.jac$/.test(src)) return src;
-  return src.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "") + ".jac";
+  const stripped = src.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
+  const segments = stripped.split("/").map(snakeCasePathSegment);
+  return segments.join("/") + ".jac";
+}
+
+/** V2.13: convert a relative sibling `.jac` path (as produced by
+ * jacModulePath) into Jac's dotted relative-module import syntax, sidestepping
+ * a jac 0.36.0 type-checker bug (jac#8371): quoted string-path relative
+ * imports (`import from "./a.jac" { ... }`) drop the imported symbol's
+ * cross-file return type to Unknown, cascading into W1051/E1053/E1055 on any
+ * downstream arithmetic using the result. The equivalent dotted form
+ * (`import from .a { ... }`) type-checks clean. Each leading `../` beyond the
+ * first adds one leading dot; path separators become `.`; the `.jac`
+ * extension is stripped; a trailing `index` segment (directory import) is
+ * dropped. Only call this on paths already confirmed relative (./ or ../).
+ *
+ * Dotted syntax has no escape for characters outside `[A-Za-z0-9_]` in a path
+ * segment. jacModulePath() now snake_cases every segment before this runs
+ * (kebab-case source basenames like `kill-ring.ts` -> `kill_ring.jac`), so in
+ * practice every relative import qualifies for the dotted form. This guard
+ * stays as a defense-in-depth fallback: if a segment somehow still isn't a
+ * valid Jac identifier, return null and let the caller fall back to the
+ * quoted string-path form instead of forcing a broken rewrite (e.g. `import
+ * from .kill-ring` would be an unrelated parse error, E0005, minus-as-operator).
+ */
+function dottedRelativeImportPath(jacPath) {
+  let rest = jacPath;
+  let dots = ".";
+  if (rest.startsWith("../")) {
+    dots = "..";
+    rest = rest.slice(3);
+    while (rest.startsWith("../")) {
+      dots += ".";
+      rest = rest.slice(3);
+    }
+  } else if (rest.startsWith("./")) {
+    rest = rest.slice(2);
+  }
+  rest = rest.replace(/\.jac$/, "");
+  const segments = rest.split("/").filter(Boolean);
+  if (segments.length && segments[segments.length - 1] === "index") segments.pop();
+  if (!segments.every((s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s))) return null;
+  return dots + segments.join(".");
 }
 
 function collectInteropImports(body) {
@@ -3556,7 +3724,10 @@ function formatInteropImports(imports) {
       if (s.kind === "namespace") return `* as ${s.local}`;
       return s.imported === s.local ? s.local : `${s.imported} as ${s.local}`;
     });
-    lines.push(`import from "${jacModulePath(imp.source)}" { ${parts.join(", ")} }`);
+    const modPath = jacModulePath(imp.source);
+    const dotted = dottedRelativeImportPath(modPath);
+    const spec = dotted ?? `"${modPath}"`;
+    lines.push(`import from ${spec} { ${parts.join(", ")} }`);
   }
   return lines;
 }
@@ -3572,16 +3743,19 @@ function formatInteropImports(imports) {
  * source-module name in `spec.local` and the outward name in `spec.exported`.
  */
 function lowerReExport(item) {
-  const src = jacModulePath(item.source?.value);
+  const rawSrc = item.source?.value;
+  const src = jacModulePath(rawSrc);
   if (typeof src !== "string" || !src) return null;
+  const isRelative = typeof rawSrc === "string" && (rawSrc.startsWith("./") || rawSrc.startsWith("../"));
+  const importSpec = (isRelative && dottedRelativeImportPath(src)) || `"${src}"`;
   const exportedNames = [];
   if (item.exportKind === "type" || item.exportKind === "typeof") {
     return { line: null, exportedNames };
   }
   if (item.type === "ExportAllDeclaration") {
     const ns = item.exported?.name ?? item.exported?.value;
-    if (ns) { exportedNames.push(ns); return { line: `import from "${src}" { * as ${ns} }`, exportedNames }; }
-    return { line: `import from "${src}" { * }`, exportedNames };
+    if (ns) { exportedNames.push(ns); return { line: `import from ${importSpec} { * as ${ns} }`, exportedNames }; }
+    return { line: `import from ${importSpec} { * }`, exportedNames };
   }
   const parts = [];
   for (const spec of item.specifiers ?? []) {
@@ -3602,7 +3776,7 @@ function lowerReExport(item) {
     }
   }
   if (!parts.length) return { line: null, exportedNames };
-  return { line: `import from "${src}" { ${parts.join(", ")} }`, exportedNames };
+  return { line: `import from ${importSpec} { ${parts.join(", ")} }`, exportedNames };
 }
 
 const BINARY_OPS = {
@@ -4351,7 +4525,17 @@ function inferExprType(node, path, diags) {
   if (kind === "TemplateLiteral") return "str";
   if (kind === "CallExpression"
     && node.callee?.type === "MemberExpression" && !node.callee.computed
-    && JS_STRING_METHODS[node.callee.property?.name]) return "str";
+    && node.callee.property?.type === "Identifier") {
+    // `JS_STRING_METHODS` maps *lowering* targets (e.g. `startsWith` ->
+    // `startswith`), not return types — `.startsWith`/`.endsWith` return
+    // `bool` in JS, not `str`. Blanket-treating every JS_STRING_METHODS key
+    // as string-returning mistyped those two, which then leaks into
+    // downstream `let`/inference decisions (e.g. an `.endsWith(...)` result
+    // bound as a mutable local getting pinned to `str`).
+    const m = node.callee.property.name;
+    if (JS_STRING_RETURNING_METHODS.has(m)) return "str";
+    if (JS_BOOL_RETURNING_METHODS.has(m)) return "bool";
+  }
   if (kind === "ArrayExpression") return "list";
   if (kind === "ObjectExpression") return "dict";
   if (isJsxNode(node)) return "JsxElement";
@@ -4613,8 +4797,17 @@ function tryEmitCStyleFor(stmt, ctx) {
   const bodyLines = emitStatement(stmt.body, ctx);
   if (bodyLines === null) return null;
   const indentBlock = (lines) => lines.map((l) => (l === "" ? "" : INDENT + l));
+  // The loop counter is declared `: int` (it is almost always used as an
+  // array index / count), but `initVal` is an arbitrary emitted expression —
+  // often a `float`-typed local (e.g. `for (let i = startIndex; ...)` where
+  // `startIndex` came out of `Math.max`/`Math.min`). Assigning that float
+  // expression straight into an `int`-typed declaration is E1001 ("Cannot
+  // assign float to int"). Coerce with `int(...)` unless it is already a
+  // bare integer literal (`int(0)` is harmless but noisy).
+  const initIsIntLiteral = /^-?\d+$/.test(initVal.trim());
+  const initText = initIsIntLiteral ? initVal : `int(${initVal})`;
   return [
-    `${varName}: int = ${initVal};`,
+    `${varName}: int = ${initText};`,
     `while ${testText} {`,
     ...indentBlock(bodyLines),
     ...indentBlock([updateLine]),
@@ -4704,6 +4897,7 @@ function parseClassMethod(member, path, diags, classCtx, stmtFailOpen) {
     droppedStatements: classCtx.droppedStatements ?? [],
     floatLocals: collectFloatLocals(member.body),
   };
+  registerDictLiteralParams(member.params, ctx);
   const bodyLines = [...paramPrelude];
   const body = member.body;
   if (body?.type === "BlockStatement") {
@@ -4810,7 +5004,14 @@ function parseClass(decl, exported, path, diags, typeAliases, stmtFailOpen) {
         diags.push(...(localDiags.length ? localDiags : [diag("E7205", "Class field produced no output", path)]));
         return null;
       }
-      fieldLines.push({ line, hasDefault: Boolean(member.value) });
+      // `hasDefault` must mirror parseClassField's own initText logic, not
+      // just an explicit initializer: an optional field with no initializer
+      // (`searchInput?: Input;`) still gets a synthesized `= None` default
+      // there. Checking only `member.value` mislabels it as "no default",
+      // so it can land in the non-default bucket ahead of a genuinely
+      // required field and violate Jac's has-field ordering rule (E2004:
+      // non-default attribute follows a default attribute).
+      fieldLines.push({ line, hasDefault: Boolean(member.value) || Boolean(member.optional) });
       continue;
     }
     if (isClassMethodMember(member)) {
@@ -5012,6 +5213,7 @@ function parseHelperFunction(name, params, body, returnTypeNode, exported, path,
     droppedStatements: [],
     floatLocals: collectFloatLocals(body),
   };
+  registerDictLiteralParams(params, ctx);
   // V2.12: cast-at-sink support — untyped locals returned against a concrete
   // declared return type lower as `return (x as T);` (interop-sourced values).
   if (retType && retType !== "any" && retType !== "None" && body?.type === "BlockStatement") {

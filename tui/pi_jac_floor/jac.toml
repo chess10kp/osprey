@@ -1,0 +1,5 @@
+[project]
+name = "pi-tui-floor"
+version = "0.0.1"
+description = "js2jac-converted pi-tui floor; Jac-native runtime smoke target"
+entry-point = "smoke_pure.jac"

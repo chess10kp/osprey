@@ -1,13 +1,37 @@
-# interop import: node:fs { fs }
-# interop import: node:os { os }
-# interop import: node:path { path }
-# interop import: node:perf_hooks { performance }
-import from "./keys.jac" { isKeyRelease, matchesKey }
-import from "./terminal-colors.jac" { isOsc11BackgroundColorResponse, parseOsc11BackgroundColor, parseTerminalColorSchemeReport }
-import from "./terminal-image.jac" { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions }
-import from "./utils.jac" { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth }
+import from .keys { isKeyRelease, matchesKey }
+import from .terminal_colors { isOsc11BackgroundColorResponse, parseOsc11BackgroundColor, parseTerminalColorSchemeReport }
+import from .terminal_image { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions }
+import from .utils { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth }
+import from .terminal_support { process, fs, path, Number, DateValue, now_ms }
+import from .input_support { set_timeout, clear_timeout, Promise, SimplePromise }
 import from re { search }
 import from os { environ }
+import os;
+import datetime;
+import json;
+
+# Generic JS Array.prototype.find() replacement: first item matching pred, or None.
+def _find(items: list, pred: any) -> any | None {
+    for item in items {
+        if pred(item) {
+            return item;
+        }
+    }
+    return None;
+}
+
+def _is_integer(n: any) -> bool {
+    if isinstance(n, bool) {
+        return False;
+    }
+    if isinstance(n, int) {
+        return True;
+    }
+    if isinstance(n, float) {
+        return n.is_integer();
+    }
+    return False;
+}
 
 glob KITTY_SEQUENCE_PREFIX = "\u001b_G";
 
@@ -17,7 +41,7 @@ def parseKittyImageHeader(line: str) -> any | None {
         return None;
     }
     paramsStart = (sequenceStart + len(KITTY_SEQUENCE_PREFIX));
-    paramsEnd = line.indexOf(";", paramsStart);
+    paramsEnd = line.find(";", paramsStart);
     if (paramsEnd == -1) {
         return None;
     }
@@ -27,34 +51,42 @@ def parseKittyImageHeader(line: str) -> any | None {
     for param in params.split(",") {
         _jx_d0: any = param.split("=", 2);
         key = _jx_d0[0];
-        value = _jx_d0[1];
+        value = (_jx_d0[1] if len(_jx_d0) > 1 else None);
         if (value == None) {
             continue;
         }
         numberValue = Number(value);
-        if ((not Number.isInteger(numberValue) or (numberValue <= 0)) or (numberValue > 4294967295)) {
+        if ((not _is_integer(numberValue) or (numberValue <= 0)) or (numberValue > 4294967295)) {
             continue;
         }
         if (key == "i") {
-            ids.append(numberValue);
+            ids.append(float(numberValue));
         }
         elif (key == "r") {
-            rows = numberValue;
+            rows = int(numberValue);
         }
     }
     return {"ids": ids, "rows": rows};
 }
 
 def extractKittyImageIds(line: str) -> list[float] {
-    return ((lambda (_jx_null1: any) -> any { return (_jx_null1 if _jx_null1 is not None else []); })(((lambda (_jx_opt0: any) -> any { return ((_jx_opt0["ids"] as list[float]) if _jx_opt0 is not None else None); })(parseKittyImageHeader(line)))));
+    header = parseKittyImageHeader(line);
+    return (header["ids"] if header is not None else []);
 }
 
 def extractKittyImageRows(line: str) -> float {
-    return ((lambda (_jx_null3: any) -> any { return (_jx_null3 if _jx_null3 is not None else 1); })(((lambda (_jx_opt2: any) -> any { return ((_jx_opt2["rows"] as float) if _jx_opt2 is not None else None); })(parseKittyImageHeader(line)))));
+    header = parseKittyImageHeader(line);
+    return (header["rows"] if header is not None else 1);
 }
 
 def:pub isFocusable(component: any | None) -> bool {
-    return ((component != None) and ("focused" in component));
+    if component is None {
+        return False;
+    }
+    if isinstance(component, dict) {
+        return "focused" in component;
+    }
+    return hasattr(component, "focused");
 }
 
 glob:pub CURSOR_MARKER = "\u001b_pi:c\u0007";
@@ -74,7 +106,7 @@ def parseSizeValue(value: any | None, referenceSize: float) -> float | None {
 }
 
 def isTermuxSession() -> bool {
-    return Boolean(environ.get("TERMUX_VERSION"));
+    return bool(environ.get("TERMUX_VERSION"));
 }
 
 obj:pub Container {
@@ -111,25 +143,57 @@ obj:pub Container {
 glob:pub MIN_RENDER_INTERVAL_MS = 16;
 glob:pub SEGMENT_RESET = "\u001b[0m\u001b]8;;\u0007";
 
+# Overlay-stack entry (was an ad-hoc JS object literal). A real obj so dotted
+# attribute access works under the Jac runtime (plain dicts do not support it).
+obj OverlayEntry {
+    has component: any = None;
+    has options: any = None;
+    has preFocus: any = None;
+    has hidden: bool = False;
+    has focusOrder: int = 0;
+}
+
+# Resume descriptor nested inside FocusRestoreState.resume.
+obj FocusResume {
+    has status: str = "";
+    has target: any = None;
+}
+
+# Tracks how focus should be restored once a blocking/overlay-owning
+# component loses focus. status is one of "inactive" | "eligible" | "blocked".
+obj FocusRestoreState {
+    has status: str = "inactive";
+    has overlay: any = None;
+    has blockedBy: any = None;
+    has resume: any = None;
+}
+
+# Pending OSC 11 / color-scheme query bookkeeping (was an ad-hoc object literal).
+obj OscQuery {
+    has settled: bool = False;
+    has resolve: any = None;
+    has timer: any = None;
+}
+
 obj:pub TUI(Container) {
-    has terminal: any;
-    has onDebug: any | None = None;
-    has renderTimer: any | None;
+    has terminal: any = None;
+    has renderTimer: any | None = None;
     has children: any = None;
     has previousLines: list[str] = [];
     has previousKittyImageIds: any = set();
-    has previousWidth: int = 0;
-    has previousHeight: int = 0;
+    has previousWidth: float = 0;
+    has previousHeight: float = 0;
     has focusedComponent: any | None = None;
     has inputListeners: any = set();
+    has onDebug: any | None = None;
     has renderRequested: bool = False;
     has lastRenderAt: int = 0;
-    has cursorRow: int = 0;
-    has hardwareCursorRow: int = 0;
+    has cursorRow: float = 0;
+    has hardwareCursorRow: float = 0;
     has showHardwareCursor: any = (environ.get("PI_HARDWARE_CURSOR") == "1");
     has clearOnShrink: any = (environ.get("PI_CLEAR_ON_SHRINK") == "1");
-    has maxLinesRendered: int = 0;
-    has previousViewportTop: int = 0;
+    has maxLinesRendered: float = 0;
+    has previousViewportTop: float = 0;
     has fullRedrawCount: int = 0;
     has stopped: bool = False;
     has pendingOsc11BackgroundReplies: int = 0;
@@ -138,10 +202,37 @@ obj:pub TUI(Container) {
     has terminalColorSchemeNotificationsEnabled: bool = False;
     has focusOrderCounter: int = 0;
     has overlayStack: list[any] = [];
-    has overlayFocusRestore: any = {"status": "inactive"};
+    has overlayFocusRestore: any = FocusRestoreState();
     def __init__(terminal: any, showHardwareCursor: bool | None = None) -> None {
-        super();
+        # A custom __init__ suppresses automatic `has`-default application,
+        # so every field this obj declares must be seeded here explicitly.
         self.terminal = terminal;
+        self.renderTimer = None;
+        self.children = [];
+        self.previousLines = [];
+        self.previousKittyImageIds = set();
+        self.previousWidth = 0;
+        self.previousHeight = 0;
+        self.focusedComponent = None;
+        self.inputListeners = set();
+        self.onDebug = None;
+        self.renderRequested = False;
+        self.lastRenderAt = 0;
+        self.cursorRow = 0;
+        self.hardwareCursorRow = 0;
+        self.showHardwareCursor = (environ.get("PI_HARDWARE_CURSOR") == "1");
+        self.clearOnShrink = (environ.get("PI_CLEAR_ON_SHRINK") == "1");
+        self.maxLinesRendered = 0;
+        self.previousViewportTop = 0;
+        self.fullRedrawCount = 0;
+        self.stopped = False;
+        self.pendingOsc11BackgroundReplies = 0;
+        self.pendingOsc11BackgroundQueries = [];
+        self.terminalColorSchemeListeners = set();
+        self.terminalColorSchemeNotificationsEnabled = False;
+        self.focusOrderCounter = 0;
+        self.overlayStack = [];
+        self.overlayFocusRestore = FocusRestoreState();
         if (showHardwareCursor != None) {
             self.showHardwareCursor = showHardwareCursor;
         }
@@ -169,14 +260,12 @@ obj:pub TUI(Container) {
         self.clearOnShrink = enabled;
     }
     override def setFocus(component: any | None) -> None {
-        self.setFocusInternal({"component": component, "overlayFocusRestore": "clear"});
+        self.setFocusInternal(component, "clear");
     }
-    override def setFocusInternal(_jx_p0: any) -> None {
-        component = _jx_p0.component;
-        overlayFocusRestore = _jx_p0.overlayFocusRestore;
+    override def setFocusInternal(component: any | None, overlayFocusRestore: str = "preserve") -> None {
         previousFocus = self.focusedComponent;
         nextFocus = component;
-        previousFocusedOverlay = (self.overlayStack.find(lambda (entry_j: any) -> any { return ((entry_j.component == previousFocus) and self.isOverlayVisible(entry_j)); }) if previousFocus else None);
+        previousFocusedOverlay = (_find(self.overlayStack, lambda (entry_j: any) -> any { return ((entry_j.component == previousFocus) and self.isOverlayVisible(entry_j)); }) if previousFocus else None);
         nextFocusIsOverlay = (any((entry_j.component == nextFocus) for entry_j in self.overlayStack) if nextFocus else False);
         restoreState = self.getVisibleOverlayFocusRestore();
         if (nextFocus and not nextFocusIsOverlay) {
@@ -185,11 +274,11 @@ obj:pub TUI(Container) {
                     nextFocus = self.resolveBlockedOverlayFocusResume(restoreState);
                 }
                 else {
-                    self.overlayFocusRestore = {"status": "blocked", "overlay": restoreState.overlay, "blockedBy": nextFocus, "resume": restoreState.resume};
+                    self.overlayFocusRestore = FocusRestoreState(status="blocked", overlay=restoreState.overlay, blockedBy=nextFocus, resume=restoreState.resume);
                 }
             }
             elif (((previousFocusedOverlay and (restoreState.status != "inactive")) and (restoreState.overlay == previousFocusedOverlay)) and not self.isOverlayFocusAncestor(previousFocusedOverlay, nextFocus)) {
-                self.overlayFocusRestore = {"status": "blocked", "overlay": previousFocusedOverlay, "blockedBy": nextFocus, "resume": {"status": "restore-overlay"}};
+                self.overlayFocusRestore = FocusRestoreState(status="blocked", overlay=previousFocusedOverlay, blockedBy=nextFocus, resume=FocusResume(status="restore-overlay"));
             }
         }
         elif (nextFocus == None) {
@@ -201,19 +290,19 @@ obj:pub TUI(Container) {
             }
         }
         if isFocusable(self.focusedComponent) {
-            self.focusedComponent.focused = False;
+            (self.focusedComponent as any).focused = False;
         }
         self.focusedComponent = nextFocus;
         if isFocusable(nextFocus) {
-            nextFocus.focused = True;
+            (nextFocus as any).focused = True;
         }
-        focusedOverlay = (self.overlayStack.find(lambda (entry_j: any) -> any { return ((entry_j.component == nextFocus) and self.isOverlayVisible(entry_j)); }) if nextFocus else None);
+        focusedOverlay = (_find(self.overlayStack, lambda (entry_j: any) -> any { return ((entry_j.component == nextFocus) and self.isOverlayVisible(entry_j)); }) if nextFocus else None);
         if focusedOverlay {
-            self.overlayFocusRestore = {"status": "eligible", "overlay": focusedOverlay};
+            self.overlayFocusRestore = FocusRestoreState(status="eligible", overlay=focusedOverlay);
         }
     }
     override def clearOverlayFocusRestore() -> None {
-        self.overlayFocusRestore = {"status": "inactive"};
+        self.overlayFocusRestore = FocusRestoreState(status="inactive");
     }
     override def clearOverlayFocusRestoreFor(overlay: any) -> None {
         if ((self.overlayFocusRestore.status != "inactive") and (self.overlayFocusRestore.overlay == overlay)) {
@@ -233,19 +322,20 @@ obj:pub TUI(Container) {
             return restoreState;
         }
         if (not (restoreState.overlay in self.overlayStack) or not self.isOverlayVisible(restoreState.overlay)) {
-            return {"status": "inactive"};
+            return FocusRestoreState(status="inactive");
         }
         return restoreState;
     }
     override def isOverlayFocusAncestor(entry_j: any, component: any) -> bool {
         visited = set();
         current = entry_j.preFocus;
-        while (current and not visited.has(current)) {
+        while (current and (current not in visited)) {
             visited.add(current);
             if (current == component) {
                 return True;
             }
-            current = ((lambda (_jx_null6: any) -> any { return (_jx_null6 if _jx_null6 is not None else None); })(((lambda (_jx_opt5: any) -> any { return (_jx_opt5.preFocus if _jx_opt5 is not None else None); })(self.overlayStack.find(lambda (overlay: any) -> any { return (overlay.component == current); })))));
+            found = _find(self.overlayStack, lambda (overlay: any) -> any { return (overlay.component == current); });
+            current = (found.preFocus if found is not None else None);
         }
         return False;
     }
@@ -259,36 +349,113 @@ obj:pub TUI(Container) {
     override def isComponentMounted(component: any) -> bool {
         return any(self.containsComponent(child, component) for child in self.children);
     }
-    override def containsComponent(root: any, target: any) -> bool {
-        if (root == target) {
+    override def containsComponent(root_j: any, target: any) -> bool {
+        if (root_j == target) {
             return True;
         }
-        if not isinstance(root, Container) {
+        if not isinstance(root_j, Container) {
             return False;
         }
-        return any(self.containsComponent(child, target) for child in root.children);
+        return any(self.containsComponent(child, target) for child in root_j.children);
+    }
+    override def nextFocusOrder() -> int {
+        self.focusOrderCounter += 1;
+        return self.focusOrderCounter;
     }
     override def showOverlay(component: any, options: any | None = None) -> any {
-        entry_j: any = {"component": component, **({} if (options == None) else {"options": options}), "preFocus": self.focusedComponent, "hidden": False, "focusOrder": (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })()};
+        entry_j: OverlayEntry = OverlayEntry(component=component, options=options, preFocus=self.focusedComponent, hidden=False, focusOrder=self.nextFocusOrder());
         self.overlayStack.append(entry_j);
-        if (not ((lambda (_jx_opt7: any) -> any { return (_jx_opt7.nonCapturing if _jx_opt7 is not None else None); })(options)) and self.isOverlayVisible(entry_j)) {
+        if (not (options is not None and options.get("nonCapturing")) and self.isOverlayVisible(entry_j)) {
             self.setFocus(component);
         }
         self.terminal.hideCursor();
         self.requestRender();
-        return {"hide": lambda () -> any { index = (-1 if entry_j not in self.overlayStack else self.overlayStack.index(entry_j)); if (index != -1) {     self.clearOverlayFocusRestoreFor(entry_j);     self.retargetOverlayPreFocus(entry_j);     del self.overlayStack[index];     if (self.focusedComponent == component) {         topVisible = self.getTopmostVisibleOverlay();         self.setFocus(((lambda (_jx_null9: any) -> any { return (_jx_null9 if _jx_null9 is not None else entry_j.preFocus); })(((lambda (_jx_opt8: any) -> any { return (_jx_opt8.component if _jx_opt8 is not None else None); })(topVisible)))));     }     if (len(self.overlayStack) == 0) {         self.terminal.hideCursor();     }     self.requestRender(); } }, "setHidden": lambda (hidden: bool) -> any { if (entry_j.hidden == hidden) {     return; } entry_j.hidden = hidden; if hidden {     self.clearOverlayFocusRestoreFor(entry_j);     if (self.focusedComponent == component) {         topVisible = self.getTopmostVisibleOverlay();         self.setFocus(((lambda (_jx_null11: any) -> any { return (_jx_null11 if _jx_null11 is not None else entry_j.preFocus); })(((lambda (_jx_opt10: any) -> any { return (_jx_opt10.component if _jx_opt10 is not None else None); })(topVisible)))));     } } else {     if (not ((lambda (_jx_opt12: any) -> any { return (_jx_opt12.nonCapturing if _jx_opt12 is not None else None); })(options)) and self.isOverlayVisible(entry_j)) {         entry_j.focusOrder = (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })();         self.setFocus(component);     } } self.requestRender(); }, "isHidden": lambda () -> any { return entry_j.hidden; }, "focus": lambda () -> any { if (not (entry_j in self.overlayStack) or not self.isOverlayVisible(entry_j)) {     return; } entry_j.focusOrder = (lambda () -> any { self.focusOrderCounter += 1; return self.focusOrderCounter; })(); self.setFocus(component); self.requestRender(); }, "unfocus": lambda (unfocusOptions: any) -> any { isFocused = (self.focusedComponent == component); restoreState = self.overlayFocusRestore; hasPendingRestore = ((restoreState.status != "inactive") and (restoreState.overlay == entry_j)); if (not isFocused and not hasPendingRestore) {     return; } if (((restoreState.status == "blocked") and (restoreState.overlay == entry_j)) and (self.focusedComponent == restoreState.blockedBy)) {     if unfocusOptions {         self.overlayFocusRestore = {"status": "blocked", "overlay": entry_j, "blockedBy": restoreState.blockedBy, "resume": {"status": "focus-target", "target": unfocusOptions.target}};     }     else {         self.clearOverlayFocusRestore();     }     self.requestRender();     return; } self.clearOverlayFocusRestoreFor(entry_j); if (isFocused or unfocusOptions) {     topVisible = self.getTopmostVisibleOverlay();     fallbackTarget = (topVisible.component if (topVisible and (topVisible != entry_j)) else entry_j.preFocus);     self.setFocus((unfocusOptions.target if unfocusOptions else fallbackTarget)); } self.requestRender(); }, "isFocused": lambda () -> any { return (self.focusedComponent == component); }};
+        def _hide() -> None {
+            index = (-1 if entry_j not in self.overlayStack else self.overlayStack.index(entry_j));
+            if (index != -1) {
+                self.clearOverlayFocusRestoreFor(entry_j);
+                self.retargetOverlayPreFocus(entry_j);
+                del self.overlayStack[index];
+                if (self.focusedComponent == component) {
+                    topVisible = self.getTopmostVisibleOverlay();
+                    self.setFocus(topVisible.component if topVisible is not None else entry_j.preFocus);
+                }
+                if (len(self.overlayStack) == 0) {
+                    self.terminal.hideCursor();
+                }
+                self.requestRender();
+            }
+        }
+        def _setHidden(hidden: bool) -> None {
+            if (entry_j.hidden == hidden) {
+                return;
+            }
+            entry_j.hidden = hidden;
+            if hidden {
+                self.clearOverlayFocusRestoreFor(entry_j);
+                if (self.focusedComponent == component) {
+                    topVisible = self.getTopmostVisibleOverlay();
+                    self.setFocus(topVisible.component if topVisible is not None else entry_j.preFocus);
+                }
+            } else {
+                if (not (options is not None and options.get("nonCapturing")) and self.isOverlayVisible(entry_j)) {
+                    entry_j.focusOrder = self.nextFocusOrder();
+                    self.setFocus(component);
+                }
+            }
+            self.requestRender();
+        }
+        def _isHidden() -> bool {
+            return entry_j.hidden;
+        }
+        def _focus() -> None {
+            if (not (entry_j in self.overlayStack) or not self.isOverlayVisible(entry_j)) {
+                return;
+            }
+            entry_j.focusOrder = self.nextFocusOrder();
+            self.setFocus(component);
+            self.requestRender();
+        }
+        def _unfocus(unfocusOptions: any = None) -> None {
+            isFocused = (self.focusedComponent == component);
+            restoreState = self.overlayFocusRestore;
+            hasPendingRestore = ((restoreState.status != "inactive") and (restoreState.overlay == entry_j));
+            if (not isFocused and not hasPendingRestore) {
+                return;
+            }
+            if (((restoreState.status == "blocked") and (restoreState.overlay == entry_j)) and (self.focusedComponent == restoreState.blockedBy)) {
+                if unfocusOptions {
+                    self.overlayFocusRestore = FocusRestoreState(status="blocked", overlay=entry_j, blockedBy=restoreState.blockedBy, resume=FocusResume(status="focus-target", target=unfocusOptions.get("target")));
+                } else {
+                    self.clearOverlayFocusRestore();
+                }
+                self.requestRender();
+                return;
+            }
+            self.clearOverlayFocusRestoreFor(entry_j);
+            if (isFocused or unfocusOptions) {
+                topVisible = self.getTopmostVisibleOverlay();
+                fallbackTarget = (topVisible.component if (topVisible and (topVisible != entry_j)) else entry_j.preFocus);
+                self.setFocus(unfocusOptions.get("target") if unfocusOptions else fallbackTarget);
+            }
+            self.requestRender();
+        }
+        def _isFocused() -> bool {
+            return self.focusedComponent == component;
+        }
+        return {"hide": _hide, "setHidden": _setHidden, "isHidden": _isHidden, "focus": _focus, "unfocus": _unfocus, "isFocused": _isFocused};
     }
     override def hideOverlay() -> None {
-        overlay = self.overlayStack[(len(self.overlayStack) - 1)];
-        if not overlay {
+        if (len(self.overlayStack) == 0) {
             return;
         }
+        overlay = self.overlayStack[(len(self.overlayStack) - 1)];
         self.clearOverlayFocusRestoreFor(overlay);
         self.retargetOverlayPreFocus(overlay);
         self.overlayStack.pop();
         if (self.focusedComponent == overlay.component) {
             topVisible = self.getTopmostVisibleOverlay();
-            self.setFocus(((lambda (_jx_null14: any) -> any { return (_jx_null14 if _jx_null14 is not None else overlay.preFocus); })(((lambda (_jx_opt13: any) -> any { return (_jx_opt13.component if _jx_opt13 is not None else None); })(topVisible)))));
+            self.setFocus(topVisible.component if topVisible is not None else overlay.preFocus);
         }
         if (len(self.overlayStack) == 0) {
             self.terminal.hideCursor();
@@ -302,15 +469,15 @@ obj:pub TUI(Container) {
         if entry_j.hidden {
             return False;
         }
-        if ((lambda (_jx_opt15: any) -> any { return (_jx_opt15.visible if _jx_opt15 is not None else None); })(entry_j.options)) {
-            return entry_j.options.visible(self.terminal.columns, self.terminal.rows);
+        if (entry_j.options is not None and entry_j.options.get("visible") is not None) {
+            return entry_j.options.get("visible")(self.terminal.columns(), self.terminal.rows());
         }
         return True;
     }
     override def getTopmostVisibleOverlay() -> any | None {
-        topmost: any | None;
+        topmost: any | None = None;
         for overlay in self.overlayStack {
-            if (((lambda (_jx_opt16: any) -> any { return (_jx_opt16.nonCapturing if _jx_opt16 is not None else None); })(overlay.options)) or not self.isOverlayVisible(overlay)) {
+            if ((overlay.options is not None and overlay.options.get("nonCapturing")) or not self.isOverlayVisible(overlay)) {
                 continue;
             }
             if (not topmost or (overlay.focusOrder > topmost.focusOrder)) {
@@ -320,9 +487,11 @@ obj:pub TUI(Container) {
         return topmost;
     }
     override def invalidate() -> None {
-        super().invalidate();
+        Container.invalidate(self);
         for overlay in self.overlayStack {
-            ((lambda (_jx_opt17: any) -> any { return (_jx_opt17() if _jx_opt17 is not None else None); })(overlay.component.invalidate));
+            if (hasattr(overlay.component, "invalidate") and overlay.component.invalidate is not None) {
+                overlay.component.invalidate();
+            }
         }
     }
     override def start() -> None {
@@ -337,14 +506,14 @@ obj:pub TUI(Container) {
     }
     override def addInputListener(listener: any) -> any {
         self.inputListeners.add(listener);
-        return lambda () -> any { self.inputListeners.delete(listener); };
+        return lambda () -> any { self.inputListeners.discard(listener); };
     }
     override def removeInputListener(listener: any) -> None {
-        self.inputListeners.delete(listener);
+        self.inputListeners.discard(listener);
     }
     override def onTerminalColorSchemeChange(listener: any) -> any {
         self.terminalColorSchemeListeners.add(listener);
-        return lambda () -> any { self.terminalColorSchemeListeners.delete(listener); };
+        return lambda () -> any { self.terminalColorSchemeListeners.discard(listener); };
     }
     override def setTerminalColorSchemeNotifications(enabled: bool) -> None {
         if (self.terminalColorSchemeNotificationsEnabled == enabled) {
@@ -356,7 +525,7 @@ obj:pub TUI(Container) {
         }
     }
     override def queryCellSize() -> None {
-        if not getCapabilities().images {
+        if not getCapabilities().get("images") {
             return;
         }
         self.terminal.write("\u001b[16t");
@@ -364,7 +533,7 @@ obj:pub TUI(Container) {
     override def stop() -> None {
         self.stopped = True;
         if self.renderTimer {
-            clearTimeout(self.renderTimer);
+            clear_timeout(self.renderTimer);
             self.renderTimer = None;
         }
         if self.terminalColorSchemeNotificationsEnabled {
@@ -374,10 +543,10 @@ obj:pub TUI(Container) {
             targetRow = len(self.previousLines);
             lineDiff = (targetRow - self.hardwareCursorRow);
             if (lineDiff > 0) {
-                self.terminal.write(f"\\x1b[{lineDiff}B");
+                self.terminal.write(f"\x1b[{lineDiff}B");
             }
             elif (lineDiff < 0) {
-                self.terminal.write(f"\\x1b[{-lineDiff}A");
+                self.terminal.write(f"\x1b[{-lineDiff}A");
             }
             self.terminal.write("\r\n");
         }
@@ -394,26 +563,46 @@ obj:pub TUI(Container) {
             self.maxLinesRendered = 0;
             self.previousViewportTop = 0;
             if self.renderTimer {
-                clearTimeout(self.renderTimer);
+                clear_timeout(self.renderTimer);
                 self.renderTimer = None;
             }
             self.renderRequested = True;
-            process.nextTick(lambda () -> any { if (self.stopped or not self.renderRequested) {     return; } self.renderRequested = False; self.lastRenderAt = performance.now(); self.doRender(); });
+            self._onNextTickFullRender();
             return;
         }
         if self.renderRequested {
             return;
         }
         self.renderRequested = True;
-        process.nextTick(lambda () -> any { return self.scheduleRender(); });
+        self.scheduleRender();
+    }
+    override def _onNextTickFullRender() -> None {
+        if (self.stopped or not self.renderRequested) {
+            return;
+        }
+        self.renderRequested = False;
+        self.lastRenderAt = int(now_ms());
+        self.doRender();
     }
     override def scheduleRender() -> None {
         if ((self.stopped or self.renderTimer) or not self.renderRequested) {
             return;
         }
-        elapsed = (performance.now() - self.lastRenderAt);
+        elapsed = (now_ms() - self.lastRenderAt);
         delay = max(float(0), float((MIN_RENDER_INTERVAL_MS - elapsed)));
-        self.renderTimer = setTimeout(lambda () -> any { self.renderTimer = None; if (self.stopped or not self.renderRequested) {     return; } self.renderRequested = False; self.lastRenderAt = performance.now(); self.doRender(); if self.renderRequested {     self.scheduleRender(); } }, delay);
+        def _fire() -> None {
+            self.renderTimer = None;
+            if (self.stopped or not self.renderRequested) {
+                return;
+            }
+            self.renderRequested = False;
+            self.lastRenderAt = int(now_ms());
+            self.doRender();
+            if self.renderRequested {
+                self.scheduleRender();
+            }
+        }
+        self.renderTimer = set_timeout(_fire, delay);
     }
     override def handleInput(data: str) -> None {
         if self.consumeOsc11BackgroundResponse(data) {
@@ -422,15 +611,15 @@ obj:pub TUI(Container) {
         if self.consumeTerminalColorSchemeReport(data) {
             return;
         }
-        if (self.inputListeners.size > 0) {
+        if (len(self.inputListeners) > 0) {
             current = data;
             for listener in self.inputListeners {
                 result = listener(current);
-                if ((lambda (_jx_opt18: any) -> any { return (_jx_opt18.consume if _jx_opt18 is not None else None); })(result)) {
+                if (isinstance(result, dict) and result.get("consume")) {
                     return;
                 }
-                if (((lambda (_jx_opt19: any) -> any { return (_jx_opt19.data if _jx_opt19 is not None else None); })(result)) != None) {
-                    current = result.data;
+                if (isinstance(result, dict) and (result.get("data") is not None)) {
+                    current = (result.get("data") as str);
                 }
             }
             if (len(current) == 0) {
@@ -445,14 +634,14 @@ obj:pub TUI(Container) {
             self.onDebug();
             return;
         }
-        focusedOverlay = self.overlayStack.find(lambda (o: any) -> any { return (o.component == self.focusedComponent); });
+        focusedOverlay = _find(self.overlayStack, lambda (o: any) -> any { return (o.component == self.focusedComponent); });
         if (focusedOverlay and not self.isOverlayVisible(focusedOverlay)) {
             topVisible = self.getTopmostVisibleOverlay();
             if topVisible {
                 self.setFocus(topVisible.component);
             }
             else {
-                self.setFocusInternal({"component": focusedOverlay.preFocus, "overlayFocusRestore": "preserve"});
+                self.setFocusInternal(focusedOverlay.preFocus, "preserve");
             }
         }
         focusIsOverlay = any((o.component == self.focusedComponent) for o in self.overlayStack);
@@ -471,7 +660,7 @@ obj:pub TUI(Container) {
                 }
             }
         }
-        if ((lambda (_jx_opt20: any) -> any { return (_jx_opt20.handleInput if _jx_opt20 is not None else None); })(self.focusedComponent)) {
+        if (self.focusedComponent is not None and hasattr(self.focusedComponent, "handleInput") and self.focusedComponent.handleInput is not None) {
             if (isKeyRelease(data) and not self.focusedComponent.wantsKeyRelease) {
                 return;
             }
@@ -488,14 +677,16 @@ obj:pub TUI(Container) {
         }
         rgb = parseOsc11BackgroundColor(data);
         self.pendingOsc11BackgroundReplies -= 1;
-        query = self.pendingOsc11BackgroundQueries.shift();
+        query = self.pendingOsc11BackgroundQueries.pop(0);
         if (query and not query.settled) {
             query.settled = True;
             if query.timer {
-                clearTimeout(query.timer);
+                clear_timeout(query.timer);
                 query.timer = None;
             }
-            ((lambda (_jx_opt21: any) -> any { return (_jx_opt21(rgb) if _jx_opt21 is not None else None); })(query.resolve));
+            if query.resolve is not None {
+                query.resolve(rgb);
+            }
             query.resolve = None;
         }
         return True;
@@ -526,29 +717,32 @@ obj:pub TUI(Container) {
         return True;
     }
     override def resolveOverlayLayout(options: any | None, overlayHeight: float, termWidth: float, termHeight: float) -> dict[str, float | float | None] {
-        opt = ((lambda (_jx_null22: any) -> any { return (_jx_null22 if _jx_null22 is not None else {}); })(options));
-        margin = ({"top": opt.margin, "right": opt.margin, "bottom": opt.margin, "left": opt.margin} if isinstance(opt.margin, (int, float)) else ((lambda (_jx_null23: any) -> any { return (_jx_null23 if _jx_null23 is not None else {}); })(opt.margin)));
-        marginTop = max(float(0), float(((lambda (_jx_null24: any) -> any { return (_jx_null24 if _jx_null24 is not None else 0); })(margin.top))));
-        marginRight = max(float(0), float(((lambda (_jx_null25: any) -> any { return (_jx_null25 if _jx_null25 is not None else 0); })(margin.right))));
-        marginBottom = max(float(0), float(((lambda (_jx_null26: any) -> any { return (_jx_null26 if _jx_null26 is not None else 0); })(margin.bottom))));
-        marginLeft = max(float(0), float(((lambda (_jx_null27: any) -> any { return (_jx_null27 if _jx_null27 is not None else 0); })(margin.left))));
+        opt: dict[str, any] = (options if options is not None else {});
+        optMargin = opt.get("margin");
+        margin: dict[str, any] = ({"top": optMargin, "right": optMargin, "bottom": optMargin, "left": optMargin} if isinstance(optMargin, (int, float)) else (optMargin if optMargin is not None else {}));
+        marginTop = max(float(0), float(((margin.get("top") if margin.get("top") is not None else 0)) as float));
+        marginRight = max(float(0), float(((margin.get("right") if margin.get("right") is not None else 0)) as float));
+        marginBottom = max(float(0), float(((margin.get("bottom") if margin.get("bottom") is not None else 0)) as float));
+        marginLeft = max(float(0), float(((margin.get("left") if margin.get("left") is not None else 0)) as float));
         availWidth = max(float(1), float(((termWidth - marginLeft) - marginRight)));
         availHeight = max(float(1), float(((termHeight - marginTop) - marginBottom)));
-        width = ((lambda (_jx_null28: any) -> any { return (_jx_null28 if _jx_null28 is not None else min(float(80), float(availWidth))); })(parseSizeValue(opt.width, termWidth)));
-        if (opt.minWidth != None) {
-            width = max(float(width), float(opt.minWidth));
+        parsedWidth = parseSizeValue(opt.get("width"), termWidth);
+        width = (parsedWidth if parsedWidth is not None else min(float(80), float(availWidth)));
+        if (opt.get("minWidth") != None) {
+            width = max(float(width), float((opt.get("minWidth") as float)));
         }
         width = max(float(1), float(min(float(width), float(availWidth))));
-        maxHeight = parseSizeValue(opt.maxHeight, termHeight);
+        maxHeight = parseSizeValue(opt.get("maxHeight"), termHeight);
         if (maxHeight != None) {
             maxHeight = max(float(1), float(min(float(maxHeight), float(availHeight))));
         }
         effectiveHeight = (min(float(overlayHeight), float(maxHeight)) if (maxHeight != None) else overlayHeight);
         row: float;
         col: float;
-        if (opt.row != None) {
-            if isinstance(opt.row, str) {
-                match_j = search(r"^(\d+(?:\.\d+)?)%$", opt.row);
+        optRow = opt.get("row");
+        if (optRow != None) {
+            if isinstance(optRow, str) {
+                match_j = search(r"^(\d+(?:\.\d+)?)%$", optRow);
                 if match_j {
                     maxRow = max(float(0), float((availHeight - effectiveHeight)));
                     percent = (float(match_j.group(1)) / 100);
@@ -559,16 +753,17 @@ obj:pub TUI(Container) {
                 }
             }
             else {
-                row = opt.row;
+                row = (optRow as float);
             }
         }
         else {
-            anchor = ((lambda (_jx_null29: any) -> any { return (_jx_null29 if _jx_null29 is not None else "center"); })(opt.anchor));
+            anchor = (opt.get("anchor") if opt.get("anchor") is not None else "center");
             row = self.resolveAnchorRow(anchor, effectiveHeight, availHeight, marginTop);
         }
-        if (opt.col != None) {
-            if isinstance(opt.col, str) {
-                match_j = search(r"^(\d+(?:\.\d+)?)%$", opt.col);
+        optCol = opt.get("col");
+        if (optCol != None) {
+            if isinstance(optCol, str) {
+                match_j = search(r"^(\d+(?:\.\d+)?)%$", optCol);
                 if match_j {
                     maxCol = max(float(0), float((availWidth - width)));
                     percent = (float(match_j.group(1)) / 100);
@@ -579,18 +774,18 @@ obj:pub TUI(Container) {
                 }
             }
             else {
-                col = opt.col;
+                col = (optCol as float);
             }
         }
         else {
-            anchor = ((lambda (_jx_null30: any) -> any { return (_jx_null30 if _jx_null30 is not None else "center"); })(opt.anchor));
+            anchor = (opt.get("anchor") if opt.get("anchor") is not None else "center");
             col = self.resolveAnchorCol(anchor, width, availWidth, marginLeft);
         }
-        if (opt.offsetY != None) {
-            row = float(row + opt.offsetY);
+        if (opt.get("offsetY") != None) {
+            row = float(row + (opt.get("offsetY") as float));
         }
-        if (opt.offsetX != None) {
-            col = float(col + opt.offsetX);
+        if (opt.get("offsetX") != None) {
+            col = float(col + (opt.get("offsetX") as float));
         }
         row = max(float(marginTop), float(min(float(row), float(((termHeight - marginBottom) - effectiveHeight)))));
         col = max(float(marginLeft), float(min(float(col), float(((termWidth - marginRight) - width)))));
@@ -607,6 +802,7 @@ obj:pub TUI(Container) {
         elif (_sw == "left-center") or (_sw == "center") or (_sw == "right-center") {
             return (marginTop + int((((availHeight - height) / 2)) // 1));
         }
+        return marginTop;
     }
     override def resolveAnchorCol(anchor: any, width: float, availWidth: float, marginLeft: float) -> float {
         _sw = anchor;
@@ -619,6 +815,7 @@ obj:pub TUI(Container) {
         elif (_sw == "top-center") or (_sw == "center") or (_sw == "bottom-center") {
             return (marginLeft + int((((availWidth - width) / 2)) // 1));
         }
+        return marginLeft;
     }
     override def compositeOverlays(lines: list[str], termWidth: float, termHeight: float) -> list[str] {
         if (len(self.overlayStack) == 0) {
@@ -626,23 +823,22 @@ obj:pub TUI(Container) {
         }
         result = [*lines];
         rendered: list[dict[str, list[str] | float]] = [];
-        minLinesNeeded = len(result);
+        minLinesNeeded: float = float(len(result));
         visibleEntries = [e for e in self.overlayStack if self.isOverlayVisible(e)];
         visibleEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort["focusOrder"]; });
         for entry_j in visibleEntries {
-            _jx_d0: any = entry_j;
-            component = _jx_d0.component;
-            options = _jx_d0.options;
-            _jx_d0: any = self.resolveOverlayLayout(options, 0, termWidth, termHeight);
-            width = _jx_d0.width;
-            maxHeight = _jx_d0.maxHeight;
+            component = entry_j.component;
+            options = entry_j.options;
+            layout0 = self.resolveOverlayLayout(options, 0, termWidth, termHeight);
+            width = (layout0["width"] as float);
+            maxHeight = layout0["maxHeight"];
             overlayLines = component.render(width);
             if ((maxHeight != None) and (len(overlayLines) > maxHeight)) {
                 overlayLines = overlayLines[0:maxHeight];
             }
-            _jx_d0: any = self.resolveOverlayLayout(options, len(overlayLines), termWidth, termHeight);
-            row = _jx_d0.row;
-            col = _jx_d0.col;
+            layout1 = self.resolveOverlayLayout(options, len(overlayLines), termWidth, termHeight);
+            row = (layout1["row"] as float);
+            col = (layout1["col"] as float);
             rendered.append({"overlayLines": overlayLines, "row": row, "col": col, "w": width});
             minLinesNeeded = max(float(minLinesNeeded), float((row + len(overlayLines))));
         }
@@ -652,16 +848,16 @@ obj:pub TUI(Container) {
         }
         viewportStart = max(float(0), float((workingHeight - termHeight)));
         for _jx_item0 in rendered {
-            overlayLines = _jx_item0.overlayLines;
-            row = _jx_item0.row;
-            col = _jx_item0.col;
-            w = _jx_item0.w;
+            overlayLines = (_jx_item0["overlayLines"] as list[str]);
+            row = (_jx_item0["row"] as float);
+            col = (_jx_item0["col"] as float);
+            w = (_jx_item0["w"] as float);
             i: int = 0;
             while (i < len(overlayLines)) {
-                idx = ((viewportStart + row) + i);
+                idx: int = int(((viewportStart + row) + i));
                 if ((idx >= 0) and (idx < len(result))) {
                     truncatedOverlayLine = (sliceByColumn(overlayLines[i], 0, w, True) if (visibleWidth(overlayLines[i]) > w) else overlayLines[i]);
-                    result[idx] = self.compositeLineAt(result[idx], truncatedOverlayLine, col, w, termWidth);
+                    result[idx] = self.compositeLineAt(result[idx], (truncatedOverlayLine as str), col, w, termWidth);
                 }
                 i += 1;
             }
@@ -696,15 +892,20 @@ obj:pub TUI(Container) {
         }
         return buffer;
     }
-    override def getKittyImageReservedRows(lines: list[str], index: float, maxIndex: any = (len(lines) - 1)) -> float {
-        rows: float = float(extractKittyImageRows(((lambda (_jx_null31: any) -> any { return (_jx_null31 if _jx_null31 is not None else ""); })(lines[index]))));
+    override def getKittyImageReservedRows(lines: list[str], index: float, maxIndex: any = None) -> float {
+        if (maxIndex is None) {
+            maxIndex = (len(lines) - 1);
+        }
+        headerLine = lines[index];
+        rows: float = float(extractKittyImageRows((headerLine if headerLine is not None else "") as str));
         if (rows <= 1) {
             return 1;
         }
         maxRows = min(float(rows), float(((maxIndex - index) + 1)), float((len(lines) - index)));
         reservedRows = 1;
         while (reservedRows < maxRows) {
-            line = ((lambda (_jx_null32: any) -> any { return (_jx_null32 if _jx_null32 is not None else ""); })(lines[(index + reservedRows)]));
+            rawLine = lines[(index + reservedRows)];
+            line = ((rawLine if rawLine is not None else "") as str);
             if (isImageLine(line) or (visibleWidth(line) > 0)) {
                 break;
             }
@@ -715,7 +916,21 @@ obj:pub TUI(Container) {
     override def expandChangedRangeForKittyImages(firstChanged: float, lastChanged: float, newLines: list[str]) -> dict[str, float] {
         expandedFirstChanged = firstChanged;
         expandedLastChanged = lastChanged;
-        expandForLines = lambda (lines: list[str]) -> any { i: int = 0; while (i < len(lines)) {     if (len(extractKittyImageIds(lines[i])) == 0) {         continue;     }     blockEnd = ((i + self.getKittyImageReservedRows(lines, i)) - 1);     if ((i >= firstChanged) or ((i <= lastChanged) and (blockEnd >= firstChanged))) {         expandedFirstChanged = min(float(expandedFirstChanged), float(i));         expandedLastChanged = max(float(expandedLastChanged), float(blockEnd));     }     i += 1; } };
+        def expandForLines(lines: list[str]) -> None {
+            i: int = 0;
+            while (i < len(lines)) {
+                if (len(extractKittyImageIds(lines[i])) == 0) {
+                    i += 1;
+                    continue;
+                }
+                blockEnd = ((i + self.getKittyImageReservedRows(lines, i)) - 1);
+                if ((i >= firstChanged) or ((i <= lastChanged) and (blockEnd >= firstChanged))) {
+                    expandedFirstChanged = min(float(expandedFirstChanged), float(i));
+                    expandedLastChanged = max(float(expandedLastChanged), float(blockEnd));
+                }
+                i += 1;
+            }
+        }
         expandForLines(self.previousLines);
         expandForLines(newLines);
         return {"firstChanged": expandedFirstChanged, "lastChanged": expandedLastChanged};
@@ -726,9 +941,10 @@ obj:pub TUI(Container) {
         }
         ids = set();
         maxLine = min(float(lastChanged), float((len(self.previousLines) - 1)));
-        i: int = firstChanged;
+        i: int = int(firstChanged);
         while (i <= maxLine) {
-            for id_j in extractKittyImageIds(((lambda (_jx_null33: any) -> any { return (_jx_null33 if _jx_null33 is not None else ""); })(self.previousLines[i]))) {
+            prevLine = self.previousLines[i];
+            for id_j in extractKittyImageIds(prevLine if prevLine is not None else "") {
                 ids.add(id_j);
             }
             i += 1;
@@ -742,14 +958,14 @@ obj:pub TUI(Container) {
         afterStart = (startCol + overlayWidth);
         base = extractSegments(baseLine, startCol, afterStart, (totalWidth - afterStart), True);
         overlay = sliceWithWidth(overlayLine, 0, overlayWidth, True);
-        beforePad = max(float(0), float((startCol - base.beforeWidth)));
-        overlayPad = max(float(0), float((overlayWidth - overlay.width)));
-        actualBeforeWidth = max(float(startCol), float(base.beforeWidth));
-        actualOverlayWidth = max(float(overlayWidth), float(overlay.width));
+        beforePad = max(float(0), float((startCol - base["beforeWidth"])));
+        overlayPad = max(float(0), float((overlayWidth - overlay["width"])));
+        actualBeforeWidth = max(float(startCol), float(base["beforeWidth"]));
+        actualOverlayWidth = max(float(overlayWidth), float(overlay["width"]));
         afterTarget = max(float(0), float(((totalWidth - actualBeforeWidth) - actualOverlayWidth)));
-        afterPad = max(float(0), float((afterTarget - base.afterWidth)));
+        afterPad = max(float(0), float((afterTarget - base["afterWidth"])));
         r = SEGMENT_RESET;
-        result = (((((((base.before + (" " * int(beforePad))) + r) + overlay.text) + (" " * int(overlayPad))) + r) + base.after) + (" " * int(afterPad)));
+        result = (((((((base["before"] as str) + (" " * int(beforePad))) + r) + (overlay["text"] as str)) + (" " * int(overlayPad))) + r) + (base["after"] as str)) + (" " * int(afterPad));
         resultWidth = visibleWidth(result);
         if (resultWidth <= totalWidth) {
             return result;
@@ -758,7 +974,7 @@ obj:pub TUI(Container) {
     }
     override def extractCursorPosition(lines: list[str], height: float) -> dict[str, float] | None {
         viewportTop = max(float(0), float((len(lines) - height)));
-        row: int = (len(lines) - 1);
+        row: int = int((len(lines) - 1));
         while (row >= viewportTop) {
             line = lines[row];
             markerIndex = (-1 if CURSOR_MARKER not in line else line.index(CURSOR_MARKER));
@@ -776,8 +992,8 @@ obj:pub TUI(Container) {
         if self.stopped {
             return;
         }
-        width = self.terminal.columns;
-        height = self.terminal.rows;
+        width = self.terminal.columns();
+        height = self.terminal.rows();
         widthChanged = ((self.previousWidth != 0) and (self.previousWidth != width));
         heightChanged = ((self.previousHeight != 0) and (self.previousHeight != height));
         previousBufferLength = ((self.previousViewportTop + self.previousHeight) if (self.previousHeight > 0) else height);
@@ -791,9 +1007,62 @@ obj:pub TUI(Container) {
         }
         cursorPos = self.extractCursorPosition(newLines, height);
         newLines = self.applyLineResets(newLines);
-        fullRender = lambda (clear: bool) -> any { self.fullRedrawCount += 1; buffer: str = "\u001b[?2026h"; if clear {     buffer += self.deleteKittyImages(self.previousKittyImageIds);     buffer += "\u001b[2J\u001b[H\u001b[3J"; } i: int = 0; while (i < len(newLines)) {     if (i > 0) {         buffer += "\r\n";     }     line = newLines[i];     isImage = isImageLine(line);     imageReservedRows = (self.getKittyImageReservedRows(newLines, i) if isImage else 1);     if ((imageReservedRows > 1) and (imageReservedRows <= height)) {         row: int = 1;         while (row < imageReservedRows) {             buffer += "\r\n";             row += 1;         }         buffer += f"\\x1b[{(imageReservedRows - 1)}A";         buffer += line;         buffer += f"\\x1b[{(imageReservedRows - 1)}B";         i += (imageReservedRows - 1);         continue;     }     buffer += line;     i += 1; } buffer += "\u001b[?2026l"; self.terminal.write(buffer); self.cursorRow = max(float(0), float((len(newLines) - 1))); self.hardwareCursorRow = self.cursorRow; if clear {     self.maxLinesRendered = len(newLines); } else {     self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines))); } bufferLength = max(float(height), float(len(newLines))); self.previousViewportTop = max(float(0), float((bufferLength - height))); self.positionHardwareCursor(cursorPos, len(newLines)); self.previousLines = newLines; self.previousKittyImageIds = self.collectKittyImageIds(newLines); self.previousWidth = width; self.previousHeight = height; };
+        def fullRender(clear: bool) -> None {
+            self.fullRedrawCount += 1;
+            buffer: str = "\u001b[?2026h";
+            if clear {
+                buffer += self.deleteKittyImages(self.previousKittyImageIds);
+                buffer += "\u001b[2J\u001b[H\u001b[3J";
+            }
+            i: int = 0;
+            while (i < len(newLines)) {
+                if (i > 0) {
+                    buffer += "\r\n";
+                }
+                line = newLines[i];
+                isImage = isImageLine(line);
+                imageReservedRows = (self.getKittyImageReservedRows(newLines, i) if isImage else 1);
+                if ((imageReservedRows > 1) and (imageReservedRows <= height)) {
+                    row: int = 1;
+                    while (row < imageReservedRows) {
+                        buffer += "\r\n";
+                        row += 1;
+                    }
+                    buffer += f"\x1b[{(imageReservedRows - 1)}A";
+                    buffer += line;
+                    buffer += f"\x1b[{(imageReservedRows - 1)}B";
+                    i += int((imageReservedRows - 1));
+                    continue;
+                }
+                buffer += line;
+                i += 1;
+            }
+            buffer += "\u001b[?2026l";
+            self.terminal.write(buffer);
+            self.cursorRow = max(float(0), float((len(newLines) - 1)));
+            self.hardwareCursorRow = self.cursorRow;
+            if clear {
+                self.maxLinesRendered = len(newLines);
+            } else {
+                self.maxLinesRendered = max(float(self.maxLinesRendered), float(len(newLines)));
+            }
+            bufferLength = max(float(height), float(len(newLines)));
+            self.previousViewportTop = max(float(0), float((bufferLength - height)));
+            self.positionHardwareCursor(cursorPos, len(newLines));
+            self.previousLines = newLines;
+            self.previousKittyImageIds = self.collectKittyImageIds(newLines);
+            self.previousWidth = width;
+            self.previousHeight = height;
+        }
         debugRedraw = (environ.get("PI_DEBUG_REDRAW") == "1");
-        logRedraw = lambda (reason: str) -> any { if not debugRedraw {     return; } logPath = os.homedir().join(path); msg: str = f"[{Date().toISOString()}] fullRender: {reason} (prev={len(self.previousLines)}, new={len(newLines)}, height={height})\\n"; fs.appendFileSync(logPath, msg); };
+        def logRedraw(reason: str) -> None {
+            if not debugRedraw {
+                return;
+            }
+            logPath = os.path.join(os.path.expanduser("~"), ".pi-tui-redraw.log");
+            msg: str = f"[{datetime.datetime.now().isoformat()}] fullRender: {reason} (prev={len(self.previousLines)}, new={len(newLines)}, height={height})\n";
+            fs.appendFileSync(logPath, msg);
+        }
         if (((len(self.previousLines) == 0) and not widthChanged) and not heightChanged) {
             logRedraw("first render");
             fullRender(False);
@@ -838,8 +1107,8 @@ obj:pub TUI(Container) {
         }
         if (firstChanged != -1) {
             expandedRange = self.expandChangedRangeForKittyImages(firstChanged, lastChanged, newLines);
-            firstChanged = expandedRange.firstChanged;
-            lastChanged = expandedRange.lastChanged;
+            firstChanged = int(expandedRange["firstChanged"]);
+            lastChanged = int(expandedRange["lastChanged"]);
         }
         appendStart = ((appendedLines and (firstChanged == len(self.previousLines))) and (firstChanged > 0));
         if (firstChanged == -1) {
@@ -860,10 +1129,10 @@ obj:pub TUI(Container) {
                 }
                 lineDiff = computeLineDiff(targetRow);
                 if (lineDiff > 0) {
-                    buffer += f"\\x1b[{lineDiff}B";
+                    buffer += f"\x1b[{lineDiff}B";
                 }
                 elif (lineDiff < 0) {
-                    buffer += f"\\x1b[{-lineDiff}A";
+                    buffer += f"\x1b[{-lineDiff}A";
                 }
                 buffer += "\r";
                 extraLines = (len(self.previousLines) - len(newLines));
@@ -874,7 +1143,7 @@ obj:pub TUI(Container) {
                 }
                 clearStartOffset = (0 if (len(newLines) == 0) else 1);
                 if ((extraLines > 0) and (clearStartOffset > 0)) {
-                    buffer += f"\\x1b[{clearStartOffset}B";
+                    buffer += f"\x1b[{clearStartOffset}B";
                 }
                 i: int = 0;
                 while (i < extraLines) {
@@ -886,7 +1155,7 @@ obj:pub TUI(Container) {
                 }
                 moveBack = max(float(0), float(((extraLines - 1) + clearStartOffset)));
                 if (moveBack > 0) {
-                    buffer += f"\\x1b[{moveBack}A";
+                    buffer += f"\x1b[{moveBack}A";
                 }
                 buffer += "\u001b[?2026l";
                 self.terminal.write(buffer);
@@ -914,7 +1183,7 @@ obj:pub TUI(Container) {
             currentScreenRow = max(float(0), float(min(float((height - 1)), float((hardwareCursorRow - prevViewportTop)))));
             moveToBottom = ((height - 1) - currentScreenRow);
             if (moveToBottom > 0) {
-                buffer += f"\\x1b[{moveToBottom}B";
+                buffer += f"\x1b[{moveToBottom}B";
             }
             scroll = (moveTargetRow - prevViewportBottom);
             buffer += ("\r\n" * int(scroll));
@@ -924,14 +1193,14 @@ obj:pub TUI(Container) {
         }
         lineDiff = computeLineDiff(moveTargetRow);
         if (lineDiff > 0) {
-            buffer += f"\\x1b[{lineDiff}B";
+            buffer += f"\x1b[{lineDiff}B";
         }
         elif (lineDiff < 0) {
-            buffer += f"\\x1b[{-lineDiff}A";
+            buffer += f"\x1b[{-lineDiff}A";
         }
         buffer += ("\r\n" if appendStart else "\r");
         renderEnd = min(float(lastChanged), float((len(newLines) - 1)));
-        i: int = firstChanged;
+        i: int = int(firstChanged);
         while (i <= renderEnd) {
             if (i > firstChanged) {
                 buffer += "\r\n";
@@ -952,18 +1221,27 @@ obj:pub TUI(Container) {
                     buffer += "\r\n\u001b[2K";
                     row += 1;
                 }
-                buffer += f"\\x1b[{(imageReservedRows - 1)}A";
+                buffer += f"\x1b[{(imageReservedRows - 1)}A";
                 buffer += line;
-                buffer += f"\\x1b[{(imageReservedRows - 1)}B";
-                i += (imageReservedRows - 1);
+                buffer += f"\x1b[{(imageReservedRows - 1)}B";
+                i += int((imageReservedRows - 1));
                 continue;
             }
             buffer += "\u001b[2K";
             if (not isImage and (visibleWidth(line) > width)) {
-                crashLogPath = os.homedir().join(path);
-                crashData = "\n".join([f"Crash at {Date().toISOString()}", f"Terminal width: {width}", f"Line {i} visible width: {visibleWidth(line)}", "", "=== All rendered lines ===", *newLines.map(lambda (l: any, idx: any) -> any { return f"[{idx}] (w={visibleWidth(l)}) {l}"; }), ""]);
-                fs.mkdirSync(path.dirname(crashLogPath), {"recursive": True});
-                fs.writeFileSync(crashLogPath, crashData);
+                crashDir = os.path.join(os.path.expanduser("~"), ".pi-tui-crash");
+                os.makedirs(crashDir, exist_ok=True);
+                crashLogPath = os.path.join(crashDir, f"crash-{int(now_ms())}.log");
+                renderedLines: list[str] = [];
+                _rl_idx: int = 0;
+                while (_rl_idx < len(newLines)) {
+                    renderedLines.append(f"[{_rl_idx}] (w={visibleWidth(newLines[_rl_idx])}) {newLines[_rl_idx]}");
+                    _rl_idx += 1;
+                }
+                crashData = "\n".join([f"Crash at {datetime.datetime.now().isoformat()}", f"Terminal width: {width}", f"Line {i} visible width: {visibleWidth(line)}", "", "=== All rendered lines ===", *renderedLines, ""]);
+                with open(crashLogPath, "w", encoding="utf8") as _crash_fh {
+                    _crash_fh.write(crashData);
+                }
                 self.stop();
                 errorMsg = "\n".join([f"Rendered line {i} exceeds terminal width ({visibleWidth(line)} > {width}).", "", "This is likely caused by a custom TUI component not truncating its output.", "Use visibleWidth() to measure and truncateToWidth() to truncate lines.", "", f"Debug log written to: {crashLogPath}"]);
                 raise Exception(errorMsg);
@@ -975,24 +1253,26 @@ obj:pub TUI(Container) {
         if (len(self.previousLines) > len(newLines)) {
             if (renderEnd < (len(newLines) - 1)) {
                 moveDown = ((len(newLines) - 1) - renderEnd);
-                buffer += f"\\x1b[{moveDown}B";
+                buffer += f"\x1b[{moveDown}B";
                 finalCursorRow = (len(newLines) - 1);
             }
             extraLines = (len(self.previousLines) - len(newLines));
-            i: int = len(newLines);
+            i: int = int(len(newLines));
             while (i < len(self.previousLines)) {
                 buffer += "\r\n\u001b[2K";
                 i += 1;
             }
-            buffer += f"\\x1b[{extraLines}A";
+            buffer += f"\x1b[{extraLines}A";
         }
         buffer += "\u001b[?2026l";
         if (environ.get("PI_TUI_DEBUG") == "1") {
             debugDir: str = "/tmp/tui";
-            fs.mkdirSync(debugDir, {"recursive": True});
-            debugPath = debugDir.join(path);
-            debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {JSON.stringify(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", JSON.stringify(newLines, None, 2), "", "=== previousLines ===", JSON.stringify(self.previousLines, None, 2), "", "=== buffer ===", JSON.stringify(buffer)]);
-            fs.writeFileSync(debugPath, debugData);
+            os.makedirs(debugDir, exist_ok=True);
+            debugPath = os.path.join(debugDir, "render-debug.log");
+            debugData = "\n".join([f"firstChanged: {firstChanged}", f"viewportTop: {viewportTop}", f"cursorRow: {self.cursorRow}", f"height: {height}", f"lineDiff: {lineDiff}", f"hardwareCursorRow: {hardwareCursorRow}", f"renderEnd: {renderEnd}", f"finalCursorRow: {finalCursorRow}", f"cursorPos: {json.dumps(cursorPos)}", f"newLines.length: {len(newLines)}", f"previousLines.length: {len(self.previousLines)}", "", "=== newLines ===", json.dumps(newLines, indent=2), "", "=== previousLines ===", json.dumps(self.previousLines, indent=2), "", "=== buffer ===", json.dumps(buffer)]);
+            with open(debugPath, "w", encoding="utf8") as _debug_fh {
+                _debug_fh.write(debugData);
+            }
         }
         self.terminal.write(buffer);
         self.cursorRow = max(float(0), float((len(newLines) - 1)));
@@ -1010,17 +1290,17 @@ obj:pub TUI(Container) {
             self.terminal.hideCursor();
             return;
         }
-        targetRow = max(float(0), float(min(float(cursorPos.row), float((totalLines - 1)))));
-        targetCol = max(float(0), float(cursorPos.col));
+        targetRow = max(float(0), float(min(float(cursorPos["row"]), float((totalLines - 1)))));
+        targetCol = max(float(0), float(cursorPos["col"]));
         rowDelta = (targetRow - self.hardwareCursorRow);
         buffer: str = "";
         if (rowDelta > 0) {
-            buffer += f"\\x1b[{rowDelta}B";
+            buffer += f"\x1b[{rowDelta}B";
         }
         elif (rowDelta < 0) {
-            buffer += f"\\x1b[{-rowDelta}A";
+            buffer += f"\x1b[{-rowDelta}A";
         }
-        buffer += f"\\x1b[{(targetCol + 1)}G";
+        buffer += f"\x1b[{(targetCol + 1)}G";
         if buffer {
             self.terminal.write(buffer);
         }
@@ -1032,12 +1312,48 @@ obj:pub TUI(Container) {
             self.terminal.hideCursor();
         }
     }
-    override def queryTerminalBackgroundColor(_jx_p0: any) -> any {
-        timeoutMs = _jx_p0.timeoutMs;
-        return Promise(lambda (resolve: any) -> any { query: any = {"settled": False, "resolve": resolve, "timer": None}; query["timer"] = setTimeout(lambda () -> any { if query.settled {     return; } query.settled = True; query.timer = None; ((lambda (_jx_opt34: any) -> any { return (_jx_opt34(None) if _jx_opt34 is not None else None); })(query.resolve)); query.resolve = None; }, timeoutMs); self.pendingOsc11BackgroundQueries.append(query); self.pendingOsc11BackgroundReplies += 1; self.terminal.write("\u001b]11;?\u0007"); });
+    override def queryTerminalBackgroundColor(timeoutMs: float) -> SimplePromise {
+        def executor(resolve: any) -> None {
+            query: OscQuery = OscQuery(settled=False, resolve=resolve, timer=None);
+            def onTimeout() -> None {
+                if query.settled {
+                    return;
+                }
+                query.settled = True;
+                query.timer = None;
+                if query.resolve is not None {
+                    query.resolve(None);
+                }
+                query.resolve = None;
+            }
+            query.timer = set_timeout(onTimeout, timeoutMs);
+            self.pendingOsc11BackgroundQueries.append(query);
+            self.pendingOsc11BackgroundReplies += 1;
+            self.terminal.write("\u001b]11;?\u0007");
+        }
+        return Promise(executor);
     }
-    override def queryTerminalColorScheme(_jx_p0: any) -> any {
-        timeoutMs = _jx_p0.timeoutMs;
-        return Promise(lambda (resolve: any) -> any { settled: bool = False; timer: any | None; unsubscribe: any = lambda () -> any {}; settle = lambda (scheme: any | None) -> any { if settled {     return; } settled = True; if timer {     clearTimeout(timer);     timer = None; } unsubscribe(); resolve(scheme); }; unsubscribe = self.onTerminalColorSchemeChange(settle); timer = setTimeout(lambda () -> any { return settle(None); }, timeoutMs); self.terminal.write("\u001b[?996n"); });
+    override def queryTerminalColorScheme(timeoutMs: float) -> SimplePromise {
+        def executor(resolve: any) -> None {
+            state: dict = {"settled": False, "timer": None, "unsubscribe": None};
+            def settle(scheme: any | None) -> None {
+                if state["settled"] {
+                    return;
+                }
+                state["settled"] = True;
+                if state["timer"] {
+                    clear_timeout(state["timer"]);
+                    state["timer"] = None;
+                }
+                if state["unsubscribe"] is not None {
+                    state["unsubscribe"]();
+                }
+                resolve(scheme);
+            }
+            state["unsubscribe"] = self.onTerminalColorSchemeChange(settle);
+            state["timer"] = set_timeout(lambda () -> any { return settle(None); }, timeoutMs);
+            self.terminal.write("\u001b[?996n");
+        }
+        return Promise(executor);
     }
 }
