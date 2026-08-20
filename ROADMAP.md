@@ -61,6 +61,8 @@ invalidate()
 
 Components render width-bounded ANSI lines. The framework composes focus and overlays, compares the frame with the previous frame, and emits one synchronized ANSI update for the changed range.
 
+The component structure and reactive invalidation backend is OSP-native: data-only `UiNode` values use ordered typed `Child` edges, source signals use `Feeds` edges, and process-local render/input closures live outside graph nodes. A thin projection implements `render(width)`, `handleInput(data)`, and `invalidate()`. OSP owns structure and lifecycle; cached flat `list[str]` frames and ANSI comparison remain the renderer hot path.
+
 The TUI uses Python standard-library terminal support through server Jac. C is not required for rendering. Narrow C FFI or native kernels are permitted only for a platform gap or measured performance need.
 
 ## 3. Binding decisions
@@ -85,6 +87,7 @@ The TUI uses Python standard-library terminal support through server Jac. C is n
 - [x] Native edit-kernel spike in `app/core/edit.jac`
 - [x] Temporary Ink JSONL client in `tui/`
 - [x] Cordis C0 core with revertible effects and reactive coeffects
+- [x] OSP UI backend slice: ordered tree, source signals, cached projection, disposal, differential-renderer smoke
 - [x] Legacy TS/Ink Jackal remains available as parity reference
 
 ### Known gaps in the new path

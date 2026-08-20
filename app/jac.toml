@@ -17,6 +17,7 @@ default_codespace = "native"
 
 [placement.pins]
 "core.edit" = "native"
+"ui.model" = "server"
 
 [dependencies]
 httpx = "~=0.28"
