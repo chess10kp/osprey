@@ -4,6 +4,14 @@ Core enqueue/dequeue/coalesce/cancel/drive_screen are stubbed until Unit 9
 implementation (OSPUI-P0-PLAN Unit 9). Companion scope provides protocol APIs.
 """
 
+import from ui.runtime {
+    create_session,
+    dispose_session,
+}
+
+import from ui.screen {
+    build_main_shell,
+}
 
 test "make_envelope carries versioned identity fields" {
     env = make_envelope(
@@ -180,4 +188,58 @@ test "drive_screen accepts envelopes without mutating queue ownership" {
     stats = queue_stats(adapter.queue);
     assert stats.depth >= 0;
     assert failed or True;
+}
+
+
+test "drain_and_drive applies status tool approval and cancel" {
+    handle = create_session();
+    session = handle.session;
+    shell = build_main_shell(session);
+    adapter = create_adapter("drv");
+    enqueue(adapter.queue, make_envelope(kind="turn_start", turn_id="t1"));
+    enqueue(
+        adapter.queue,
+        make_envelope(
+            kind="text_delta",
+            payload={"text": "hi"},
+            turn_id="t1",
+            correlation_id="c",
+        ),
+    );
+    enqueue(
+        adapter.queue,
+        make_envelope(
+            kind="tool_start",
+            tool_id="bash",
+            payload={"tool": "bash"},
+            turn_id="t1",
+        ),
+    );
+    enqueue(
+        adapter.queue,
+        make_envelope(
+            kind="approval_request",
+            correlation_id="ap-1",
+            tool_id="bash",
+            turn_id="t1",
+        ),
+    );
+    n = drain_and_drive(adapter, shell);
+    assert n == 4;
+    assert adapter.stream_buf == "hi";
+    assert adapter.last_tool == "bash";
+    assert adapter.pending_approval_id == "ap-1";
+    assert shell.status.phase == "approval";
+    enqueue(
+        adapter.queue,
+        make_envelope(
+            kind="turn_cancelled",
+            turn_id="t1",
+            correlation_id="t1",
+        ),
+    );
+    drain_and_drive(adapter, shell);
+    assert shell.status.phase == "cancelled";
+    assert adapter.busy == False;
+    dispose_session(session);
 }

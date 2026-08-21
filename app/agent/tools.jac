@@ -6,7 +6,7 @@ to core/ modules which place native by inference.
 
 import os;
 import subprocess;
-import from .core.edit { apply_edit }
+import from core.edit { apply_edit }
 
 glob MAX_TOOL_OUTPUT: int = 50_000,
      READ_LINE_CAP: int = 2_000;
@@ -88,7 +88,12 @@ sem run_command = "Run a shell command in the project root and return exit code 
 sem run_command.cmd = "The shell command line to execute.";
 sem run_command.timeout_secs = "Seconds before the command is killed (default 120).";
 
-import from .llm { ToolSpec }
+import from .tool_spec { ToolSpec }
+import from .registry {
+    ToolRegistry,
+    create_registry,
+    register_native_spec,
+}
 
 """Explicit tool specs for the owned loop (replaces byllm sem-string schema
 derivation). When tools become Cordis fibers, live providers of "tools.*"
@@ -160,4 +165,14 @@ def tool_specs() -> list[ToolSpec] {
             handler=run_command,
         ),
     ];
+}
+
+
+"""Fresh registry seeded with native tool_specs(). Js tools join via plugin_bridge."""
+def default_registry() -> ToolRegistry {
+    reg = create_registry();
+    for spec in tool_specs() {
+        register_native_spec(reg, spec);
+    }
+    return reg;
 }

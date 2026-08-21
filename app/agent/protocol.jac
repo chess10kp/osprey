@@ -50,7 +50,11 @@ obj InProcessAdapter {
         session_id: str = "",
         last_sequence: int = 0,
         cancelled_turns: set[str] = set(),
-        cancelled_groups: set[str] = set();
+        cancelled_groups: set[str] = set(),
+        stream_buf: str = "",
+        last_tool: str = "",
+        pending_approval_id: str = "",
+        busy: bool = False;
 }
 
 
@@ -208,31 +212,150 @@ def cancel_group(adapter: InProcessAdapter, group_id: str) -> CancelToken {
 
 """Drive one envelope into the product TUI shell (in-process adapter)."""
 def drive_screen(adapter: InProcessAdapter, shell: any, envelope: Envelope) {
-    _ = adapter;
     if shell is None {
         raise ValueError("drive_screen requires a shell");
     }
     if not isinstance(shell, ShellScreen) {
         raise TypeError("drive_screen expects a ShellScreen");
     }
-    if envelope.kind == "text_delta" {
+    kind = envelope.kind;
+    if kind == "text_delta" {
         text = str(envelope.payload.get("text", ""));
         if text {
-            # Streaming text updates transcript observation revision only;
-            # prompt insert is reserved for user input envelopes.
+            adapter.stream_buf = adapter.stream_buf + text;
             shell.transcript.observed_revision += 1;
             if not shell.transcript.source_id {
                 shell.transcript.source_id = envelope.turn_id;
             }
+            adapter.busy = True;
         }
-    } elif envelope.kind == "status" {
+    } elif kind == "status" {
         phase = str(envelope.payload.get("phase", ""));
         if phase {
             shell.status.phase = phase;
+            if phase == "streaming" or phase == "tool" {
+                adapter.busy = True;
+            } elif phase == "ready" or phase == "cancelled" {
+                adapter.busy = False;
+            }
         }
-    } elif envelope.kind == "insert_text" {
+    } elif kind == "insert_text" {
         text = str(envelope.payload.get("text", ""));
-        # Session is owned by the shell host; insert against prompt directly.
         shell.prompt.draft = shell.prompt.draft + text;
+    } elif kind == "tool_start" {
+        tool = str(envelope.payload.get("tool", envelope.tool_id));
+        adapter.last_tool = tool;
+        shell.status.phase = "tool";
+        adapter.busy = True;
+    } elif kind == "tool_end" {
+        shell.status.phase = "streaming";
+        adapter.last_tool = "";
+    } elif kind == "approval_request" {
+        cid = envelope.correlation_id;
+        if not cid {
+            cid = str(envelope.payload.get("id", envelope.tool_id));
+        }
+        adapter.pending_approval_id = cid;
+        shell.status.phase = "approval";
+    } elif kind == "approval_decision" {
+        adapter.pending_approval_id = "";
+        approved = bool(envelope.payload.get("approved", False));
+        shell.status.phase = "streaming" if approved else "ready";
+    } elif kind == "turn_cancelled" or kind == "group_cancelled" {
+        shell.status.phase = "cancelled";
+        adapter.busy = False;
+        adapter.pending_approval_id = "";
+        if envelope.turn_id {
+            adapter.cancelled_turns.add(envelope.turn_id);
+        }
+    } elif kind == "turn_end" {
+        shell.status.phase = "ready";
+        adapter.busy = False;
+    } elif kind == "turn_start" {
+        shell.status.phase = "streaming";
+        adapter.stream_buf = "";
+        adapter.busy = True;
+        if envelope.turn_id {
+            shell.transcript.source_id = envelope.turn_id;
+        }
     }
+}
+
+
+"""Drain the adapter queue and drive each envelope into the shell."""
+def drain_and_drive(adapter: InProcessAdapter, shell: any) -> int {
+    count = 0;
+    while True {
+        env = dequeue(adapter.queue);
+        if env is None {
+            break;
+        }
+        drive_screen(adapter, shell, env);
+        count += 1;
+    }
+    return count;
+}
+
+
+# -- Plugin-channel kinds (brain <-> JS host). drive_screen ignores these. --
+
+glob UI_KINDS: set[str] = {
+    "turn_start",
+    "text_delta",
+    "status",
+    "insert_text",
+    "tool_start",
+    "tool_end",
+    "approval_request",
+    "approval_decision",
+    "turn_cancelled",
+    "group_cancelled",
+    "turn_end",
+};
+
+glob PLUGIN_KINDS: set[str] = {
+    "host_hello",
+    "host_goodbye",
+    "host_status",
+    "ext_load",
+    "ext_unload",
+    "ext_loaded",
+    "tool_invoke",
+    "tool_result",
+    "tool_cancel",
+};
+
+
+def is_ui_kind(kind: str) -> bool {
+    return kind in UI_KINDS;
+}
+
+
+def is_plugin_kind(kind: str) -> bool {
+    return kind in PLUGIN_KINDS;
+}
+
+
+"""Build a plugin-channel envelope (same Envelope type; not for drive_screen)."""
+def make_plugin_envelope(
+    kind: str,
+    payload: dict[str, any] | None = None,
+    session_id: str = "",
+    correlation_id: str = "",
+    tool_id: str = "",
+    turn_id: str = "",
+    sequence: int = 0,
+) -> Envelope {
+    if not is_plugin_kind(kind) {
+        raise ValueError(f"not a plugin kind: {kind}");
+    }
+    return make_envelope(
+        kind=kind,
+        payload=payload,
+        session_id=session_id,
+        correlation_id=correlation_id,
+        tool_id=tool_id,
+        turn_id=turn_id,
+        sequence=sequence,
+    );
 }

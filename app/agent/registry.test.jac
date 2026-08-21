@@ -1,0 +1,125 @@
+"""Tool registry tests (merged with agent/registry.jac via same-stem annex).
+
+Covers native/js registration, invoke routing, schema export, and extension teardown.
+"""
+
+
+def _echo(text: str) -> str {
+    return "ECHO:" + text;
+}
+
+
+def _boom(x: int) -> str {
+    raise ValueError("boom");
+}
+
+
+test "register_native and get_tool" {
+    reg = create_registry();
+    entry = register_native(
+        reg,
+        "echo",
+        "echo text",
+        {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+        _echo,
+    );
+    assert entry.origin == "native";
+    assert entry.handler is not None;
+    got = get_tool(reg, "echo");
+    assert got is not None;
+    assert got.name == "echo";
+}
+
+
+test "register_js requires extension_id and has no handler" {
+    reg = create_registry();
+    entry = register_js(
+        reg,
+        "echo_js",
+        "js echo",
+        {"type": "object", "properties": {}},
+        "ext.stub",
+    );
+    assert entry.origin == "js";
+    assert entry.extension_id == "ext.stub";
+    assert entry.handler is None;
+    raised = False;
+    try {
+        register_js(reg, "bad", "d", {}, "");
+    } except ValueError {
+        raised = True;
+    }
+    assert raised;
+}
+
+
+test "invoke native success and error" {
+    reg = create_registry();
+    register_native(
+        reg,
+        "echo",
+        "d",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        _echo,
+    );
+    register_native(
+        reg,
+        "boom",
+        "d",
+        {"type": "object", "properties": {"x": {"type": "integer"}}},
+        _boom,
+    );
+    assert invoke(reg, "echo", {"text": "hi"}) == "ECHO:hi";
+    err = invoke(reg, "boom", {"x": 1});
+    assert err.startswith("ERROR:");
+    assert "boom" in err;
+    assert invoke(reg, "missing", {}) == "ERROR: unknown tool missing";
+}
+
+
+test "invoke js without bridge returns error" {
+    reg = create_registry();
+    register_js(reg, "remote", "d", {}, "ext.a");
+    out = invoke(reg, "remote", {});
+    assert out.startswith("ERROR:");
+    assert "bridge" in out;
+}
+
+
+test "as_tool_specs and openai_tools cover both origins" {
+    reg = create_registry();
+    register_native(
+        reg,
+        "echo",
+        "d",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        _echo,
+    );
+    register_js(reg, "remote", "rd", {"type": "object"}, "ext.a");
+    specs = as_tool_specs(reg);
+    assert len(specs) == 2;
+    names = [s.name for s in specs];
+    assert "echo" in names;
+    assert "remote" in names;
+    defs = openai_tools(reg);
+    assert len(defs) == 2;
+    assert defs[0]["type"] == "function";
+}
+
+
+test "unregister and unregister_extension" {
+    reg = create_registry();
+    register_js(reg, "a", "d", {}, "ext.1");
+    register_js(reg, "b", "d", {}, "ext.1");
+    register_js(reg, "c", "d", {}, "ext.2");
+    assert unregister(reg, "c");
+    assert get_tool(reg, "c") is None;
+    n = unregister_extension(reg, "ext.1");
+    assert n == 2;
+    assert get_tool(reg, "a") is None;
+    assert get_tool(reg, "b") is None;
+}

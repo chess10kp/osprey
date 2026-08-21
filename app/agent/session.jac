@@ -9,7 +9,7 @@ import sys;
 import os;
 import json;
 import time;
-import from .llm { ToolSpec, Transport, react_loop, make_transport }
+import from .llm { Transport, react_loop, make_transport }
 import from .tools { tool_specs }
 import from .system { SYSTEM_PROMPT }
 

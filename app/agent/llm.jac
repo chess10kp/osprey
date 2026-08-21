@@ -15,14 +15,9 @@ import os;
 import json;
 import httpx;
 import from typing { Callable, Generator }
+import from .tool_spec { ToolSpec }
 
 
-obj ToolSpec {
-    has name: str,
-        description: str = "",
-        parameters: dict = {},
-        handler: Callable | None = None;
-}
 
 
 obj Transport {
