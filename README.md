@@ -2,7 +2,13 @@
 
 ## Jackal Coding Agent
 
-A Jac-native, terminal-first Jac coding agent that gives Jac developers the agentic workflow with better keyboard ergonomics, multimodal context, CLI/toolchain awareness, and Jac-specific project intelligence.
+**A fast native coding agent with a compatible JavaScript extension layer.**
+
+> Native where performance matters. JavaScript where compatibility matters.
+
+Jackal is a terminal-first coding agent with an fx-style form factor: a small native runtime that starts instantly, feels like a Unix tool, scripts cleanly (`jackal ask "..."`, structured JSON output), embeds via ACP, and stays out of your way. On top of that native core sits a lazily-started, Pi-compatible JavaScript extension host — so existing Pi extensions keep working, while performance-sensitive extensions can migrate to Jac/NA without changing the plugin model.
+
+The product equation: **fx's form factor + Pi's ecosystem + Jac's codespace architecture.**
 
 > **Architecture transition (Aug 2026):** Jackal is moving to an all-Jac harness under `app/` with a custom Jac differential TUI. The current `src/` + Ink shell remains the runnable daily-driver and parity reference until the new path reaches the cutover gate. New product development targets `app/`. See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
 

@@ -1,0 +1,345 @@
+#+title: Jackal Decision Log
+#+subtitle: Every meaningful architecture choice: decision, context, options, tradeoff, reversal condition
+#+updated: <2026-08-21 Fri>
+
+Every meaningful architecture choice gets an entry here. Each entry has five
+fields:
+
+- *Decision* — what we chose, stated affirmatively.
+- *Context* — the forces and constraints that made this a real choice.
+- *Options considered* — the realistic alternatives (not strawmen).
+- *Tradeoff* — what we give up by choosing this.
+- *Reversal condition* — the observable evidence that would justify reopening
+  the decision. No reversal condition = not a decision, a preference.
+
+Entries are append-only; superseded entries stay with a =SUPERSEDED-BY= link.
+
+* Index
+
+| ID  | Decision                                        | Status      |
+|-----+-------------------------------------------------+-------------|
+| D01 | All-Jac harness under ~app/~                    | Active      |
+| D02 | Custom differential TUI in Jac                  | Active      |
+| D03 | Pure stdlib terminal layer, C only if measured  | Active      |
+| D04 | Typed command/event seam, JSONL as adapter      | Active      |
+| D05 | OSP-native UI structure                         | Active      |
+| D06 | MCP via ~jac mcp~ subprocess                    | Active      |
+| D07 | Native kernels only behind profiling gates      | Active      |
+| D08 | Cordis as composition model                     | Active      |
+| D09 | Legacy ~src/~ + ~templates/~ frozen parity ref  | Active      |
+| D10 | fx form factor positioning                      | Active      |
+| D11 | Lazy Pi-compatible JS host, no embedded runtime | Active      |
+| D12 | TS→Python bridge migration                      | Superseded  |
+
+* D01 — All-Jac harness under =app/=
+
+**Decision**
+All forward product development lands in =app/= as an all-Jac harness owning
+the ReAct loop, session truth, and transport. New features do not go into
+=src/= or =templates/=.
+
+**Context**
+Jackal's original runtime was TypeScript (~13K LOC) wrapping
+=pi-agent-core=. The strategic goal is demonstrating that Jac can own a full
+product, not just toolchain glue. Two runtimes cannot both receive features
+without doubling maintenance.
+
+**Options considered**
+1. Keep evolving the TS runtime indefinitely — fastest short-term, but Jac
+   remains a sidecar forever.
+2. Full rewrite before proving anything — high risk of shipping nothing.
+3. Parallel harness in =app/= with a parity gate before cutover — chosen.
+
+**Tradeoff**
+Two runtimes coexist for months; every feature request must be triaged into
+"forward" vs "legacy-reference fix." Slower apparent velocity during N1–N3.
+
+**Reversal condition**
+If by the end of N2 the all-Jac path cannot demonstrate a safe daily-driver
+turn (session restore, approvals, abort, MCP) on a real provider, re-evaluate
+whether the second runtime is viable at all versus deepening the TS one.
+
+* D02 — Custom differential TUI in Jac
+
+**Decision**
+Build the product TUI as a custom Jac framework modeled on Pi's differential
+model: components render width-bounded ANSI lines (=render(width) ->
+list[str]=), the renderer diffs frames and emits synchronized updates.
+
+**Context**
+Ink/jac-ink depends on Node and an upstream compile pipeline with known gaps
+(hook naming, facade copying, postprocess shims). Textual and other Python
+TUIs are IDE-like or too heavy for the Unix-tool feel. The terminal UX bar
+(streaming without flicker, resize correctness, paste/IME) is non-negotiable.
+
+**Options considered**
+1. Stay on Ink + jac-ink permanently — blocked on upstream fixes we don't own.
+2. Adopt Textual/urwid — mature but heavy, wrong interaction model.
+3. Custom Jac differential renderer — chosen.
+
+**Tradeoff**
+We own input parsing, virtual-terminal testing, and rendering correctness
+ourselves. N1 carries real risk before any feature work pays off.
+
+**Reversal condition**
+If N1 fails its stop/go gate (credible transcript+editor against a real
+provider), fall back to the Ink client as product surface and keep =app/= as
+headless brain only.
+
+* D03 — Pure stdlib terminal layer; C/native only for measured gaps
+
+**Decision**
+The TUI uses Python standard-library terminal support through server Jac. No
+broad C FFI terminal layer. Narrow native pins require a platform gap or an
+end-to-end benchmark plus regression test.
+
+**Context**
+A prior instinct was to chase single-binary nativity via C FFI for HTTP,
+TLS, SSE, and terminal handling. That multiplies platform risk and rebuilds
+solved problems badly.
+
+**Options considered**
+1. Broad C FFI / Zig layer under everything — rejected: enormous surface,
+   slow iteration, portability pain.
+2. Pure stdlib everywhere, no exceptions ever — too rigid.
+3. Stdlib default + profiling-gated native kernels — chosen.
+
+**Tradeoff**
+Some operations will be slower than a native equivalent until measured and
+pinned. Startup-time goals depend on interpreter startup being acceptable.
+
+**Reversal condition**
+Benchmark evidence that a stdlib hot path (e.g., frame diffing or ANSI
+wrapping) dominates user-perceived latency after algorithmic fixes are
+exhausted → pin narrowly per D07.
+
+* D04 — Typed command/event seam; JSONL stays an adapter
+
+**Decision**
+UI and session host communicate through typed command/event envelopes with
+stable IDs, sequence numbers, and snapshots. JSONL is one adapter among
+several (in-process, in-memory), never the interface itself.
+
+**Context**
+The legacy path leaked transport assumptions (JSONL event shapes) into UI
+code, making adapters and testing brittle. Deepening the typed seam was named
+an explicit maintainer priority.
+
+**Options considered**
+1. JSONL events as the contract — simple but locks in serialization details.
+2. In-process function calls only — fastest, but blocks remote/daemon and
+   alternate renderers.
+3. Typed envelopes with pluggable transports — chosen.
+
+**Tradeoff**
+Envelope design discipline required up front; versioning and capability
+negotiation become real work (N2 deliverable).
+
+**Reversal condition**
+If envelope negotiation overhead measurably harms startup latency beyond
+fx-class targets, simplify to a single frozen in-process interface and drop
+the daemon ambition explicitly rather than degrading both.
+
+* D05 — OSP-native UI structure
+
+**Decision**
+Component structure and reactive invalidation are OSP-native: data-only
+=UiNode= values on ordered typed =Child= edges, source signals on =Feeds=
+edges, process-local render/input closures outside graph nodes.
+
+**Context**
+The differential renderer needs a structural home. Putting live closures in
+graph nodes would bloat serialization and blur data/process boundaries.
+
+**Options considered**
+1. Plain Python object tree — works, but forfeits Jac graph semantics that
+   motivate the whole exercise.
+2. Everything in OSP nodes including closures — rejected above.
+3. Data/signals in graph, closures outside — chosen.
+
+**Tradeoff**
+Two worlds to bridge; contributors must learn which things live where.
+
+**Reversal condition**
+If projection overhead (graph reads per frame) shows up in render profiling
+after caching, flatten the hot subtree into plain structures while keeping
+OSP for lifecycle/composition only.
+
+* D06 — MCP via =jac mcp= subprocess
+
+**Decision**
+From N2 onward, MCP tools come from a =jac mcp= subprocess. An in-process
+rewrite needs profiling evidence first.
+
+**Context**
+MCP servers crash, hang, and leak. Subprocess isolation protects the agent
+loop and matches how the legacy runtime already worked.
+
+**Options considered**
+1. In-process MCP SDK — lower latency, shared failure domain.
+2. Subprocess =jac mcp= — chosen: isolation, reuse, clear degradation.
+
+**Tradeoff**
+Per-call spawn/IPC overhead; status reporting across process boundary.
+
+**Reversal condition**
+Profiling shows subprocess overhead materially delays tool turns (>100ms
+median added per call in daily workflows) → revisit in-process with crash
+isolation via worker threads/processes.
+
+* D07 — Native kernels only behind profiling gates
+
+**Decision**
+Native (NA/C/Zig) code exists only as small measured kernels under
+=app/core/=, each with an end-to-end benchmark and regression test. Session,
+policy, and model truth never move out of the Jac brain.
+
+**Context**
+Native speed is part of the product story (D10), but unpinned native code
+has historically been where projects rot.
+
+**Options considered**
+1. Native everything — rejected (see D03).
+2. Native nothing ever — conflicts with performance positioning.
+3. Kernel-only, benchmark-gated — chosen.
+
+**Tradeoff**
+Slower to grab obvious wins; each kernel needs benchmark infrastructure.
+
+**Reversal condition**
+Not applicable as written — the gate IS the reversal mechanism. A kernel
+that loses its benchmark advantage gets deleted in the same PR.
+
+* D08 — Cordis as composition model
+
+**Decision**
+Tools, renderer, transport, and session host compose as fibers in a Cordis
+composition context with revertible effects. N4 integrates this into stable
+product interfaces; research may proceed earlier but must not block N1–N3.
+
+**Context**
+Extensibility (hot swap, derived tool sets, agent-managed deployment) is a
+core differentiator, but unstable early interfaces would make composition
+semantics permanent mistakes.
+
+**Options considered**
+1. Ad-hoc plugin registry now, formalize later — creates the exact debt we
+   want to avoid.
+2. Block all extensibility until N4 — starves N2/N3 of needed hooks.
+3. Cordis research in parallel, integration gated at N4 — chosen.
+
+**Tradeoff**
+Temporary scaffolding in N2/N3 will be thrown away; some duplicated effort.
+
+**Reversal condition**
+If N4 acceptance (unload restores context, swap preserves session) slips two
+milestones past its gate, descope Cordis to static component configuration
+and record dynamic loading as a non-goal.
+
+* D09 — Legacy =src/= + =templates/= frozen parity reference
+
+**Decision**
+The Ink TUI + headless TS runtime stays runnable as the parity reference
+until the N3 cutover gate. Legacy fixes are limited to keeping it runnable;
+no new features.
+
+**Context**
+Cutover needs a comparison target and a fallback. Deleting early would burn
+the escape hatch; investing in it would split the roadmap.
+
+**Options considered**
+1. Delete immediately — no fallback, no parity matrix.
+2. Keep developing both — violates D01.
+3. Freeze + critical-fixes-only — chosen.
+
+**Tradeoff**
+Users on the legacy shell see stagnation; bug reports against it get minimal
+triage.
+
+**Reversal condition**
+N3 gate passes → remove in a separate reviewable commit. Gate fails twice →
+revisit D01 instead of extending the freeze indefinitely.
+
+* D10 — fx form factor positioning
+
+**Decision**
+Position Jackal as *a fast native coding agent with a compatible JavaScript
+extension layer*: fx's form factor (small binary, instant start, Unix-tool
+UX, noninteractive mode, JSON output, ACP) + Pi's extension ecosystem +
+Jac's codespace architecture.
+
+**Context**
+fx (~8 MiB native, instant startup, 1.8K stars in three days) validated real
+demand for native-minimal agents. Reproducing fx alone isn't differentiation:
+fx has no documented Pi-extension compatibility and limited mixed-runtime
+extensions. "Tiny" as the lead message eventually conflicts with
+compatibility and features.
+
+**Options considered**
+1. Compete on tiny-ness head-on — losing fight against Vercel distribution;
+   tininess erodes as compatibility grows.
+2. Stay positioned as "Jac showcase" — insufficient external pull.
+3. Form factor of fx + ecosystem compatibility as the moat — chosen.
+
+**Tradeoff**
+Compatibility layer adds permanent surface area and test burden; benchmarks
+(startup ms, binary size) become public commitments.
+
+**Reversal condition**
+If the Pi-extension compat host costs more maintenance than it attracts
+users (measured adoption of JS extensions near zero after launch), narrow to
+native-only extensions and document JS hosting as best-effort.
+
+* D11 — Lazy Pi-compatible JS host; no embedded runtime
+
+**Decision**
+JavaScript is never on Jackal's default startup path. The JS host spawns
+lazily when a user loads a JS extension, communicating over the typed
+plugin bridge (D04). No embedded Node runtime in the shipped artifact.
+
+**Context**
+Embedding Node would balloon binary size and undermine the fx-class
+positioning. QuickJS/WASM engines are small but break Node built-ins, npm
+resolution, and native packages that existing Pi extensions rely on.
+
+**Options considered**
+1. Embedded Node in every binary — kills size/startup story outright.
+2. QuickJS/WASM engine — small, but incompatible with the Pi ecosystem we're
+   claiming compatibility with.
+3. Lazily spawned system/host Node process — chosen.
+
+**Tradeoff**
+Requires Node present for JS extensions (acceptable: those users already
+have it); cross-process bridge latency for extension calls; host discovery
+and version pinning questions.
+
+**Reversal condition**
+If bridge latency makes JS extensions feel second-class in practice
+(measurable round-trip cost dominating extension tool calls), evaluate an
+embedded engine *in addition to* — not instead of — the Node path, scoped to
+engine-compatible extensions.
+
+* D12 — TS→Python bridge migration
+
+*SUPERSEDED-BY:* D01 (all-Jac harness). Status: superseded; do not expand.
+
+**Decision** *(historical)*
+Portable pure logic moved from TypeScript into Python toolchain modules
+under =lib/jac/=, called from TS over a JSON-over-stdio bridge (219 ops, 45
+modules).
+
+**Context**
+Pre-harness era: make the TS runtime progressively Jac-owned without a
+rewrite.
+
+**Options considered**
+Bridge-per-module vs monolithic dispatcher (chose dispatcher), sync vs
+async spawning per call class (both, by latency profile).
+
+**Tradeoff**
+Realized: sync bridge calls cost 20–50ms; hot paths had to stay in TS
+duplicating logic. The bridge became its own architecture.
+
+**Reversal condition**
+None — superseded. =lib/jac/ bridge migration is closed; do not mix bridge
+edits into all-Jac feature commits (see ROADMAP §7).

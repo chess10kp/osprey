@@ -535,6 +535,7 @@ Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boo
 | `docs/PLAN_MODE.md` | Plan mode UX |
 | `docs/NANOCODER-PARITY.md` | TUI parity gaps |
 | `ROADMAP.md` | Product direction |
+| `docs/decisions.org` | Architecture decision log (decision/context/options/tradeoff/reversal) |
 | `lib/jac/README.md` | lib/jac structure and conventions |
 | `reference/pi-lsp-extension/` | Legacy reference only |
 

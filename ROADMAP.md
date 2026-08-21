@@ -1,11 +1,47 @@
 # Jackal Roadmap
 
-**Updated:** 2026-08-17
-**Product:** a high-quality terminal coding agent for Jac, implemented as an all-Jac harness.
+**Updated:** 2026-08-21
+**Product:** a fast native coding agent with a compatible JavaScript extension layer.
 
-> **Authoritative direction:** server-anchored Jac brain, custom Jac TUI, typed UI seam, and native only for measured kernels. See [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md) for the decision record.
+> **Positioning:** fx's form factor + Pi's ecosystem + Jac's codespace architecture. Jackal starts as a small native runtime with instant startup and Unix-tool ergonomics; JavaScript extensions run in a lazily-spawned Pi-compatible host off the default startup path. See [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md) for the decision record and [`docs/decisions.org`](docs/decisions.org) for the full decision log.
 
 ---
+
+## 0. Positioning
+
+**A fast native coding agent with a compatible JavaScript extension layer.**
+Or more aggressively: *native where performance matters, JavaScript where compatibility matters.*
+
+The reference point is Vercel's [fx](https://github.com/vercel-labs/fx): a ~8 MiB native binary, effectively instant startup, minimal terminal interface, native/Wasm builds, ACP embedding, skills/MCP/subagents. fx validates the demand for native-minimal agents (~1.8K stars in three days). Jackal goes beyond it:
+
+| Capability | fx | Jackal |
+|---|---|---|
+| Small native executable | Yes | Yes |
+| Unix-like terminal UX | Yes | Yes |
+| Native/Wasm portability | Yes | Yes, demonstrated through Jac |
+| Embeddable agent core | Yes | Yes |
+| Skills and MCP | Yes | Yes |
+| Existing Pi extensions | No documented compatibility | **Yes** |
+| Native extension path | Zig/core contribution | Jac `na` plugins |
+| Mixed-runtime extension system | Limited | **Core architectural feature** |
+
+Emulate fx's: restrained interaction, single executable, noninteractive mode, structured JSON output, ACP surface, ruthless startup-time and binary-size benchmarks. Do not imitate its branding or lead with "tiny" — tininess eventually conflicts with compatibility. The differentiator is the mixed-runtime extension story, which is also why codespaces exist.
+
+Architecture rule: **JavaScript must never be on Jackal's default startup path.**
+
+```mermaid
+flowchart TD
+    CLI["Jackal CLI"] --> Core["Jac agent core"]
+    Core --> Native["NA tools and extensions"]
+    Core --> Bridge["Typed plugin bridge"]
+    Bridge --> JS["Pi-compatible JS host (lazy)"]
+```
+
+- The JS host starts lazily only when a user loads a JavaScript extension.
+- Communication crosses a stable typed event/tool API.
+- Existing Pi extensions receive a compatibility implementation of Pi's API.
+- Performance-sensitive extensions can migrate to Jac/NA without changing the plugin model.
+- Do not ship an embedded Node runtime inside the binary (undermines the small-native positioning); QuickJS would be smaller but breaks Node built-ins/npm/native packages — a lazily spawned Node host is the pragmatic first implementation.
 
 ## 1. Target product
 
@@ -73,7 +109,7 @@ The TUI uses Python standard-library terminal support through server Jac. C is n
 4. **The Ink JSONL client is temporary**, used to exercise the seam while the Jac TUI is built.
 5. **MCP uses `jac mcp` as a subprocess** from N2 onward; an in-process rewrite needs profiling evidence.
 6. **Native remains kernel-only and profiling-gated.**
-7. **No single-binary requirement.** Do not reimplement HTTP/TLS/SSE or terminal frameworks through broad C FFI.
+7. **Small-binary discipline over single-file maximalism.** Keep the default startup path free of JavaScript. Do not embed a Node runtime in the shipped binary; spawn the Pi-compatible JS host lazily on demand.
 8. **Cordis is the composition model**, but product usability precedes dynamic loading and self-evolution.
 
 ## 4. Current state
