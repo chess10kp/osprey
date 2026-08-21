@@ -31,6 +31,7 @@ import from "./jac_pi_runtime_shim.mjs" {
     useAuthFlow,
     useJackalUI,
     useCompletions,
+    useDiskSpace,
     useExplorerState,
     useTasksOverlayState,
     useCheckpointOverlayState
@@ -195,6 +196,9 @@ def:pub StatusBar(props: any) -> JsxElement {
     mcp_connecting: bool = bool(props.mcp_connecting) if props.mcp_connecting is not None else False;
     mcp_tools: int = int(props.mcp_tools) if props.mcp_tools is not None else 0;
     queued_count: int = int(props.queued_count) if props.queued_count is not None else 0;
+    disk_root: str = to_str(props.disk_root) if props.disk_root else "";
+    disk_home: str = to_str(props.disk_home) if props.disk_home else "";
+    disk_same: bool = bool(props.disk_same) if props.disk_same is not None else False;
     context_percent: float = float(props.context_percent) if props.context_percent is not None else 0.0;
     context_used: int = int(props.context_used) if props.context_used is not None else 0;
     context_max: int = int(props.context_max) if props.context_max is not None else 0;
@@ -209,6 +213,14 @@ def:pub StatusBar(props: any) -> JsxElement {
     if mcp_connecting { mcp_label = "connecting"; }
     elif not mcp_connected { mcp_label = "off"; }
     token_summary: str = format_compact_tokens(context_used) + "/" + format_compact_tokens(context_max);
+    disk_label: str = "";
+    if disk_root {
+        if disk_same {
+            disk_label = "  disk " + disk_root;
+        } else {
+            disk_label = "  disk /:" + disk_root + (" ~:" + disk_home if disk_home else "");
+        }
+    }
 
     return (
         <Box flexDirection="column" paddingX={1} marginTop={1}>
@@ -238,6 +250,7 @@ def:pub StatusBar(props: any) -> JsxElement {
                     + "  tools=" + str(tools_running)
                     + "  mcp=" + mcp_label
                     + ("  queue=" + str(queued_count) if queued_count > 0 else "")
+                    + disk_label
                 }</Text>
             </Box>
         </Box>
@@ -925,6 +938,7 @@ def:pub app() -> JsxElement {
     has diff_state: dict = new_diff_state();
 
     completions: any = useCompletions(input_text, input_cursor);
+    disk: any = useDiskSpace();
     diff_overlay: any = diff_snapshot(diff_state);
 
     # Derived from snap - plain locals, not has (would call setState during render)
@@ -954,6 +968,14 @@ def:pub app() -> JsxElement {
     context_max: int = 0;
     context_system_tokens: int = 0;
     context_message_tokens: int = 0;
+    disk_root: str = "";
+    disk_home: str = "";
+    disk_same: bool = False;
+    if disk {
+        disk_root = to_str(disk.rootFree) if disk.rootFree else "";
+        disk_home = to_str(disk.homeFree) if disk.homeFree else "";
+        disk_same = bool(disk.sameFs);
+    }
     if session and hasattr(session, "getContextUsage") {
         usage: any = session.getContextUsage();
         context_percent = float(getattr(usage, "percent", 0));
@@ -2096,6 +2118,9 @@ def:pub app() -> JsxElement {
                 context_percent={context_percent}
                 context_used={context_used}
                 context_max={context_max}
+                disk_root={disk_root}
+                disk_home={disk_home}
+                disk_same={disk_same}
             />
             {show_completions and <CompletionsList items={completions_list} selected_index={completion_selection}/>}
         </Box>

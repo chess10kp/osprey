@@ -871,6 +871,62 @@ function useCompletions(input, cursorPosition) {
   return list;
 }
 
+// ── Disk free space (root + home), refreshed every 30s ─────────────────────
+
+function formatDiskFree(bytes) {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return "?";
+  const units = ["B", "K", "M", "G", "T", "P"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + units[i];
+}
+
+function statfsKey(st) {
+  return `${st.bsize}:${st.blocks}:${st.bfree}:${st.bavail}`;
+}
+
+function useDiskSpace(intervalMs = 30000) {
+  const [disk, setDisk] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const read = async () => {
+      try {
+        const fsp = await import("node:fs/promises");
+        const os = await import("node:os");
+        const [rootSt, homeSt] = await Promise.all([
+          fsp.statfs("/"),
+          fsp.statfs(os.homedir()),
+        ]);
+        if (cancelled) return;
+        const rootFree = rootSt.bavail * rootSt.bsize;
+        const homeFree = homeSt.bavail * homeSt.bsize;
+        setDisk({
+          rootFree: formatDiskFree(rootFree),
+          homeFree: formatDiskFree(homeFree),
+          sameFs: statfsKey(rootSt) === statfsKey(homeSt),
+        });
+      } catch {
+        // Keep the last successful reading; stay null until one succeeds.
+      }
+    };
+
+    read();
+    const timer = setInterval(read, intervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [intervalMs]);
+
+  return disk;
+}
+
 export {
   useJackalBoot,
   useJackalSession,
@@ -883,6 +939,7 @@ export {
   useAuthFlow,
   useJackalUI,
   useCompletions,
+  useDiskSpace,
   useExplorerState,
   useTasksOverlayState,
   useCheckpointOverlayState,

@@ -27,6 +27,9 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       "context_percent",
       "mcp_connected",
       "mcp_total",
+      "disk_root",
+      "disk_home",
+      "disk_same",
     ], {
       phase: "ready",
       model: "",
@@ -34,6 +37,9 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
       context_percent: 0,
       mcp_connected: 0,
       mcp_total: 0,
+      disk_root: "",
+      disk_home: "",
+      disk_same: false,
     });
   }
 
@@ -132,6 +138,38 @@ describe.skipIf(!canRunTui)("StatusBar (nanocoder parity)", () => {
     const StatusBarInk = await loadStatusBar();
     const { frame, unmount } = renderInk(StatusBarInk, defaultProps);
     expect(frame()).not.toMatch(/MCP:/);
+    unmount();
+  });
+
+  it("shows free disk space for root and home when separate", async () => {
+    const StatusBarInk = await loadStatusBar();
+    const { frame, unmount } = renderInk(StatusBarInk, {
+      ...defaultProps,
+      disk_root: "23G",
+      disk_home: "91G",
+      disk_same: false,
+    });
+    expect(frame()).toMatch(/disk \/:23G ~:91G/);
+    unmount();
+  });
+
+  it("collapses disk readout when root and home share a filesystem", async () => {
+    const StatusBarInk = await loadStatusBar();
+    const { frame, unmount } = renderInk(StatusBarInk, {
+      ...defaultProps,
+      disk_root: "52G",
+      disk_home: "52G",
+      disk_same: true,
+    });
+    expect(frame()).toMatch(/disk 52G/);
+    expect(frame()).not.toMatch(/~:/);
+    unmount();
+  });
+
+  it("hides disk readout when no reading yet", async () => {
+    const StatusBarInk = await loadStatusBar();
+    const { frame, unmount } = renderInk(StatusBarInk, defaultProps);
+    expect(frame()).not.toMatch(/disk/);
     unmount();
   });
 

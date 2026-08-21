@@ -54,6 +54,13 @@ def context_progress_bar(percent: float, width: int) -> str {
 }
 
 
+def disk_label(disk_root: str, disk_home: str, disk_same: bool) -> str {
+    if disk_root == "" { return ""; }
+    if disk_same { return "disk " + disk_root; }
+    return "disk /:" + disk_root + (" ~:" + disk_home if disk_home else "");
+}
+
+
 def:pub StatusBar(
     phase: str,
     model: str,
@@ -61,6 +68,9 @@ def:pub StatusBar(
     context_percent: float,
     mcp_connected: int,
     mcp_total: int,
+    disk_root: str,
+    disk_home: str,
+    disk_same: bool,
 ) -> JsxElement {
     model_display: str = model if model else "(no model)";
     pc: str = phase_color(phase);
@@ -68,6 +78,7 @@ def:pub StatusBar(
     ctx_color: str = context_color(context_percent);
     ctx_text: str = context_text(context_percent);
     ctx_bar: str = context_progress_bar(context_percent, 10);
+    disk_text: str = disk_label(disk_root, disk_home, disk_same);
 
     return (
         <Box
@@ -95,6 +106,9 @@ def:pub StatusBar(
                 <Text color={ctx_color}>{ctx_text}</Text>
                 {mcp_total > 0 and (
                     <Text color="gray">{"  MCP: " + str(mcp_connected) + "/" + str(mcp_total)}</Text>
+                )}
+                {disk_text != "" and (
+                    <Text color="gray">{"  " + disk_text}</Text>
                 )}
             </Box>
         </Box>
