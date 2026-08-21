@@ -7,7 +7,10 @@ cache key: (message_id, width, content_rev, style_rev).
 
 import from ui.model {
     TranscriptView,
-    node_id,
+}
+
+import from ui.width {
+    wrap_text,
 }
 
 
@@ -40,7 +43,11 @@ obj TranscriptProjection {
         messages: list[TranscriptMessage] = [],
         overscan: int = 2,
         viewport_height: int = 10,
-        viewport_width: int = 40;
+        viewport_width: int = 40,
+        rev_snapshot: dict[str, str] = {},
+        last_damage: bool = False,
+        anchor_message_id: str = "",
+        anchor_line_offset: int = 0;
 }
 
 
@@ -67,79 +74,332 @@ def measure_cache_key(
 }
 
 
-"""Bind a TranscriptView to a domain source and empty projection.
+def _snapshot_key(content_rev: int, style_rev: int) -> str {
+    return str(content_rev) + ":" + str(style_rev);
+}
 
-Unit 10 implementation fills this in. Stub raises until then.
-"""
+
+def _message_lines(message: TranscriptMessage, width: int) -> list[str] {
+    lines = wrap_text(message.content, width);
+    if not lines {
+        return [""];
+    }
+    return lines;
+}
+
+
+def _total_height(proj: TranscriptProjection) -> int {
+    total = 0;
+    for message in proj.messages {
+        total += measure_message_height(proj, message, proj.viewport_width);
+    }
+    return total;
+}
+
+
+def _line_ranges(proj: TranscriptProjection) -> list[dict] {
+    ranges: list[dict] = [];
+    cursor = 0;
+    for message in proj.messages {
+        height = measure_message_height(proj, message, proj.viewport_width);
+        ranges.append(
+            {
+                "message_id": message.message_id,
+                "start": cursor,
+                "height": height,
+                "end": cursor + height,
+            }
+        );
+        cursor += height;
+    }
+    return ranges;
+}
+
+
+def _visible_message_ids(proj: TranscriptProjection) -> list[str] {
+    if not proj.messages {
+        return [];
+    }
+    ranges = _line_ranges(proj);
+    total = 0;
+    if ranges {
+        total = int(ranges[len(ranges) - 1]["end"]);
+    }
+    vh = proj.viewport_height;
+    if vh < 1 {
+        vh = 1;
+    }
+    start = proj.view.scroll_offset;
+    if proj.view.follow_tail {
+        start = max(0, total - vh);
+    }
+    if start < 0 {
+        start = 0;
+    }
+    end = start + vh;
+    ids: list[str] = [];
+    for row in ranges {
+        rs = int(row["start"]);
+        re = int(row["end"]);
+        if re <= start or rs >= end {
+            continue;
+        }
+        ids.append(str(row["message_id"]));
+    }
+    return ids;
+}
+
+
+def _anchor_at_offset(proj: TranscriptProjection, offset: int) -> (str, int) {
+    if not proj.messages {
+        return ("", 0);
+    }
+    ranges = _line_ranges(proj);
+    if offset < 0 {
+        offset = 0;
+    }
+    for row in ranges {
+        rs = int(row["start"]);
+        re = int(row["end"]);
+        if offset < re {
+            return (str(row["message_id"]), offset - rs);
+        }
+    }
+    last = ranges[len(ranges) - 1];
+    return (str(last["message_id"]), max(0, int(last["height"]) - 1));
+}
+
+
+def _offset_for_anchor(proj: TranscriptProjection, message_id: str, line_off: int) -> int {
+    ranges = _line_ranges(proj);
+    for row in ranges {
+        if str(row["message_id"]) == message_id {
+            return int(row["start"]) + max(0, line_off);
+        }
+    }
+    return proj.view.scroll_offset;
+}
+
+
+def _compute_damage(
+    proj: TranscriptProjection,
+    new_messages: list[TranscriptMessage],
+) -> bool {
+    old_snap = dict(proj.rev_snapshot);
+    new_snap: dict[str, str] = {};
+    for message in new_messages {
+        new_snap[message.message_id] = _snapshot_key(
+            message.content_rev,
+            message.style_rev,
+        );
+    }
+    # Temporarily use new messages for visible-id calculation with current scroll.
+    saved = proj.messages;
+    proj.messages = new_messages;
+    visible = _visible_message_ids(proj);
+    proj.messages = saved;
+
+    if proj.view.follow_tail {
+        old_ids = set(old_snap.keys());
+        new_ids = set(new_snap.keys());
+        if old_ids != new_ids {
+            return True;
+        }
+    }
+    for mid in visible {
+        old_v = old_snap.get(mid, "");
+        new_v = new_snap.get(mid, "");
+        if old_v != new_v {
+            return True;
+        }
+    }
+    # Structural change that shifts the scroll range into view.
+    if len(old_snap) != len(new_snap) and proj.view.follow_tail {
+        return True;
+    }
+    return False;
+}
+
+
+"""Bind a TranscriptView to a domain source and empty projection."""
 def bind_transcript(
     view: TranscriptView,
     source_id: str,
     width: int = 40,
     height: int = 10,
 ) -> TranscriptProjection {
-    _ = (view, source_id, width, height);
-    raise NotImplementedError("Unit 10: bind_transcript");
+    view.source_id = source_id;
+    return TranscriptProjection(
+        view=view,
+        measure_cache=create_measure_cache(),
+        viewport_width=width,
+        viewport_height=height,
+    );
 }
 
 
-"""Replace projection messages for a new observed revision.
-
-Unit 10 implementation fills this in. Stub raises until then.
-"""
+"""Replace projection messages for a new observed revision."""
 def apply_transcript_revision(
     proj: TranscriptProjection,
     revision: int,
     messages: list[TranscriptMessage],
 ) {
-    _ = (proj, revision, messages);
-    raise NotImplementedError("Unit 10: apply_transcript_revision");
+    # Capture anchor before mutation when not following the tail.
+    if not proj.view.follow_tail and proj.messages {
+        (aid, aoff) = _anchor_at_offset(proj, proj.view.scroll_offset);
+        proj.anchor_message_id = aid;
+        proj.anchor_line_offset = aoff;
+    }
+
+    proj.last_damage = _compute_damage(proj, messages);
+
+    # Copy messages so later in-place domain edits don't erase the snapshot.
+    copied: list[TranscriptMessage] = [];
+    snap: dict[str, str] = {};
+    for message in messages {
+        copied.append(
+            TranscriptMessage(
+                message_id=message.message_id,
+                content=message.content,
+                content_rev=message.content_rev,
+                style_rev=message.style_rev,
+            )
+        );
+        snap[message.message_id] = _snapshot_key(
+            message.content_rev,
+            message.style_rev,
+        );
+    }
+    proj.messages = copied;
+    proj.rev_snapshot = snap;
+    proj.view.observed_revision = revision;
+
+    if proj.view.follow_tail {
+        total = _total_height(proj);
+        proj.view.scroll_offset = max(0, total - proj.viewport_height);
+    } elif proj.anchor_message_id {
+        proj.view.scroll_offset = _offset_for_anchor(
+            proj,
+            proj.anchor_message_id,
+            proj.anchor_line_offset,
+        );
+    }
 }
 
 
-"""Return wrapped line height for one message, using the measurement cache.
-
-Unit 10 implementation fills this in. Stub raises until then.
-"""
+"""Return wrapped line height for one message, using the measurement cache."""
 def measure_message_height(
     proj: TranscriptProjection,
     message: TranscriptMessage,
     width: int,
 ) -> int {
-    _ = (proj, message, width);
-    raise NotImplementedError("Unit 10: measure_message_height");
+    key = measure_cache_key(
+        message.message_id,
+        width,
+        message.content_rev,
+        message.style_rev,
+    );
+    if key in proj.measure_cache.entries {
+        return proj.measure_cache.entries[key];
+    }
+    lines = _message_lines(message, width);
+    height = len(lines);
+    if height < 1 {
+        height = 1;
+    }
+    proj.measure_cache.entries[key] = height;
+    return height;
 }
 
 
-"""Materialize visible + overscan lines for the current scroll window.
-
-Unit 10 implementation fills this in. Stub raises until then.
-"""
+"""Materialize visible + overscan lines for the current scroll window."""
 def materialize_visible(proj: TranscriptProjection) -> VisibleWindow {
-    _ = proj;
-    raise NotImplementedError("Unit 10: materialize_visible");
+    win = VisibleWindow();
+    if not proj.messages {
+        return win;
+    }
+    width = proj.viewport_width;
+    vh = proj.viewport_height;
+    if vh < 1 {
+        vh = 1;
+    }
+    overscan = proj.overscan;
+    ranges = _line_ranges(proj);
+    total = int(ranges[len(ranges) - 1]["end"]);
+
+    start = proj.view.scroll_offset;
+    if proj.view.follow_tail {
+        start = max(0, total - vh);
+        proj.view.scroll_offset = start;
+    }
+    if start < 0 {
+        start = 0;
+    }
+    end = start + vh;
+    win_start = max(0, start - overscan);
+    win_end = min(total, end + overscan);
+
+    (anchor_id, anchor_off) = _anchor_at_offset(proj, start);
+    win.anchor_message_id = anchor_id;
+    win.anchor_offset = anchor_off;
+    proj.anchor_message_id = anchor_id;
+    proj.anchor_line_offset = anchor_off;
+
+    lines: list[str] = [];
+    first_id = "";
+    last_id = "";
+    for message in proj.messages {
+        msg_lines = _message_lines(message, width);
+        # Find this message's start line.
+        msg_start = 0;
+        for row in ranges {
+            if str(row["message_id"]) == message.message_id {
+                msg_start = int(row["start"]);
+                break;
+            }
+        }
+        for (i, line) in enumerate(msg_lines) {
+            abs_line = msg_start + i;
+            if abs_line < win_start or abs_line >= win_end {
+                continue;
+            }
+            lines.append(line);
+            if not first_id {
+                first_id = message.message_id;
+            }
+            last_id = message.message_id;
+        }
+    }
+    win.lines = lines;
+    win.first_message_id = first_id;
+    win.last_message_id = last_id;
+    win.cells_would_damage = proj.last_damage;
+    return win;
 }
 
 
-"""True if a revision change requires terminal damage for this viewport.
-
-Off-screen changes must return False unless anchor/scroll range changes
-(OSPUI.md §16). Unit 10 implementation fills this in.
-"""
+"""True if a revision change requires terminal damage for this viewport."""
 def transcript_needs_damage(
     proj: TranscriptProjection,
     prev_revision: int,
     next_revision: int,
 ) -> bool {
-    _ = (proj, prev_revision, next_revision);
-    raise NotImplementedError("Unit 10: transcript_needs_damage");
+    if prev_revision == next_revision {
+        return False;
+    }
+    return proj.last_damage;
 }
 
 
-"""Set follow_tail and optionally pin scroll to newest content.
-
-Unit 10 implementation fills this in. Stub raises until then.
-"""
+"""Set follow_tail and optionally pin scroll to newest content."""
 def set_follow_tail(proj: TranscriptProjection, follow: bool) {
-    _ = (proj, follow);
-    raise NotImplementedError("Unit 10: set_follow_tail");
+    proj.view.follow_tail = follow;
+    if follow {
+        total = _total_height(proj);
+        proj.view.scroll_offset = max(0, total - proj.viewport_height);
+    } else {
+        (aid, aoff) = _anchor_at_offset(proj, proj.view.scroll_offset);
+        proj.anchor_message_id = aid;
+        proj.anchor_line_offset = aoff;
+    }
 }
