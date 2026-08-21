@@ -15,7 +15,7 @@ The **zero-hole conversion milestone is complete**. All 28 source modules emit J
 | Emitted | **28 / 28** | The converter produced a `.jac` file for every source module. |
 | Zero-hole emitted | **28 / 28** | No emitted file contains a converter hole marker. |
 | Independently checks | **34 / 34** | `jac check <module>` reports zero errors for every file in `pi_jac_floor/src` (28 ported modules + 6 Jac-native adapters). |
-| Runtime verified | **Whole library** | Every module executes under `jac run` via **22 green smokes**, including shell integration (`smoke_shell.jac`) and Ink parity fixtures (`smoke_parity_wrapping.jac`, `smoke_parity_markdown.jac`). |
+| Runtime verified | **Whole library** | Every module executes under `jac run` via **22 green smokes**, including shell integration (`smoke_shell.jac`) and reference parity fixtures (`smoke_parity_wrapping.jac`, `smoke_parity_markdown.jac`). |
 
 ## Runtime-completion milestone (2026-08-19)
 
@@ -97,7 +97,7 @@ to `jac check`:
 `components` (loader/cancellable/truncated/spacer/colors/select), `image`,
 `markdown`, `tui`, `autocomplete`, `input_component`, `settings_list`,
 `shell` (Terminal → StdinBuffer → TUI → Input + cooperative render loop),
-`parity_wrapping`, `parity_markdown` (Ink fixture parity).
+`parity_wrapping`, `parity_markdown` (reference fixture parity).
 
 Run all: `cd tui/pi_jac_floor && for f in smoke_*.jac; do jac run $f; done`
 

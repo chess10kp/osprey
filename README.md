@@ -71,3 +71,7 @@ See [`docs/QUICK_REFERENCE.md`](docs/QUICK_REFERENCE.md) for a condensed guide t
 
 ---
 
+
+### Acknowledgements
+
+- [Pi](https://pi.dev): For inspiring the TUI implementation

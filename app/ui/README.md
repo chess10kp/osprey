@@ -36,6 +36,8 @@ SignalNode -Feeds-> UiNode -Child(order)-> UiNode
 - `signal`, `read_signal`, and `set_signal` provide source reactivity.
 - `own_signal` scopes a signal to one subtree.
 - `project(root)` returns the existing `render/handleInput/invalidate` shape.
+- `compose_layout`, `collect_paint_jobs`, and `paint_frame` (in `paint.jac`)
+  assign `screen_row` per node and patch only moved or changed regions.
 - `dispose_tree` performs post-order cleanup and removes runtime callbacks.
 
 ## Validation
@@ -47,11 +49,12 @@ jac check .
 
 cd ..
 JACPATH=app:tui/pi_jac_floor jac run scripts/osp-tui-smoke.jac
+JACPATH=app:tui/pi_jac_floor jac run scripts/osp-region-smoke.jac
 ```
 
-The integration smoke attaches one OSP projection as a TUI child, updates a
-signal, drains the renderer's scheduled frame, and asserts an in-place ANSI
-line repaint.
+`osp-tui-smoke` still exercises the legacy flat diff path via `TUI.doRender()`.
+`osp-region-smoke` uses structural region painting and does not need flat-buffer
+shift heuristics for the log+spacer case.
 
 ## Deliberate limits
 

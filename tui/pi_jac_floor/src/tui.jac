@@ -33,6 +33,30 @@ def _is_integer(n: any) -> bool {
     return False;
 }
 
+# CSI numeric parameters must be integers — never emit 10.0A (invalid on many terminals).
+def _csi_n(n: float) -> int {
+    return int(n);
+}
+
+# Detect content inserted mid-buffer with identical tail lines shifted down one row.
+def _tail_shifted_after(previousLines: list[str], newLines: list[str], firstChanged: int) -> bool {
+    if (firstChanged < 0) or (firstChanged >= len(previousLines)) {
+        return False;
+    }
+    j: int = firstChanged + 1;
+    while (j < len(newLines)) {
+        prior = (j - 1);
+        if (prior < len(previousLines)) and (newLines[j] == previousLines[prior]) {
+            return True;
+        }
+        if (j < len(previousLines)) and (newLines[j] != previousLines[j]) {
+            return False;
+        }
+        j += 1;
+    }
+    return False;
+}
+
 glob KITTY_SEQUENCE_PREFIX = "\u001b_G";
 
 def parseKittyImageHeader(line: str) -> any | None {
@@ -203,6 +227,7 @@ obj:pub TUI(Container) {
     has focusOrderCounter: int = 0;
     has overlayStack: list[any] = [];
     has overlayFocusRestore: any = FocusRestoreState();
+    has previousOverlayBounds: any | None = None;
     def __init__(terminal: any, showHardwareCursor: bool | None = None) -> None {
         # A custom __init__ suppresses automatic `has`-default application,
         # so every field this obj declares must be seeded here explicitly.
@@ -233,6 +258,7 @@ obj:pub TUI(Container) {
         self.focusOrderCounter = 0;
         self.overlayStack = [];
         self.overlayFocusRestore = FocusRestoreState();
+        self.previousOverlayBounds = None;
         if (showHardwareCursor != None) {
             self.showHardwareCursor = showHardwareCursor;
         }
@@ -543,10 +569,10 @@ obj:pub TUI(Container) {
             targetRow = len(self.previousLines);
             lineDiff = (targetRow - self.hardwareCursorRow);
             if (lineDiff > 0) {
-                self.terminal.write(f"\x1b[{lineDiff}B");
+                self.terminal.write(f"\x1b[{_csi_n(lineDiff)}B");
             }
             elif (lineDiff < 0) {
-                self.terminal.write(f"\x1b[{-lineDiff}A");
+                self.terminal.write(f"\x1b[{_csi_n(-lineDiff)}A");
             }
             self.terminal.write("\r\n");
         }
@@ -562,6 +588,7 @@ obj:pub TUI(Container) {
             self.hardwareCursorRow = 0;
             self.maxLinesRendered = 0;
             self.previousViewportTop = 0;
+            self.previousOverlayBounds = None;
             if self.renderTimer {
                 clear_timeout(self.renderTimer);
                 self.renderTimer = None;
@@ -661,7 +688,8 @@ obj:pub TUI(Container) {
             }
         }
         if (self.focusedComponent is not None and hasattr(self.focusedComponent, "handleInput") and self.focusedComponent.handleInput is not None) {
-            if (isKeyRelease(data) and not self.focusedComponent.wantsKeyRelease) {
+            wantsRelease = (self.focusedComponent.wantsKeyRelease if hasattr(self.focusedComponent, "wantsKeyRelease") else False);
+            if (isKeyRelease(data) and not wantsRelease) {
                 return;
             }
             self.focusedComponent.handleInput(data);
@@ -817,6 +845,51 @@ obj:pub TUI(Container) {
         }
         return marginLeft;
     }
+    override def computeOverlayBounds(contentLineCount: float, termWidth: float, termHeight: float) -> dict[str, float] | None {
+        if (len(self.overlayStack) == 0) {
+            return None;
+        }
+        minLinesNeeded: float = contentLineCount;
+        minRowRel: float = 1e9;
+        maxRowRel: float = -1;
+        visibleEntries = [e for e in self.overlayStack if self.isOverlayVisible(e)];
+        visibleEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort.focusOrder; });
+        for entry_j in visibleEntries {
+            component = entry_j.component;
+            options = entry_j.options;
+            layout0 = self.resolveOverlayLayout(options, 0, termWidth, termHeight);
+            width = (layout0["width"] as float);
+            maxHeight = layout0["maxHeight"];
+            overlayLines = component.render(width);
+            if ((maxHeight != None) and (len(overlayLines) > maxHeight)) {
+                overlayLines = overlayLines[0:maxHeight];
+            }
+            layout1 = self.resolveOverlayLayout(options, len(overlayLines), termWidth, termHeight);
+            row = (layout1["row"] as float);
+            overlayHeight = float(len(overlayLines));
+            minLinesNeeded = max(float(minLinesNeeded), float((row + overlayHeight)));
+            minRowRel = min(float(minRowRel), float(row));
+            maxRowRel = max(float(maxRowRel), float((row + overlayHeight - 1)));
+        }
+        if (maxRowRel < 0) {
+            return None;
+        }
+        workingHeight = max(float(contentLineCount), float(termHeight), float(minLinesNeeded));
+        viewportStart = max(float(0), float((workingHeight - termHeight)));
+        return {"min": (viewportStart + minRowRel), "max": (viewportStart + maxRowRel)};
+    }
+    override def overlayBoundsChanged(previous: any | None, current: any | None) -> bool {
+        if (previous == None and current == None) {
+            return False;
+        }
+        if (current == None) {
+            return True;
+        }
+        if (previous == None) {
+            return False;
+        }
+        return ((previous["min"] != current["min"]) or (previous["max"] != current["max"]));
+    }
     override def compositeOverlays(lines: list[str], termWidth: float, termHeight: float) -> list[str] {
         if (len(self.overlayStack) == 0) {
             return lines;
@@ -825,7 +898,7 @@ obj:pub TUI(Container) {
         rendered: list[dict[str, list[str] | float]] = [];
         minLinesNeeded: float = float(len(result));
         visibleEntries = [e for e in self.overlayStack if self.isOverlayVisible(e)];
-        visibleEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort["focusOrder"]; });
+        visibleEntries.sort(key=lambda (_jx_sort: any) -> any { return _jx_sort.focusOrder; });
         for entry_j in visibleEntries {
             component = entry_j.component;
             options = entry_j.options;
@@ -852,9 +925,10 @@ obj:pub TUI(Container) {
             row = (_jx_item0["row"] as float);
             col = (_jx_item0["col"] as float);
             w = (_jx_item0["w"] as float);
+            bufferStart = (viewportStart + row);
             i: int = 0;
             while (i < len(overlayLines)) {
-                idx: int = int(((viewportStart + row) + i));
+                idx: int = int((bufferStart + i));
                 if ((idx >= 0) and (idx < len(result))) {
                     truncatedOverlayLine = (sliceByColumn(overlayLines[i], 0, w, True) if (visibleWidth(overlayLines[i]) > w) else overlayLines[i]);
                     result[idx] = self.compositeLineAt(result[idx], (truncatedOverlayLine as str), col, w, termWidth);
@@ -1002,6 +1076,7 @@ obj:pub TUI(Container) {
         hardwareCursorRow = self.hardwareCursorRow;
         computeLineDiff = lambda (targetRow: float) -> any { currentScreenRow = (hardwareCursorRow - prevViewportTop); targetScreenRow = (targetRow - viewportTop); return (targetScreenRow - currentScreenRow); };
         newLines = self.render(width);
+        overlayBounds = self.computeOverlayBounds(float(len(newLines)), width, height);
         if (len(self.overlayStack) > 0) {
             newLines = self.compositeOverlays(newLines, width, height);
         }
@@ -1028,9 +1103,9 @@ obj:pub TUI(Container) {
                         buffer += "\r\n";
                         row += 1;
                     }
-                    buffer += f"\x1b[{(imageReservedRows - 1)}A";
+                    buffer += f"\x1b[{_csi_n(imageReservedRows - 1)}A";
                     buffer += line;
-                    buffer += f"\x1b[{(imageReservedRows - 1)}B";
+                    buffer += f"\x1b[{_csi_n(imageReservedRows - 1)}B";
                     i += int((imageReservedRows - 1));
                     continue;
                 }
@@ -1053,6 +1128,7 @@ obj:pub TUI(Container) {
             self.previousKittyImageIds = self.collectKittyImageIds(newLines);
             self.previousWidth = width;
             self.previousHeight = height;
+            self.previousOverlayBounds = overlayBounds;
         }
         debugRedraw = (environ.get("PI_DEBUG_REDRAW") == "1");
         def logRedraw(reason: str) -> None {
@@ -1062,6 +1138,16 @@ obj:pub TUI(Container) {
             logPath = os.path.join(os.path.expanduser("~"), ".pi-tui-redraw.log");
             msg: str = f"[{datetime.datetime.now().isoformat()}] fullRender: {reason} (prev={len(self.previousLines)}, new={len(newLines)}, height={height})\n";
             fs.appendFileSync(logPath, msg);
+        }
+        if self.overlayBoundsChanged(self.previousOverlayBounds, overlayBounds) {
+            logRedraw("overlay bounds changed");
+            fullRender(True);
+            return;
+        }
+        if ((len(self.overlayStack) == 0) and (len(self.previousLines) > 0) and (len(newLines) < len(self.previousLines))) {
+            logRedraw(f"overlay removed buffer shrink ({len(self.previousLines)} -> {len(newLines)})");
+            fullRender(True);
+            return;
         }
         if (((len(self.previousLines) == 0) and not widthChanged) and not heightChanged) {
             logRedraw("first render");
@@ -1103,6 +1189,17 @@ obj:pub TUI(Container) {
             if (firstChanged == -1) {
                 firstChanged = len(self.previousLines);
             }
+            # Pure tail growth: only brand-new rows at the end.
+            if (firstChanged >= len(self.previousLines)) {
+                lastChanged = (len(newLines) - 1);
+            }
+            else {
+                # Insertion pushed existing rows down — repaint through the tail.
+                lastChanged = (len(newLines) - 1);
+            }
+        }
+        elif _tail_shifted_after(self.previousLines, newLines, firstChanged) {
+            # Same line count but a row was inserted (e.g. log grew, spacer shrank).
             lastChanged = (len(newLines) - 1);
         }
         if (firstChanged != -1) {
@@ -1110,11 +1207,28 @@ obj:pub TUI(Container) {
             firstChanged = int(expandedRange["firstChanged"]);
             lastChanged = int(expandedRange["lastChanged"]);
         }
-        appendStart = ((appendedLines and (firstChanged == len(self.previousLines))) and (firstChanged > 0));
+        if ((overlayBounds is not None) and (firstChanged != -1)) {
+            unionMin = overlayBounds["min"];
+            unionMax = overlayBounds["max"];
+            if self.previousOverlayBounds is not None {
+                unionMin = min(float(unionMin), float(self.previousOverlayBounds["min"]));
+                unionMax = max(float(unionMax), float(self.previousOverlayBounds["max"]));
+            }
+            firstChanged = int(min(float(firstChanged), float(unionMin)));
+            lastChanged = int(max(float(lastChanged), float(unionMax)));
+        }
+        # Tail append: cursor is already on the last existing row, step down with CRLF.
+        # In-place / insert: move to the changed row and rewrite with CR (or CR+LF chain).
+        appendStart = (
+            appendedLines
+            and (firstChanged >= len(self.previousLines))
+            and (firstChanged > 0)
+        );
         if (firstChanged == -1) {
             self.positionHardwareCursor(cursorPos, len(newLines));
             self.previousViewportTop = prevViewportTop;
             self.previousHeight = height;
+            self.previousOverlayBounds = overlayBounds;
             return;
         }
         if (firstChanged >= len(newLines)) {
@@ -1129,10 +1243,10 @@ obj:pub TUI(Container) {
                 }
                 lineDiff = computeLineDiff(targetRow);
                 if (lineDiff > 0) {
-                    buffer += f"\x1b[{lineDiff}B";
+                    buffer += f"\x1b[{_csi_n(lineDiff)}B";
                 }
                 elif (lineDiff < 0) {
-                    buffer += f"\x1b[{-lineDiff}A";
+                    buffer += f"\x1b[{_csi_n(-lineDiff)}A";
                 }
                 buffer += "\r";
                 extraLines = (len(self.previousLines) - len(newLines));
@@ -1143,7 +1257,7 @@ obj:pub TUI(Container) {
                 }
                 clearStartOffset = (0 if (len(newLines) == 0) else 1);
                 if ((extraLines > 0) and (clearStartOffset > 0)) {
-                    buffer += f"\x1b[{clearStartOffset}B";
+                    buffer += f"\x1b[{_csi_n(clearStartOffset)}B";
                 }
                 i: int = 0;
                 while (i < extraLines) {
@@ -1155,7 +1269,7 @@ obj:pub TUI(Container) {
                 }
                 moveBack = max(float(0), float(((extraLines - 1) + clearStartOffset)));
                 if (moveBack > 0) {
-                    buffer += f"\x1b[{moveBack}A";
+                    buffer += f"\x1b[{_csi_n(moveBack)}A";
                 }
                 buffer += "\u001b[?2026l";
                 self.terminal.write(buffer);
@@ -1168,6 +1282,7 @@ obj:pub TUI(Container) {
             self.previousWidth = width;
             self.previousHeight = height;
             self.previousViewportTop = prevViewportTop;
+            self.previousOverlayBounds = overlayBounds;
             return;
         }
         if (firstChanged < prevViewportTop) {
@@ -1183,7 +1298,7 @@ obj:pub TUI(Container) {
             currentScreenRow = max(float(0), float(min(float((height - 1)), float((hardwareCursorRow - prevViewportTop)))));
             moveToBottom = ((height - 1) - currentScreenRow);
             if (moveToBottom > 0) {
-                buffer += f"\x1b[{moveToBottom}B";
+                buffer += f"\x1b[{_csi_n(moveToBottom)}B";
             }
             scroll = (moveTargetRow - prevViewportBottom);
             buffer += ("\r\n" * int(scroll));
@@ -1193,10 +1308,10 @@ obj:pub TUI(Container) {
         }
         lineDiff = computeLineDiff(moveTargetRow);
         if (lineDiff > 0) {
-            buffer += f"\x1b[{lineDiff}B";
+            buffer += f"\x1b[{_csi_n(lineDiff)}B";
         }
         elif (lineDiff < 0) {
-            buffer += f"\x1b[{-lineDiff}A";
+            buffer += f"\x1b[{_csi_n(-lineDiff)}A";
         }
         buffer += ("\r\n" if appendStart else "\r");
         renderEnd = min(float(lastChanged), float((len(newLines) - 1)));
@@ -1221,9 +1336,9 @@ obj:pub TUI(Container) {
                     buffer += "\r\n\u001b[2K";
                     row += 1;
                 }
-                buffer += f"\x1b[{(imageReservedRows - 1)}A";
+                buffer += f"\x1b[{_csi_n(imageReservedRows - 1)}A";
                 buffer += line;
-                buffer += f"\x1b[{(imageReservedRows - 1)}B";
+                buffer += f"\x1b[{_csi_n(imageReservedRows - 1)}B";
                 i += int((imageReservedRows - 1));
                 continue;
             }
@@ -1253,7 +1368,7 @@ obj:pub TUI(Container) {
         if (len(self.previousLines) > len(newLines)) {
             if (renderEnd < (len(newLines) - 1)) {
                 moveDown = ((len(newLines) - 1) - renderEnd);
-                buffer += f"\x1b[{moveDown}B";
+                buffer += f"\x1b[{_csi_n(moveDown)}B";
                 finalCursorRow = (len(newLines) - 1);
             }
             extraLines = (len(self.previousLines) - len(newLines));
@@ -1262,7 +1377,7 @@ obj:pub TUI(Container) {
                 buffer += "\r\n\u001b[2K";
                 i += 1;
             }
-            buffer += f"\x1b[{extraLines}A";
+            buffer += f"\x1b[{_csi_n(extraLines)}A";
         }
         buffer += "\u001b[?2026l";
         if (environ.get("PI_TUI_DEBUG") == "1") {
@@ -1284,6 +1399,7 @@ obj:pub TUI(Container) {
         self.previousKittyImageIds = self.collectKittyImageIds(newLines);
         self.previousWidth = width;
         self.previousHeight = height;
+        self.previousOverlayBounds = overlayBounds;
     }
     override def positionHardwareCursor(cursorPos: dict[str, float] | None, totalLines: float) -> None {
         if (not cursorPos or (totalLines <= 0)) {
@@ -1295,12 +1411,12 @@ obj:pub TUI(Container) {
         rowDelta = (targetRow - self.hardwareCursorRow);
         buffer: str = "";
         if (rowDelta > 0) {
-            buffer += f"\x1b[{rowDelta}B";
+            buffer += f"\x1b[{_csi_n(rowDelta)}B";
         }
         elif (rowDelta < 0) {
-            buffer += f"\x1b[{-rowDelta}A";
+            buffer += f"\x1b[{_csi_n(-rowDelta)}A";
         }
-        buffer += f"\x1b[{(targetCol + 1)}G";
+        buffer += f"\x1b[{_csi_n(targetCol + 1)}G";
         if buffer {
             self.terminal.write(buffer);
         }

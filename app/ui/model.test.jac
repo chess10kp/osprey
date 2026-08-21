@@ -1,180 +1,69 @@
-"""Behavior tests for the OSP UI model."""
+"""Behavior tests for the OSP-native semantic UI graph model."""
 
 
-def _literal_renderer(text: str, calls: list[int]) -> any {
-    def render(_node: UiNode, _width: int) -> list[str] {
-        calls[0] += 1;
-        return [text];
-    }
-    return render;
+test "Child edges order siblings by sparse rank" {
+    screen = MainScreen(key="main");
+    header = Header(key="header", title="Jackal");
+    transcript = TranscriptView(key="transcript", source_id="session.events");
+    status = Status(key="status", phase="ready");
+    prompt = Prompt(key="prompt", draft="");
+
+    screen +>:Child(rank=1024):+> header;
+    screen +>:Child(rank=2048):+> transcript;
+    screen +>:Child(rank=3072):+> status;
+    screen +>:Child(rank=4096):+> prompt;
+
+    assert ordered_child_keys(screen) == [
+        "header",
+        "transcript",
+        "status",
+        "prompt",
+    ];
+    assert child_rank(screen, header) == 1024;
+    assert child_rank(screen, transcript) == 2048;
 }
 
 
-def _signal_renderer(source: SignalNode, calls: list[int]) -> any {
-    def render(_node: UiNode, _width: int) -> list[str] {
-        calls[0] += 1;
-        return [str(read_signal(source))];
-    }
-    return render;
+test "duplicate sibling keys are detectable under one parent" {
+    screen = MainScreen(key="main");
+    first = Header(key="dup");
+    second = Header(key="dup");
+    screen +>:Child(rank=1024):+> first;
+    screen +>:Child(rank=2048):+> second;
+    assert duplicate_sibling_keys(screen) == ["dup"];
 }
 
 
-def _dynamic_renderer(
-    choose_a: SignalNode,
-    source_a: SignalNode,
-    source_b: SignalNode,
-) -> any {
-    def render(_node: UiNode, _width: int) -> list[str] {
-        if bool(read_signal(choose_a)) {
-            return [str(read_signal(source_a))];
-        }
-        return [str(read_signal(source_b))];
-    }
-    return render;
+test "semantic nodes expose stable jid identity and local state only" {
+    prompt = Prompt(key="prompt", draft="hello");
+    prompt_id = node_id(prompt);
+    assert len(prompt_id) == 32;
+    assert prompt.draft == "hello";
+    assert prompt.mode == "insert";
+    assert not hasattr(prompt, "dirty");
+    assert not hasattr(prompt, "runtime_id");
+    assert not hasattr(prompt, "cached_lines");
 }
 
 
-test "ordered Child edges project through the component adapter" {
-    reset_ui_runtime();
-    a_calls = [0];
-    b_calls = [0];
-    a = view(_literal_renderer("a", a_calls), kind="text", key="a");
-    b = view(_literal_renderer("b", b_calls), kind="text", key="b");
-    tree = column([a, b]);
-    component = project(tree);
-
-    assert component.render(80.0) == ["a", "b"];
-    assert component.render(80.0) == ["a", "b"];
-    assert [n.key for n in ordered_children(tree)] == ["a", "b"];
-    assert a_calls[0] == 1;
-    assert b_calls[0] == 1;
-
-    move(b, 0);
-    assert component.render(80.0) == ["b", "a"];
-    assert [n.key for n in ordered_children(tree)] == ["b", "a"];
-    assert a_calls[0] == 1;
-    assert b_calls[0] == 1;
-
-    dispose_tree(tree);
-    assert registered_view_count() == 0;
+test "overlay layer edges attach outside Child containment" {
+    screen = MainScreen(key="main");
+    overlay = ApprovalOverlay(key="approval");
+    screen +>:Child(rank=1024):+> overlay;
+    screen +>:Layer(z_index=10, modal=True):+> overlay;
+    assert overlay in [screen ->:Layer:->];
+    assert enclosing_screen(overlay) is screen;
 }
 
 
-test "signal writes invalidate one leaf path and coalesce render requests" {
-    reset_ui_runtime();
-    requests: list[int] = [];
-    request = lambda { requests.append(1); };
-    set_render_request_hook(request);
-
-    left_signal = signal("left-0");
-    right_signal = signal("right-0");
-    left_calls = [0];
-    right_calls = [0];
-    left = view(_signal_renderer(left_signal, left_calls), key="left");
-    right = view(_signal_renderer(right_signal, right_calls), key="right");
-    tree = column([left, right]);
-    own_signal(tree, left_signal);
-    own_signal(tree, right_signal);
-
-    assert project(tree).render(80.0) == ["left-0", "right-0"];
-    assert left_calls[0] == 1;
-    assert right_calls[0] == 1;
-
-    set_signal(left_signal, "left-1");
-    set_signal(left_signal, "left-2");
-    assert len(requests) == 1;
-    assert left.dirty;
-    assert tree.dirty;
-    assert not right.dirty;
-
-    assert render_node(tree, 80) == ["left-2", "right-0"];
-    assert left_calls[0] == 2;
-    assert right_calls[0] == 1;
-
-    set_signal(right_signal, "right-0");
-    assert len(requests) == 1;
-    dispose_tree(tree);
-}
-
-
-test "dynamic reads replace Feeds edges exactly" {
-    reset_ui_runtime();
-    choose_a = signal(True);
-    source_a = signal("a");
-    source_b = signal("b");
-    leaf = view(_dynamic_renderer(choose_a, source_a, source_b), key="dynamic");
-    tree = column([leaf]);
-    own_signal(tree, choose_a);
-    own_signal(tree, source_a);
-    own_signal(tree, source_b);
-
-    assert render_node(tree, 80) == ["a"];
-    assert choose_a in [leaf <-:Feeds:<-];
-    assert source_a in [leaf <-:Feeds:<-];
-    assert source_b not in [leaf <-:Feeds:<-];
-
-    set_signal(choose_a, False);
-    assert render_node(tree, 80) == ["b"];
-    assert source_a not in [leaf <-:Feeds:<-];
-    assert source_b in [leaf <-:Feeds:<-];
-
-    set_signal(source_a, "stale");
-    assert not leaf.dirty;
-    set_signal(source_b, "fresh");
-    assert leaf.dirty;
-    assert render_node(tree, 80) == ["fresh"];
-
-    dispose_tree(tree);
-}
-
-
-test "projected input mutates signals without renderer-specific state" {
-    reset_ui_runtime();
-    text = signal("");
-
-    def render_input(_node: UiNode, _width: int) -> list[str] {
-        return [str(read_signal(text))];
-    }
-
-    def accept_input(_node: UiNode, data: str) {
-        set_signal(text, str(read_signal(text)) + data);
-    }
-
-    input_view = view(render_input, accept_input, kind="input");
-    own_signal(input_view, text);
-    component = project(input_view);
-
-    assert component.render(40.0) == [""];
-    component.focused = True;
-    component.handleInput("x");
-    assert component.render(40.0) == ["x"];
-    component.invalidate();
-    assert input_view.dirty;
-
-    dispose_tree(input_view);
-}
-
-
-test "dispose runs cleanups and disconnects an unowned signal" {
-    reset_ui_runtime();
-    requests: list[int] = [];
-    set_render_request_hook(lambda { requests.append(1); });
-    source = signal("live");
-    calls = [0];
-    cleaned = [0];
-    leaf = view(_signal_renderer(source, calls), key="leaf");
-    cleanup = lambda { cleaned.__setitem__(0, cleaned[0] + 1); };
-    on_cleanup(leaf, cleanup);
-
-    assert render_node(leaf, 80) == ["live"];
-    assert registered_view_count() == 1;
-    dispose_tree(leaf);
-    assert cleaned[0] == 1;
-    assert registered_view_count() == 0;
-    assert len([source ->:Feeds:->]) == 0;
-
-    set_signal(source, "after-dispose");
-    assert len(requests) == 0;
-    assert calls[0] == 1;
-    dispose_signal(source);
+test "Feeds and FocusNext edges connect semantic regions" {
+    screen = MainScreen(key="main");
+    transcript = TranscriptView(key="transcript");
+    prompt = Prompt(key="prompt");
+    screen +>:Child(rank=1024):+> transcript;
+    screen +>:Child(rank=2048):+> prompt;
+    transcript +>:Feeds:+> prompt;
+    transcript +>:FocusNext:+> prompt;
+    assert prompt in [transcript ->:Feeds:->];
+    assert prompt in [transcript ->:FocusNext:->];
 }

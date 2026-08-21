@@ -1,4 +1,4 @@
-"""Runtime smoke parity with tests/tui/text-wrapping.test.mjs (Ink reference).
+"""Runtime smoke parity with tests/tui/text-wrapping.test.mjs.
 
 Maps wrapPlainText / wrapWithTrimmedContinuations expectations onto pi-tui
 floor APIs: wrapTextWithAnsi, truncateToWidth, Text.render(), and
@@ -22,12 +22,12 @@ def buildRepeatedWords(count: int) -> str {
 }
 
 with entry {
-    # Ink: wrapWithTrimmedContinuations("hello world", 40) == "hello world"
+    # fixture: wrapWithTrimmedContinuations("hello world", 40) == "hello world"
     shortWrapped = wrapTextWithAnsi("hello world", 40.0);
     assert len(shortWrapped) == 1;
     assert shortWrapped[0] == "hello world";
 
-    # Ink: wrapPlainText(long, 20) splits into multiple lines
+    # fixture: wrapPlainText(long, 20) splits into multiple lines
     longText = buildRepeatedWords(30);
     plainWrapped = wrapTextWithAnsi(longText, 20.0);
     assert len(plainWrapped) > 1;

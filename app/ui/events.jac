@@ -1,0 +1,299 @@
+"""Semantic event walkers, typed effects, and target-and-bubble dispatch.
+
+Raw terminal bytes never become walkers: the host normalizes and coalesces
+input before creating these semantic events (OSPUI spec section 13). The
+runtime owns the itinerary: resolve the target, deliver the same walker
+instance along the unique Child containment path toward the screen, honor
+propagation_stopped independently of handled/default_prevented, run the
+framework default action unless prevented, and surface effects for
+post-propagation host execution.
+
+Dispatch accepts any session object exposing the UiSession fields used here
+(disposed, focus_id, current_screen, ui_root, tracked_node_ids) so this
+module does not import runtime.jac and create import cycles in test modules.
+"""
+
+import from ui.model {
+    UiNode,
+    UiContainer,
+    Screen,
+    Overlay,
+    Child,
+    Layer,
+    node_id,
+    ordered_children,
+}
+
+
+"""Typed request that crosses into an external system."""
+obj Effect {}
+
+
+obj SendPrompt(Effect) {
+    has text: str;
+}
+
+
+obj CopyToClipboard(Effect) {
+    has text: str;
+}
+
+
+obj SpawnProcess(Effect) {
+    has command: list[str];
+}
+
+
+obj Quit(Effect) {}
+
+
+"""Base archetype for normalized semantic events."""
+walker UiEvent {
+    has handled: bool = False,
+        propagation_stopped: bool = False,
+        default_prevented: bool = False,
+        effects: list[Effect] = [];
+}
+
+
+walker InsertText(UiEvent) {
+    has text: str = "";
+}
+
+
+walker Submit(UiEvent) {}
+
+
+walker Cancel(UiEvent) {}
+
+
+walker MoveFocus(UiEvent) {
+    has direction: str = "next";
+}
+
+
+walker StreamChunk(UiEvent) {
+    has text: str = "";
+}
+
+
+walker Resize(UiEvent) {
+    has width: int = 0,
+        height: int = 0;
+}
+
+
+walker TranscriptChanged(UiEvent) {
+    has revision: int = 0;
+}
+
+
+obj DispatchRecord {
+    has node_id: str,
+        delivered: bool,
+        stopped_propagation: bool;
+}
+
+
+def _find_node_by_jid(n: UiNode, target_jid: str) -> UiNode | None {
+    if node_id(n) == target_jid {
+        return n;
+    }
+    if isinstance(n, UiContainer) {
+        for child in ordered_children(n) {
+            found = _find_node_by_jid(child, target_jid);
+            if found is not None {
+                return found;
+            }
+        }
+    }
+    return None;
+}
+
+
+def _get_focus_node(session) -> UiNode | None {
+    if session.disposed or session.ui_root is None or not session.focus_id {
+        return None;
+    }
+    if session.focus_id not in session.tracked_node_ids {
+        return None;
+    }
+    return _find_node_by_jid(session.ui_root, session.focus_id);
+}
+
+
+def _set_focus(session, n: UiNode | None) {
+    if n is None {
+        session.focus_id = "";
+        return;
+    }
+    session.focus_id = node_id(n);
+}
+
+
+"""Return the unique containment path from target up to and including
+the nearest Screen ancestor (or the top of the detached graph)."""
+def containment_path(target: UiNode) -> list[UiNode] {
+    path: list[UiNode] = [target];
+    current: UiNode = target;
+    while True {
+        parents = [current <-:Child:<-];
+        if not parents {
+            break;
+        }
+        current = parents[0];
+        path.append(current);
+        if isinstance(current, Screen) {
+            break;
+        }
+    }
+    return path;
+}
+
+
+"""Return the highest z_index modal overlay layered on the current screen."""
+def topmost_modal_overlay(session) -> Overlay | None {
+    screen = session.current_screen;
+    if screen is None {
+        return None;
+    }
+    best: Overlay | None = None;
+    best_z = -1;
+    for candidate in [screen ->:Layer:->] {
+        if not isinstance(candidate, Overlay) {
+            continue;
+        }
+        for layer_edge in [edge screen ->:Layer:-> candidate] {
+            if layer_edge.modal and layer_edge.z_index > best_z {
+                best_z = layer_edge.z_index;
+                best = candidate;
+            }
+        }
+    }
+    return best;
+}
+
+
+"""Resolve the target for untargeted (input) events:
+topmost modal overlay, else focused node, else current screen root."""
+def resolve_input_target(session) -> UiNode | None {
+    modal = topmost_modal_overlay(session);
+    if modal is not None {
+        return modal;
+    }
+    focused = _get_focus_node(session);
+    if focused is not None {
+        return focused;
+    }
+    return session.current_screen;
+}
+
+
+"""Resolve the dispatch target. An explicit target bypasses the input chain."""
+def resolve_target(session, explicit_target: UiNode | None = None) -> UiNode | None {
+    if explicit_target is not None {
+        return explicit_target;
+    }
+    return resolve_input_target(session);
+}
+
+
+def run_default_action(session, event: UiEvent) {
+    if isinstance(event, MoveFocus) {
+        _default_move_focus(session, event);
+    }
+}
+
+
+def _default_move_focus(session, event: MoveFocus) {
+    focused = _get_focus_node(session);
+    if focused is None {
+        return;
+    }
+    parents = [focused <-:Child:<-];
+    if not parents {
+        return;
+    }
+    siblings = ordered_children(parents[0]);
+    index = -1;
+    for i in range(len(siblings)) {
+        if siblings[i] is focused {
+            index = i;
+            break;
+        }
+    }
+    if index < 0 {
+        return;
+    }
+    if event.direction == "prev" {
+        next_index = index - 1;
+    } else {
+        next_index = index + 1;
+    }
+    if next_index < 0 or next_index >= len(siblings) {
+        return;
+    }
+    _set_focus(session, siblings[next_index]);
+}
+
+
+"""Deliver one event along the containment path, then run default actions."""
+def dispatch_event(session, event: UiEvent, target: UiNode | None = None) -> UiEvent {
+    if session.disposed {
+        raise ValueError("UiSession is disposed");
+    }
+    resolved = resolve_target(session, target);
+    if resolved is None {
+        return event;
+    }
+    path = containment_path(resolved);
+    for stop in path {
+        stop spawn event;
+        if event.propagation_stopped {
+            break;
+        }
+    }
+    if not event.default_prevented {
+        run_default_action(session, event);
+    }
+    return event;
+}
+
+
+"""Dispatch one event and return effects for post-propagation host execution."""
+def dispatch_event_with_effects(
+    session,
+    event: UiEvent,
+    target: UiNode | None = None,
+) -> list[Effect] {
+    dispatch_event(session, event, target);
+    return consume_effects(event);
+}
+
+
+"""Snapshot effects accumulated during propagation (host executes them)."""
+def pending_effects(event: UiEvent) -> list[Effect] {
+    return list(event.effects);
+}
+
+
+"""Take ownership of accumulated effects, clearing the event's list."""
+def consume_effects(event: UiEvent) -> list[Effect] {
+    effects = event.effects;
+    event.effects = [];
+    return effects;
+}
+
+
+"""Trace the itinerary dispatch_event would run without mutating state."""
+def trace_event_path(session, target: UiNode | None = None) -> list[str] {
+    resolved = resolve_target(session, target);
+    if resolved is None {
+        return [];
+    }
+    ids: list[str] = [];
+    for stop in containment_path(resolved) {
+        ids.append(node_id(stop));
+    }
+    return ids;
+}
