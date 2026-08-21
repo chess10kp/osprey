@@ -180,3 +180,21 @@ test "extract_sequences leaves incomplete csi as remainder" {
     assert part["sequences"] == ["a"];
     assert part["remainder"] == "\x1b[";
 }
+
+
+test "host events never include raw unparsed escape bytes as TextEvent" {
+    norm = InputNormalizer();
+    events = norm.feed("\x1b[A");
+    assert len(events) == 1;
+    assert isinstance(events[0], KeyEvent);
+    assert not isinstance(events[0], TextEvent);
+}
+
+
+test "unicode text survives normalization as TextEvent" {
+    norm = InputNormalizer();
+    events = norm.feed("你");
+    assert len(events) == 1;
+    text = events[0] as TextEvent;
+    assert text.text == "你";
+}

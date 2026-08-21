@@ -67,3 +67,56 @@ test "Feeds and FocusNext edges connect semantic regions" {
     assert prompt in [transcript ->:Feeds:->];
     assert prompt in [transcript ->:FocusNext:->];
 }
+
+
+test "Owns edge scopes UI-local ownership without Child containment" {
+    screen = MainScreen(key="main");
+    prompt = Prompt(key="prompt");
+    draft_holder = Status(key="draft-meta", phase="owned");
+    screen +>:Child(rank=1024):+> prompt;
+    prompt +>:Owns:+> draft_holder;
+    assert draft_holder in [prompt ->:Owns:->];
+    assert draft_holder not in [screen ->:Child:->];
+}
+
+
+test "product archetypes keep only semantic fields on the node" {
+    screen = MainScreen(key="main");
+    tv = TranscriptView(
+        key="transcript",
+        source_id="session.events",
+        follow_tail=True,
+        scroll_offset=3,
+    );
+    status = Status(key="status", phase="streaming");
+    prompt = Prompt(key="prompt", draft="partial", mode="insert");
+    overlay = ApprovalOverlay(key="approval");
+    header = Header(key="header", title="Jackal");
+
+    assert screen.key == "main";
+    assert tv.source_id == "session.events";
+    assert tv.follow_tail;
+    assert tv.scroll_offset == 3;
+    assert status.phase == "streaming";
+    assert prompt.draft == "partial";
+    assert prompt.mode == "insert";
+    assert overlay.key == "approval";
+    assert header.title == "Jackal";
+
+    for field in ["dirty", "rect", "cached_lines", "cells", "damage", "runtime_id"] {
+        assert not hasattr(screen, field);
+        assert not hasattr(tv, field);
+        assert not hasattr(prompt, field);
+        assert not hasattr(overlay, field);
+    }
+}
+
+
+test "UiSessionRoot is a detachable session root with stable identity" {
+    ui_root = UiSessionRoot(key="session");
+    screen = MainScreen(key="main");
+    ui_root +>:Child(rank=1024):+> screen;
+    assert node_id(ui_root) != node_id(screen);
+    assert len(node_id(ui_root)) == 32;
+    assert ordered_child_keys(ui_root) == ["main"];
+}

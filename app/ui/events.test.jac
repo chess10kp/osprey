@@ -304,3 +304,44 @@ test "containment path runs target to screen inclusive" {
         node_id(screen),
     ];
 }
+
+
+test "handled default_prevented and propagation_stopped are independent flags" {
+    handle = create_session();
+    session = handle.session;
+    ui_root = session.ui_root;
+    assert ui_root is not None;
+    screen = MainScreen(key="main");
+    region = EchoRegion(key="echo");
+    append_child_session(session, ui_root, screen);
+    append_child_session(session, screen, region);
+    set_current_screen(session, screen);
+
+    # Cancel sets propagation_stopped only (EchoRegion.on_stop).
+    cancel = dispatch_event(session, Cancel(), region);
+    assert cancel.propagation_stopped;
+    assert not cancel.handled;
+    assert not cancel.default_prevented;
+
+    # Submit sets handled + default_prevented, not propagation_stopped.
+    submit = dispatch_event(session, Submit(), region);
+    assert submit.handled;
+    assert submit.default_prevented;
+    assert not submit.propagation_stopped;
+}
+
+
+test "Resize walker carries terminal dimensions" {
+    handle = create_session();
+    session = handle.session;
+    ui_root = session.ui_root;
+    assert ui_root is not None;
+    screen = MainScreen(key="main");
+    append_child_session(session, ui_root, screen);
+    set_current_screen(session, screen);
+    # OSPUI.md: walker Resize(UiEvent) { has width: int; has height: int; }
+    event = dispatch_event(session, Resize(width=120, height=40), screen);
+    assert event.width == 120;
+    assert event.height == 40;
+    assert not event.handled;
+}

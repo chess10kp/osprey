@@ -123,11 +123,14 @@ test "first paint fills expected cells without full clear" {
 
 
 test "growth damages union of old and new mid bounds and shifts bot" {
+    # Intrinsic mid sizes to content so growth shifts siblings; grow() fills
+    # leftover and is covered by the vertical shell layout tests.
     shell = _shell_renderer(40, 10);
     renderer = shell.renderer;
     screen = shell.screen;
     mid = shell.mid;
     bot = shell.bot;
+    set_node_contract(renderer, mid, intrinsic());
     term = VirtualTerminal(columns=40, rows=10);
     term.start();
     render_frame(renderer, screen, term);
@@ -157,6 +160,7 @@ test "shrink repairs uncovered cells without full clear" {
     screen = shell.screen;
     mid = shell.mid;
     bot = shell.bot;
+    set_node_contract(renderer, mid, intrinsic());
     term = VirtualTerminal(columns=40, rows=10);
     term.start();
     set_node_content(renderer, mid, ["m0", "m1", "m2", "m3"]);
@@ -388,6 +392,7 @@ test "compute_damage unions prev and current rects after growth" {
     renderer = shell.renderer;
     screen = shell.screen;
     mid = shell.mid;
+    set_node_contract(renderer, mid, intrinsic());
     term = VirtualTerminal(columns=30, rows=10);
     term.start();
     render_frame(renderer, screen, term);

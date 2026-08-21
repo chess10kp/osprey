@@ -152,3 +152,25 @@ test "dispose clears renderer layout keys" {
     dispose_session(session);
     assert session.renderer.layout == {};
 }
+
+
+test "failed mutation under session does not bump graph_revision" {
+    handle = create_session();
+    session = handle.session;
+    ui_root = session.ui_root;
+    assert ui_root is not None;
+    screen = MainScreen(key="main");
+    append_child_session(session, ui_root, screen);
+    first = Prompt(key="same");
+    second = Prompt(key="same");
+    append_child_session(session, screen, first);
+    rev = session.graph_revision;
+    failed = False;
+    try {
+        append_child_session(session, screen, second);
+    } except ValueError {
+        failed = True;
+    }
+    assert failed;
+    assert session.graph_revision == rev;
+}

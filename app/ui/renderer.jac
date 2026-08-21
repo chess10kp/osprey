@@ -9,26 +9,30 @@ patch scope.
 
 import from ui.model {
     UiNode,
+    UiContainer,
+    Screen,
+    ordered_children,
     node_id,
 }
 
 import from ui.layout {
     LayoutTables,
     LayoutContract,
+    LayoutEntry,
+    LayoutKind,
     Rect,
-    Size,
     create_layout_tables,
     set_contract,
     set_content,
     get_entry,
-    rect_of,
-    measured_of,
     invalidate_semantic,
     invalidate_layout,
     clear_node,
     snapshot_rects,
     measure_and_arrange,
     rect_union,
+    layer_overlays,
+    flow_children,
 }
 
 import from ui.terminal {
@@ -54,6 +58,18 @@ obj FrameResult {
 }
 
 
+obj AnsiDiff {
+    has text: str = "",
+        cells_written: int = 0;
+}
+
+
+obj CursorPos {
+    has row: int = -1,
+        col: int = -1;
+}
+
+
 obj Renderer {
     has layout: LayoutTables,
         # Retained previous frame as row strings (display cells, no ANSI).
@@ -64,7 +80,10 @@ obj Renderer {
         cursor_col_offset: int = 0,
         last_cursor_row: int = -1,
         last_cursor_col: int = -1,
-        graph_revision: int = 0;
+        graph_revision: int = 0,
+        # Node ids marked dirty before measure clears the flags.
+        pending_semantic: set[str] = set(),
+        pending_layout: set[str] = set();
 }
 
 
@@ -85,11 +104,13 @@ def set_node_content(renderer: Renderer, n: UiNode, lines: list[str]) {
 
 def mark_semantic_dirty(renderer: Renderer, n: UiNode) {
     invalidate_semantic(renderer.layout, n);
+    renderer.pending_semantic.add(node_id(n));
 }
 
 
 def mark_layout_dirty(renderer: Renderer, n: UiNode) {
     invalidate_layout(renderer.layout, n);
+    renderer.pending_layout.add(node_id(n));
 }
 
 
@@ -127,36 +148,354 @@ def detach_node(renderer: Renderer, n: UiNode) {
 }
 
 
-"""Compute damage rectangles from prev/current layout without painting.
-
-Unit 6 implementation fills this in. Stub raises until then.
-"""
-def compute_damage(renderer: Renderer, layout_root: UiNode) -> list[DamageRect] {
-    _ = (renderer, layout_root);
-    raise NotImplementedError("Unit 6: compute_damage");
+def _blank_rows(columns: int, rows: int) -> list[str] {
+    blank = " " * columns;
+    out: list[str] = [];
+    for _i in range(rows) {
+        out.append(blank);
+    }
+    return out;
 }
 
 
-"""Layout, damage, paint, and cursor for one frame.
+def _set_cell(rows: list[str], row: int, col: int, ch: str, columns: int) {
+    if row < 0 or row >= len(rows) or col < 0 or col >= columns {
+        return;
+    }
+    line = rows[row];
+    if col >= len(line) {
+        line = line + (" " * (col + 1 - len(line)));
+    }
+    rows[row] = line[:col] + ch + line[col + 1:];
+}
 
-Returns FrameResult so tests can assert cells and patch scope. Must wrap
-terminal writes in synchronized_write. Must not use a full clear to paper
-over shrink/move/overlay repair.
-"""
-def render_frame(
+
+def _paint_text_into(
+    rows: list[str],
+    text: str,
+    row: int,
+    col: int,
+    columns: int,
+    max_width: int,
+) {
+    if max_width <= 0 {
+        return;
+    }
+    x = col;
+    for ch in text {
+        if x >= col + max_width or x >= columns {
+            break;
+        }
+        _set_cell(rows, row, x, ch, columns);
+        x += 1;
+    }
+}
+
+
+def _paint_entry_lines(
+    rows: list[str],
+    layout_entry: LayoutEntry,
+    columns: int,
+    rows_n: int,
+) {
+    rect = layout_entry.rect;
+    clip = layout_entry.clip if not layout_entry.clip.is_empty() else rect;
+    if clip.is_empty() or rect.is_empty() {
+        return;
+    }
+    lines = layout_entry.wrapped_lines;
+    scroll = 0;
+    if layout_entry.contract.kind == LayoutKind.VIEWPORT {
+        scroll = layout_entry.scroll_offset;
+    }
+    for vis_i in range(clip.height) {
+        src_i = vis_i + scroll;
+        term_row = clip.y + vis_i;
+        if term_row < 0 or term_row >= rows_n {
+            continue;
+        }
+        for c in range(clip.width) {
+            _set_cell(rows, term_row, clip.x + c, " ", columns);
+        }
+        if src_i < 0 or src_i >= len(lines) {
+            continue;
+        }
+        _paint_text_into(
+            rows,
+            lines[src_i],
+            term_row,
+            clip.x,
+            columns,
+            clip.width,
+        );
+    }
+}
+
+
+def _paint_tree(
+    tables: LayoutTables,
+    n: UiNode,
+    rows: list[str],
+    columns: int,
+    rows_n: int,
+) {
+    entry = get_entry(tables, n);
+    if entry is not None {
+        if entry.contract.kind != LayoutKind.OVERLAY {
+            if entry.wrapped_lines or node_id(n) in tables.content {
+                _paint_entry_lines(rows, entry, columns, rows_n);
+            }
+        }
+    }
+    if isinstance(n, UiContainer) {
+        for child in flow_children(tables, n) {
+            _paint_tree(tables, child, rows, columns, rows_n);
+        }
+    }
+}
+
+
+def _paint_frame_rows(renderer: Renderer, layout_root: UiNode) -> list[str] {
+    cols = renderer.layout.columns;
+    rows_n = renderer.layout.rows;
+    rows = _blank_rows(cols, rows_n);
+    _paint_tree(renderer.layout, layout_root, rows, cols, rows_n);
+    if isinstance(layout_root, Screen) {
+        for overlay in layer_overlays(layout_root) {
+            entry = get_entry(renderer.layout, overlay);
+            if entry is not None {
+                _paint_entry_lines(rows, entry, cols, rows_n);
+            }
+        }
+    }
+    return rows;
+}
+
+
+def _rects_equal(a: Rect, b: Rect) -> bool {
+    return (
+        a.x == b.x
+        and a.y == b.y
+        and a.width == b.width
+        and a.height == b.height
+    );
+}
+
+
+def _walk_damage(
     renderer: Renderer,
-    layout_root: UiNode,
-    term: Terminal,
-) -> FrameResult {
-    _ = (renderer, layout_root, term);
-    raise NotImplementedError("Unit 6: render_frame");
+    n: UiNode,
+    out: list[DamageRect],
+) {
+    tables = renderer.layout;
+    entry = get_entry(tables, n);
+    nid = node_id(n);
+    if entry is not None {
+        prev = entry.prev_rect;
+        cur = entry.rect;
+        if prev.is_empty() and not cur.is_empty() {
+            out.append(DamageRect(rect=cur.copy(), reason="appear"));
+        } elif not prev.is_empty() and cur.is_empty() {
+            out.append(DamageRect(rect=prev.copy(), reason="disappear"));
+        } elif not _rects_equal(prev, cur) {
+            out.append(
+                DamageRect(rect=rect_union(prev, cur), reason="bounds")
+            );
+        } elif (
+            nid in renderer.pending_semantic or nid in renderer.pending_layout
+        ) {
+            if not cur.is_empty() {
+                out.append(DamageRect(rect=cur.copy(), reason="semantic"));
+            }
+        }
+    }
+    if isinstance(n, UiContainer) {
+        for child in ordered_children(n) {
+            _walk_damage(renderer, child, out);
+        }
+        if isinstance(n, Screen) {
+            for overlay in layer_overlays(n) {
+                _walk_damage(renderer, overlay, out);
+            }
+        }
+    }
+}
+
+
+"""Compute damage rectangles from prev/current layout without painting."""
+def compute_damage(renderer: Renderer, layout_root: UiNode) -> list[DamageRect] {
+    out: list[DamageRect] = [];
+    for d in renderer.damage {
+        out.append(d);
+    }
+    _walk_damage(renderer, layout_root, out);
+    if not renderer.previous {
+        out.append(
+            DamageRect(
+                rect=Rect(
+                    x=0,
+                    y=0,
+                    width=renderer.layout.columns,
+                    height=renderer.layout.rows,
+                ),
+                reason="first_frame",
+            )
+        );
+    }
+    return out;
+}
+
+
+def _merge_damage(damage: list[DamageRect]) -> list[Rect] {
+    if not damage {
+        return [];
+    }
+    merged = damage[0].rect.copy();
+    for d in damage[1:] {
+        merged = rect_union(merged, d.rect);
+    }
+    if merged.is_empty() {
+        return [];
+    }
+    return [merged];
+}
+
+
+def _pad_row(row: str, columns: int) -> str {
+    if len(row) >= columns {
+        return row[:columns];
+    }
+    return row + (" " * (columns - len(row)));
+}
+
+
+def _diff_ansi(
+    previous: list[str],
+    desired: list[str],
+    patch_rects: list[Rect],
+    columns: int,
+    rows_n: int,
+) -> AnsiDiff {
+    parts: list[str] = [];
+    cells = 0;
+    rects = patch_rects;
+    if not rects {
+        rects = [Rect(x=0, y=0, width=columns, height=rows_n)];
+    }
+    for rect in rects {
+        y0 = max(0, rect.y);
+        y1 = min(rows_n, rect.bottom());
+        x0 = max(0, rect.x);
+        x1 = min(columns, rect.right());
+        for y in range(y0, y1) {
+            want = _pad_row(desired[y] if y < len(desired) else "", columns);
+            had = _pad_row(previous[y] if y < len(previous) else "", columns);
+            run_start = -1;
+            for x in range(x0, x1) {
+                wc = want[x] if x < len(want) else " ";
+                hc = had[x] if x < len(had) else " ";
+                if wc != hc {
+                    if run_start < 0 {
+                        run_start = x;
+                    }
+                } elif run_start >= 0 {
+                    segment = want[run_start:x];
+                    parts.append(f"\x1b[{y + 1};{run_start + 1}H{segment}");
+                    cells += len(segment);
+                    run_start = -1;
+                }
+            }
+            if run_start >= 0 {
+                segment = want[run_start:x1];
+                parts.append(f"\x1b[{y + 1};{run_start + 1}H{segment}");
+                cells += len(segment);
+            }
+        }
+    }
+    return AnsiDiff(text="".join(parts), cells_written=cells);
+}
+
+
+def _resolve_cursor(renderer: Renderer) -> CursorPos {
+    if not renderer.cursor_node_id {
+        return CursorPos();
+    }
+    entry = renderer.layout.entries.get(renderer.cursor_node_id);
+    if entry is None or entry.rect.is_empty() {
+        return CursorPos();
+    }
+    row = entry.rect.y + renderer.cursor_row_offset;
+    col = entry.rect.x + renderer.cursor_col_offset;
+    if row < 0 or col < 0 {
+        return CursorPos();
+    }
+    if row >= renderer.layout.rows or col >= renderer.layout.columns {
+        return CursorPos();
+    }
+    return CursorPos(row=row, col=col);
 }
 
 
 """Materialize the desired full-frame cell rows without writing a terminal."""
 def desired_cells(renderer: Renderer, layout_root: UiNode) -> list[str] {
-    _ = (renderer, layout_root);
-    raise NotImplementedError("Unit 6: desired_cells");
+    measure_and_arrange(
+        renderer.layout,
+        layout_root,
+        renderer.layout.columns,
+        renderer.layout.rows,
+    );
+    return _paint_frame_rows(renderer, layout_root);
+}
+
+
+"""Layout, damage, paint, and cursor for one frame."""
+def render_frame(
+    renderer: Renderer,
+    layout_root: UiNode,
+    term: Terminal,
+) -> FrameResult {
+    cols = term.columns if term.columns > 0 else renderer.layout.columns;
+    rows_n = term.rows if term.rows > 0 else renderer.layout.rows;
+    renderer.layout.columns = cols;
+    renderer.layout.rows = rows_n;
+
+    # Capture dirty flags from side-table entries set via set_content/etc.
+    for (nid, entry) in renderer.layout.entries.items() {
+        if entry.semantic_dirty {
+            renderer.pending_semantic.add(nid);
+        }
+        if entry.layout_dirty {
+            renderer.pending_layout.add(nid);
+        }
+    }
+
+    measure_and_arrange(renderer.layout, layout_root, cols, rows_n);
+    damage = compute_damage(renderer, layout_root);
+    desired = _paint_frame_rows(renderer, layout_root);
+    patch_rects = _merge_damage(damage);
+    diff = _diff_ansi(renderer.previous, desired, patch_rects, cols, rows_n);
+    cursor = _resolve_cursor(renderer);
+    ansi = diff.text;
+    if cursor.row >= 0 and cursor.col >= 0 {
+        ansi = ansi + f"\x1b[{cursor.row + 1};{cursor.col + 1}H";
+    }
+    synchronized_write(term, ansi);
+    renderer.previous = desired;
+    renderer.damage = [];
+    renderer.pending_semantic = set();
+    renderer.pending_layout = set();
+    snapshot_rects(renderer.layout);
+    renderer.last_cursor_row = cursor.row;
+    renderer.last_cursor_col = cursor.col;
+    return FrameResult(
+        damage=damage,
+        cells_written=diff.cells_written,
+        used_full_clear=False,
+        patch_rects=patch_rects,
+        cursor_row=cursor.row,
+        cursor_col=cursor.col,
+        sync_wrapped=True,
+    );
 }
 
 

@@ -95,3 +95,107 @@ test "detach and dispose_subtree clear containment without touching jid keys" {
     dispose_subtree(ui_root);
     assert child_parent(screen) is None;
 }
+
+
+test "insert_before and insert_after place relative to a sibling" {
+    screen = MainScreen(key="main");
+    a = Header(key="a");
+    b = Status(key="b");
+    c = Prompt(key="c");
+    append_child(screen, a);
+    append_child(screen, c);
+    # OSPUI.md: insert_before(parent, child, sibling)
+    insert_before(screen, b, c);
+    assert ordered_child_keys(screen) == ["a", "b", "c"];
+    d = TranscriptView(key="d");
+    insert_after(screen, d, a);
+    assert ordered_child_keys(screen) == ["a", "d", "b", "c"];
+}
+
+
+test "move_after reorders without changing parent" {
+    screen = MainScreen(key="main");
+    a = Header(key="a");
+    b = Status(key="b");
+    c = Prompt(key="c");
+    append_child(screen, a);
+    append_child(screen, b);
+    append_child(screen, c);
+    move_after(a, c);
+    assert ordered_child_keys(screen) == ["b", "c", "a"];
+    assert child_parent(a) is screen;
+}
+
+
+test "append_child rejects containment cycles atomically" {
+    outer = MainScreen(key="outer");
+    inner = MainScreen(key="inner");
+    append_child(outer, inner);
+    failed = False;
+    try {
+        append_child(inner, outer);
+    } except ValueError {
+        failed = True;
+    }
+    assert failed;
+    assert ordered_child_keys(outer) == ["inner"];
+    assert child_parent(outer) is None;
+}
+
+
+test "move into own descendant is rejected without partial mutation" {
+    screen = MainScreen(key="main");
+    mid = MainScreen(key="mid");
+    leaf = Prompt(key="leaf");
+    append_child(screen, mid);
+    append_child(mid, leaf);
+    before = ordered_child_keys(screen);
+    failed = False;
+    try {
+        move_before(screen, leaf);
+    } except ValueError {
+        failed = True;
+    }
+    assert failed;
+    assert ordered_child_keys(screen) == before;
+    assert child_parent(mid) is screen;
+    assert child_parent(leaf) is mid;
+}
+
+
+test "sparse ranks keep a positive gap after successive appends" {
+    screen = MainScreen(key="main");
+    nodes = [
+        Header(key="h0"),
+        Header(key="h1"),
+        Header(key="h2"),
+        Header(key="h3"),
+    ];
+    for n in nodes {
+        append_child(screen, n);
+    }
+    ranks = [child_rank(screen, n) for n in nodes];
+    assert ranks == sorted(ranks);
+    for i in range(1, len(ranks)) {
+        assert ranks[i] - ranks[i - 1] >= 1;
+    }
+    # Default gap is 1024 until exhaustion forces normalize.
+    assert ranks[1] - ranks[0] >= 1024 or ranks[1] > ranks[0];
+}
+
+
+test "second parent attachment is rejected (single visual parent)" {
+    left = MainScreen(key="left");
+    right = MainScreen(key="right");
+    child = Prompt(key="shared");
+    append_child(left, child);
+    failed = False;
+    try {
+        append_child(right, child);
+    } except ValueError {
+        failed = True;
+    }
+    assert failed;
+    assert child_parent(child) is left;
+    assert ordered_child_keys(right) == [];
+}
