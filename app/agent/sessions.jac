@@ -1,21 +1,28 @@
-"""Session persistence for the agent harness (essentials ported from
-src/session/session.ts + src/session/session-index.ts).
+"""Session persistence for the agent harness, byte-compatible with the
+legacy Pi runtime on-disk format (ported from src/session/session.ts +
+src/session/session-index.ts).
 
-Layout mirrors the legacy reference: JSONL transcripts under
-`<cwd>/.jackal/sessions/<id>.jsonl` (one OpenAI-shape message dict per line)
-plus an `index.json` sidecar holding lightweight metadata (id, title,
-created/updated stamps, turn count). Interoperates with agent/session.jac's
-caller-owned `history: list` of {"role": ..., "content": ...} dicts.
+Layout (verified against real files under .jackal/sessions):
+- One transcript per session: `<cwd>/.jackal/sessions/<id>.json` holding a
+  single JSON object (not JSONL) with exactly six top-level keys:
+  sessionId, sessionName, cwd, createdAt, updatedAt, messages. The messages
+  array holds OpenAI-shape message dicts ({role, content}). Files are
+  written indent=2 with a trailing newline.
+- Session ids are `sess_<epoch_milliseconds>` (digits only after the
+  prefix). Same-millisecond collisions bump the millisecond by one so ids
+  stay monotonic and pattern-valid.
+- Timestamps are ISO 8601 UTC with milliseconds and a Z suffix.
+- Index sidecar `<cwd>.jackal/sessions/index.json` is a JSON array of
+  {id, name, cwd, updatedAt, messageCount} objects, also indent=2.
+- Default session name is "new session".
 
-Divergences vs the legacy TypeScript behavior (kept intentionally small):
-- Session ids are `sess_<epoch_ms>_<counter>` -- timestamp+counter based and
-  deterministic for a fixed call sequence (legacy used bare Date.now()).
-- Transcripts are JSONL (one message per line); legacy stored one big JSON
-  record per session. JSONL tolerates partial/corrupt lines by skipping them.
-- No auto-save timer, model-ref persistence, compaction backups, legacy
-  latest.json migration, or retention pruning -- those belong to the runtime
-  loop, not this pure persistence layer.
-- `load_session` signals not-found by returning [] rather than null.
+Interoperability: every file this module writes is loadable by the legacy
+runtime, and legacy-written transcripts plus indexes load here unchanged.
+list_sessions reads index.json but merges in directory-scan entries when
+the index is missing, stale, or corrupt, rebuilding it when needed.
+
+Not ported (runtime-loop concerns): auto-save timers, model-ref persistence,
+compaction backups, legacy latest.json migration, retention pruning.
 """
 
 import os;
@@ -23,9 +30,12 @@ import json;
 import time;
 import re;
 
-glob _id_counter: int = 0,
-     _last_ms: int = 0,
-     _SESSION_ID_PATTERN: str = r"^sess_[0-9]+_[0-9]+$";
+glob _last_id_ms: int = 0,
+     _SESSION_ID_PATTERN: str = r"^sess_[0-9]+$",
+     _DEFAULT_NAME: str = "new session",
+     _INDEX_NAME: str = "index.json",
+     _LEGACY_INDEX_NAME: str = "latest.json",
+     _TRANSCRIPT_SUFFIX: str = ".json";
 
 
 def _sessions_dir(cwd: str) -> str {
@@ -34,12 +44,12 @@ def _sessions_dir(cwd: str) -> str {
 
 
 def _session_path(cwd: str, session_id: str) -> str {
-    return os.path.join(_sessions_dir(cwd), session_id + ".jsonl");
+    return os.path.join(_sessions_dir(cwd), session_id + _TRANSCRIPT_SUFFIX);
 }
 
 
 def _index_path(cwd: str) -> str {
-    return os.path.join(_sessions_dir(cwd), "index.json");
+    return os.path.join(_sessions_dir(cwd), _INDEX_NAME);
 }
 
 
@@ -48,243 +58,380 @@ def is_valid_session_id(session_id: str) -> bool {
 }
 
 
-"""Fresh unique-but-deterministic id: epoch-milliseconds + process counter."""
-def new_session_id() -> str {
-    _id_counter += 1;
-    return f"sess_{int(time.time() * 1000)}_{_id_counter}";
+"""Monotonic epoch milliseconds: same-millisecond callers get ms + 1."""
+def _next_epoch_ms() -> int {
+    ms = int(time.time() * 1000);
+    if ms <= _last_id_ms {
+        ms = _last_id_ms + 1;
+    }
+    _last_id_ms = ms;
+    return ms;
 }
 
 
-def _read_index(cwd: str) -> list {
-    path = _index_path(cwd);
-    if not os.path.exists(path) {
-        return [];
-    }
+"""Fresh legacy-format id: sess_<epoch_milliseconds>, digits only."""
+def new_session_id() -> str {
+    return "sess_" + str(_next_epoch_ms());
+}
+
+
+def _iso_from_ms(ms: int) -> str {
+    (secs, msec) = divmod(ms, 1000);
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(secs)) + f".{msec:03d}Z";
+}
+
+
+def _now_iso() -> str {
+    return _iso_from_ms(_next_epoch_ms());
+}
+
+
+"""Parse a JSON file; None when missing or corrupt."""
+def _read_json(path: str) {
     fh = None;
     try {
         fh = open(path, "r");
         raw = json.load(fh);
     } except (OSError, ValueError) {
-        return [];
+        return None;
     } finally {
         if fh is not None {
             fh.close();
         }
     }
-    if not isinstance(raw, list) {
-        return [];
-    }
-    entries: list = [];
-    for item in raw {
-        if isinstance(item, dict) and "id" in item {
-            entries.append(item);
-        }
-    }
-    return entries;
+    return raw;
 }
 
 
-def _write_index(cwd: str, entries: list) {
-    sdir = _sessions_dir(cwd);
-    os.makedirs(sdir, exist_ok=True);
-    fh = open(_index_path(cwd), "w");
+"""Write pretty JSON (indent=2 + trailing newline); False on I/O failure."""
+def _write_json(path: str, data: any) -> bool {
+    fh = None;
     try {
-        json.dump(entries, fh, indent=2);
+        fh = open(path, "w");
+        json.dump(data, fh, indent=2);
         fh.write("\n");
+    } except OSError {
+        return False;
     } finally {
-        fh.close();
+        if fh is not None {
+            fh.close();
+        }
     }
+    return True;
+}
+
+
+"""Legacy SessionRecord shape check (mirrors isSessionRecord upstream)."""
+def _is_record(rec: any) -> bool {
+    return (
+        isinstance(rec, dict)
+        and isinstance(rec.get("sessionId"), str)
+        and isinstance(rec.get("sessionName"), str)
+        and isinstance(rec.get("cwd"), str)
+        and isinstance(rec.get("updatedAt"), str)
+        and isinstance(rec.get("messages"), list)
+    );
+}
+
+
+"""Legacy SessionIndexEntry shape check (mirrors isIndexEntry upstream)."""
+def _is_index_entry(item: any) -> bool {
+    return (
+        isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("name"), str)
+        and isinstance(item.get("cwd"), str)
+        and isinstance(item.get("updatedAt"), str)
+        and isinstance(item.get("messageCount"), (int, float))
+    );
 }
 
 
 def _entry_sort_key(rec: dict) -> str {
-    return str(rec.get("updated", ""));
+    return str(rec.get("updatedAt", ""));
 }
 
 
-"""Monotonic (ISO, epoch-ms) timestamp pair: strictly increasing per process,
-so same-millisecond saves still order deterministically newest-first."""
-def _next_stamp() -> tuple[str, int] {
-    ms = int(time.time() * 1000);
-    if ms <= _last_ms {
-        ms = _last_ms + 1;
+"""Order entries newest-updated first (stable on ties)."""
+def _newest_first(entries: list) -> list {
+    return sorted(entries, key=_entry_sort_key, reverse=True);
+}
+
+
+"""Validated index entries whose transcript still exists; second value is
+False when index.json was missing or corrupt."""
+def _read_index(cwd: str) -> tuple[list, bool] {
+    raw = _read_json(_index_path(cwd));
+    valid: list = [];
+    if not isinstance(raw, list) {
+        return (valid, False);
     }
-    _last_ms = ms;
-    (secs, msec) = divmod(ms, 1000);
-    iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(secs)) + f".{msec:03d}Z";
-    return (iso, ms);
+    for item in raw {
+        if not _is_index_entry(item) or not is_valid_session_id(str(item["id"])) {
+            continue;
+        }
+        sid = str(item["id"]);
+        if not os.path.exists(_session_path(cwd, sid)) {
+            continue;
+        }
+        valid.append({
+            "id": sid,
+            "name": str(item["name"]),
+            "cwd": str(item["cwd"]),
+            "updatedAt": str(item["updatedAt"]),
+            "messageCount": int(item["messageCount"]),
+        });
+    }
+    return (valid, True);
 }
 
 
-"""Order index-style records newest-updated first (stable on ties)."""
-def _newest_first(records: list) -> list {
-    return sorted(records, key=_entry_sort_key, reverse=True);
+def _write_index(cwd: str, entries: list) -> bool {
+    sdir = _sessions_dir(cwd);
+    try {
+        os.makedirs(sdir, exist_ok=True);
+    } except OSError {
+        return False;
+    }
+    return _write_json(_index_path(cwd), entries);
 }
 
 
-def _upsert_record(cwd: str, rec: dict) {
-    entries = _read_index(cwd);
-    replaced = False;
-    for i in range(len(entries)) {
-        if entries[i].get("id") == rec["id"] {
-            entries[i] = rec;
-            replaced = True;
-            break;
+"""Replace or append one entry in the index, preserving the others."""
+def _upsert_index_entry(cwd: str, rec: dict) -> bool {
+    (entries, _ok) = _read_index(cwd);
+    kept: list = [];
+    for existing in entries {
+        if str(existing["id"]) != str(rec["id"]) {
+            kept.append(existing);
         }
     }
-    if not replaced {
-        entries.append(rec);
-    }
-    _write_index(cwd, entries);
+    kept.append({
+        "id": str(rec["id"]),
+        "name": str(rec["name"]),
+        "cwd": str(rec["cwd"]),
+        "updatedAt": str(rec["updatedAt"]),
+        "messageCount": int(rec["messageCount"]),
+    });
+    return _write_index(cwd, kept);
 }
 
 
-"""Persist a conversation as JSONL and refresh its index record.
+"""Scan *.json transcripts (excluding sidecars), skipping corrupt ones.
 
-Each element of `history` is written as one JSON object per line. Returns
-metadata: {id, title, path, created, updated, turns}. Re-saving an existing
-`session_id` preserves its original `created` stamp (and title when no new
-title is given).
+Returns legacy-shaped index entries; used to merge into listings and to
+rebuild a missing or corrupt index.
 """
-def save_session(cwd: str, history: list, title: str = "", session_id: str = "") -> dict {
+def _scan_directory(cwd: str) -> list {
+    found: list = [];
+    sdir = _sessions_dir(cwd);
+    if not os.path.isdir(sdir) {
+        return found;
+    }
+    try {
+        names = os.listdir(sdir);
+    } except OSError {
+        return found;
+    }
+    for name in names {
+        if not name.endswith(_TRANSCRIPT_SUFFIX) or name == _INDEX_NAME or name == _LEGACY_INDEX_NAME {
+            continue;
+        }
+        sid = name[:-len(_TRANSCRIPT_SUFFIX)];
+        if not is_valid_session_id(sid) {
+            continue;
+        }
+        rec = _read_json(os.path.join(sdir, name));
+        if not isinstance(rec, dict) or str(rec.get("sessionId", "")) != sid {
+            continue;
+        }
+        messages = rec.get("messages");
+        count = len(messages) if isinstance(messages, list) else 0;
+        updated = rec.get("updatedAt");
+        found.append({
+            "id": sid,
+            "name": str(rec.get("sessionName", "")),
+            "cwd": str(rec.get("cwd", cwd)),
+            "updatedAt": updated if isinstance(updated, str) else "",
+            "messageCount": count,
+        });
+    }
+    return found;
+}
+
+
+"""Persist one conversation as a legacy-format transcript record.
+
+`history` is the caller-owned list of OpenAI-shape message dicts; it is
+stored verbatim under `messages`. Returns metadata:
+{id, name, path, created, updated, messageCount}. Re-saving an existing
+`session_id` preserves its original createdAt stamp (and prior name when no
+new name is given).
+"""
+def save_session(cwd: str, history: list, name: str = "", session_id: str = "") -> dict {
     sid = session_id if session_id else new_session_id();
     if not is_valid_session_id(sid) {
         raise ValueError("invalid session id: " + str(sid));
     }
     sdir = _sessions_dir(cwd);
-    os.makedirs(sdir, exist_ok=True);
-    path = _session_path(cwd, sid);
-    (now, _stamp_ms) = _next_stamp();
-
-    created = now;
-    for entry in _read_index(cwd) {
-        if entry.get("id") == sid {
-            created = str(entry.get("created", now));
-            if not title {
-                title = str(entry.get("title", ""));
-            }
-            break;
-        }
-    }
-
-    fh = open(path, "w");
     try {
-        for msg in history {
-            fh.write(json.dumps(msg) + "\n");
+        os.makedirs(sdir, exist_ok=True);
+    } except OSError as exc {
+        raise ValueError("cannot create sessions dir: " + str(exc));
+    }
+    path = _session_path(cwd, sid);
+
+    created = _now_iso();
+    prior_name = "";
+    existing = _read_json(path);
+    if _is_record(existing) {
+        prior_created = existing.get("createdAt");
+        if isinstance(prior_created, str) and prior_created {
+            created = prior_created;
         }
-    } finally {
-        fh.close();
+        recorded = existing.get("sessionName");
+        if isinstance(recorded, str) {
+            prior_name = recorded;
+        }
     }
 
-    rec = {
+    trimmed = name.strip();
+    if trimmed {
+        final_name = trimmed;
+    } elif prior_name {
+        final_name = prior_name;
+    } else {
+        final_name = _DEFAULT_NAME;
+    }
+
+    updated = _now_iso();
+    record = {
+        "sessionId": sid,
+        "sessionName": final_name,
+        "cwd": cwd,
+        "createdAt": created,
+        "updatedAt": updated,
+        "messages": history,
+    };
+    if not _write_json(path, record) {
+        raise ValueError("cannot write transcript: " + path);
+    }
+    _upsert_index_entry(cwd, {
         "id": sid,
-        "title": title,
+        "name": final_name,
+        "cwd": cwd,
+        "updatedAt": updated,
+        "messageCount": len(history),
+    });
+    return {
+        "id": sid,
+        "name": final_name,
         "path": path,
         "created": created,
-        "updated": now,
-        "turns": len(history),
+        "updated": updated,
+        "messageCount": len(history),
     };
-    _upsert_record(cwd, rec);
-    return rec;
 }
 
 
-"""Rebuild the message history for a saved session; [] when unknown.
-
-Corrupt/partial JSONL lines are skipped rather than failing the load.
-"""
+"""Messages for one session; [] when the id is unknown or the transcript
+is missing/corrupt."""
 def load_session(cwd: str, session_id: str) -> list {
     if not is_valid_session_id(session_id) {
         return [];
     }
-    path = _session_path(cwd, session_id);
-    if not os.path.exists(path) {
+    rec = _read_json(_session_path(cwd, session_id));
+    if not _is_record(rec) {
         return [];
     }
-    history: list = [];
-    fh = open(path, "r");
-    try {
-        for line in fh {
-            stripped = line.strip();
-            if not stripped {
-                continue;
-            }
-            try {
-                msg = json.loads(stripped);
-            } except ValueError {
-                continue;
-            }
-            if isinstance(msg, dict) and "role" in msg {
-                history.append(msg);
-            }
-        }
-    } finally {
-        fh.close();
+    messages = rec.get("messages");
+    if not isinstance(messages, list) {
+        return [];
     }
-    return history;
+    return messages;
 }
 
 
-"""All sessions for a project, newest-updated first."""
+"""All sessions for a project, newest-updated first.
+
+Merges index.json entries with a directory scan so sessions missing from a
+missing/stale/corrupt index still appear; a missing or corrupt index is
+rebuilt from disk when anything is found.
+"""
 def list_sessions(cwd: str) -> list {
     sdir = _sessions_dir(cwd);
     if not os.path.isdir(sdir) {
         return [];
     }
-    entries = _read_index(cwd);
-    # Directory-scan fallback: recover ids for files missing from the index.
-    known: set[str] = set();
-    for e in entries {
-        known.add(str(e.get("id")));
+    (indexed, index_ok) = _read_index(cwd);
+    merged: list = [];
+    seen: set[str] = set();
+    for item in indexed {
+        merged.append(item);
+        seen.add(str(item["id"]));
     }
-    for name in os.listdir(sdir) {
-        if not name.endswith(".jsonl") {
-            continue;
+    for item in _scan_directory(cwd) {
+        if str(item["id"]) not in seen {
+            merged.append(item);
         }
-        sid = name[:-len(".jsonl")];
-        if sid in known or not is_valid_session_id(sid) {
-            continue;
-        }
-        entries.append({
-            "id": sid,
-            "title": "",
-            "path": _session_path(cwd, sid),
-            "created": "",
-            "updated": "",
-            "turns": -1,
-        });
     }
-    return _newest_first(entries);
+    ordered = _newest_first(merged);
+    if not index_ok and ordered {
+        _write_index(cwd, ordered);
+    }
+    return ordered;
 }
 
 
-"""Set a session's title; True on success, False when the id is unknown."""
-def rename_session(cwd: str, session_id: str, title: str) -> bool {
-    trimmed = title.strip();
+"""Set the session name in BOTH the transcript and the index.
+
+True on success; False for blank names or unknown/invalid ids. Bumps
+updatedAt like the legacy rename-and-flush flow does.
+"""
+def rename_session(cwd: str, session_id: str, name: str) -> bool {
+    trimmed = name.strip();
     if not trimmed or not is_valid_session_id(session_id) {
         return False;
     }
-    if not os.path.exists(_session_path(cwd, session_id)) {
+    rec = _read_json(_session_path(cwd, session_id));
+    if not _is_record(rec) or str(rec.get("sessionId", "")) != session_id {
         return False;
     }
-    entries = _read_index(cwd);
-    found = False;
-    for entry in entries {
-        if entry.get("id") == session_id {
-            entry["title"] = trimmed;
-            found = True;
-            break;
-        }
-    }
-    if not found {
+    messages = rec.get("messages");
+    count = len(messages) if isinstance(messages, list) else 0;
+    prior_cwd = rec.get("cwd");
+    record_cwd = prior_cwd if isinstance(prior_cwd, str) and prior_cwd else cwd;
+    prior_created = rec.get("createdAt");
+    created = prior_created if isinstance(prior_created, str) and prior_created else _now_iso();
+
+    updated = _now_iso();
+    renamed = {
+        "sessionId": session_id,
+        "sessionName": trimmed,
+        "cwd": record_cwd,
+        "createdAt": created,
+        "updatedAt": updated,
+        "messages": messages if isinstance(messages, list) else [],
+    };
+    if not _write_json(_session_path(cwd, session_id), renamed) {
         return False;
     }
-    _write_index(cwd, entries);
+    _upsert_index_entry(cwd, {
+        "id": session_id,
+        "name": trimmed,
+        "cwd": record_cwd,
+        "updatedAt": updated,
+        "messageCount": count,
+    });
     return True;
 }
 
 
-"""Remove a session's transcript and index record; True if anything existed."""
+"""Remove the transcript and its index entry.
+
+True when the session existed, False otherwise (including invalid ids such
+as path-traversal attempts).
+"""
 def delete_session(cwd: str, session_id: str) -> bool {
     if not is_valid_session_id(session_id) {
         return False;
@@ -298,12 +445,20 @@ def delete_session(cwd: str, session_id: str) -> bool {
             return False;
         }
     }
-    before = _read_index(cwd);
-    after = [e for e in before if e.get("id") != session_id];
-    if len(after) != len(before) or existed {
-        _write_index(cwd, after);
+    (entries, _ok) = _read_index(cwd);
+    remaining: list = [];
+    removed_entry = False;
+    for item in entries {
+        if str(item["id"]) == session_id {
+            removed_entry = True;
+        } else {
+            remaining.append(item);
+        }
     }
-    return existed;
+    if existed or removed_entry {
+        _write_index(cwd, remaining);
+    }
+    return existed or removed_entry;
 }
 
 
