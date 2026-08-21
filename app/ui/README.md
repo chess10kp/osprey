@@ -1,64 +1,108 @@
-# Jackal OSP UI model
+# Jackal OSP UI (`app/ui`)
 
-This directory contains the Jackal-local state and structure backend for the
-custom terminal UI. It does not replace the differential renderer in
-`tui/pi_jac_floor`; it projects into that renderer's existing component
-interface.
+Detached, session-local OSP graph for the custom Jac terminal UI (OSPUI.md).
+Semantic regions are nodes; containment, focus, feeds, ownership, and layers are
+typed edges. Geometry, cells, damage, and cursor state live in process-local
+side tables — never on graph nodes and never under Jac's persistent `root`.
 
-```text
-SignalNode -Feeds-> UiNode -Child(order)-> UiNode
-                           |
-                           v
-                     UiComponent
-                  render(width) -> list[str]
-                           |
-                           v
-              flat ANSI differential renderer
-```
+## Stable interface
 
-## Ownership
+| Module | Role |
+|--------|------|
+| `model.jac` | `UiNode` archetypes + `Child` / `Owns` / `Feeds` / `FocusNext` / `Layer` |
+| `mutation.jac` | Sparse-rank mount/move/detach/replace; atomic validation |
+| `runtime.jac` | `UiSession`, focus, overlays, dispose, leak detection |
+| `bindings.jac` | Domain source → UI target subscriptions (no cross-lifetime edges) |
+| `events.jac` | Typed walkers, target-and-bubble dispatch, effects |
+| `width.jac` | ANSI-aware display width, wrap, truncate |
+| `terminal.jac` / `virtual_terminal.jac` | Process + in-memory terminal adapters |
+| `input.jac` | Byte → semantic event normalization / coalescing |
+| `layout.jac` | Measure/arrange side tables (contracts, rects, clips) |
+| `renderer.jac` | Retained damage, cell diff, one synchronized ANSI update |
+| `screen.jac` | Jackal shell topology + editor / approval lifecycle |
+| `transcript.jac` | Visible+overscan virtualization, measure cache, follow-tail |
+| `inspect.jac` | Deterministic dumps + invariant validation |
+| `markup.jac` | One-time tag → graph lowering (`--print-generated`) |
+| `gates.jac` | Architecture gates 1–6 |
+| `progress_bar.jac` | Gate 5 external widget (also under `widgets/progress/`) |
 
-- `UiNode` and typed edges are the only live application tree.
-- `UiRuntime` keeps render, input, and cleanup callables by monotonic node ID.
-  Callables are never stored on graph nodes.
-- `SignalNode` values use equality cutoff. A write walks only dependent leaves
-  and their ancestors to invalidate cached projections.
-- A clean `UiComponent.render()` returns the root cache without graph traversal.
-  The ANSI renderer still compares flat line arrays and emits terminal updates.
-- Focus, overlays, terminal input, and frame scheduling remain in the existing
-  TUI renderer for this slice.
+Identity outside the graph is always `jid(node)` / `node_id(n)`.
 
-## Interface
+## Lifetimes
 
-- `view(render_fn, input_fn, kind, key)` creates a UI node.
-- `column(children)` creates an ordered vertical parent.
-- `mount`, `move`, and `unmount` mutate typed `Child` edges.
-- `signal`, `read_signal`, and `set_signal` provide source reactivity.
-- `own_signal` scopes a signal to one subtree.
-- `project(root)` returns the existing `render/handleInput/invalidate` shape.
-- `compose_layout`, `collect_paint_jobs`, and `paint_frame` (in `paint.jac`)
-  assign `screen_row` per node and patch only moved or changed regions.
-- `dispose_tree` performs post-order cleanup and removes runtime callbacks.
+1. `create_session()` builds a detached `UiSessionRoot`.
+2. Mutations only accept parents reachable from that root.
+3. Domain observation uses `bindings.subscribe` — never OSP edges to durable data.
+4. `dispose_session()` clears bindings, capabilities, renderer side tables, and the subtree.
+
+Gate 1 asserts no UI jid is reachable from persistent `root`, and that dispose empties registries.
+
+## Invariants
+
+`validate_invariants(session)` / `validate_session(session)` report:
+
+- orphan bindings, invalid focus, unreleased capabilities
+- stale edges / renderer layout keys
+- containment cycles, duplicate sibling keys, non-increasing ranks
+
+Inspection dumps (`dump_graph`, `dump_bindings`, `dump_event_path`,
+`explain_invalidation`, `dump_layout`, `dump_damage`, `dump_lifetimes`) read the
+semantic graph plus side tables only.
+
+## Migration rules
+
+- Do not store dirty/cached/painted/geometry on nodes.
+- Do not create OSP nodes for transcript lines or terminal cells.
+- Do not attach UI nodes to persistent `root`.
+- Prefer markup or direct construction once; mutate topology for conditionals.
+- Retire legacy `paint.jac` callers — use `render_frame`.
+- External widgets register via `register_tag` / `register_progress_markup`
+  without editing framework source.
 
 ## Validation
 
 ```bash
 cd app
-JAC_TEST_JOBS=0 jac test ui/model.jac -v
+export HOME="${HOME:-$PWD}/.jac-test-home"   # avoid /tmp tmpfs pressure
+JAC_TEST_JOBS=0 jac test ui/model.jac
+JAC_TEST_JOBS=0 jac test ui/transcript.jac
+JAC_TEST_JOBS=0 jac test ui/inspect.jac
+JAC_TEST_JOBS=0 jac test ui/markup.jac
+JAC_TEST_JOBS=0 jac test ui/gates.jac
 jac check .
 
-cd ..
-JACPATH=app:tui/pi_jac_floor jac run scripts/osp-tui-smoke.jac
-JACPATH=app:tui/pi_jac_floor jac run scripts/osp-region-smoke.jac
+# Individual gates (same module):
+JACPATH=app jac run - <<'EOF'   # or import run_gateN from ui.gates in a .jac file
+EOF
 ```
 
-`osp-tui-smoke` still exercises the legacy flat diff path via `TUI.doRender()`.
-`osp-region-smoke` uses structural region painting and does not need flat-buffer
-shift heuristics for the log+spacer case.
+If pg-embed init fails after a crashed run: `rm -rf ~/.cache/jac/pg/main`
+(and prefer a disk-backed `HOME`, not a full `/tmp` tmpfs).
 
-## Deliberate limits
+## Gate 4 benchmark (recorded)
 
-This first slice has source signals only. Do not copy Jacket's derived/route
-reactive graph until a concrete Jackal UI need requires it. Do not maintain a
-parallel `Container.children` tree for migrated Jackal components; replace each
-legacy component with one OSP projection as migration proceeds.
+Measured on the Unit 13 harness (`run_gate4_invalidation_bench`), 80×24
+virtual terminal, shell insert + two retained frames:
+
+| Metric | Value |
+|--------|------:|
+| `nodes_queried` | 6 |
+| `cells_written` (sum) | 0* |
+| `latency_ms` | ~2.5 |
+| `full_frame_cells` | 1920 |
+| `retained_cells` | 0* |
+
+\*Empty content contracts produce zero cell writes in this minimal shell paint;
+the important assertion is `retained_cells <= full_frame_cells`. Re-run the
+harness after wiring transcript/status content to refresh these numbers.
+
+## Gates summary
+
+| Gate | Check |
+|------|--------|
+| 1 | Detached lifecycle + dispose cleanup |
+| 2 | Walker prompt vs callback LOC / advantage |
+| 3 | Shell layout, resize, modal overlay, render |
+| 4 | Invalidation counters vs full-frame baseline |
+| 5 | External `ProgressBar` + markup registration |
+| 6 | Dozens of regions via markup, no manual ranks |

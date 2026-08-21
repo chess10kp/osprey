@@ -107,13 +107,13 @@ def dump_graph(session: UiSession) -> str {
             }
         }
         for target in [n ->:Owns:->] {
-            lines.append("  Owns -> " + _node_label(target));
+            lines.append("  Owns -> " + _node_label(target as UiNode));
         }
         for target in [n ->:Feeds:->] {
-            lines.append("  Feeds -> " + _node_label(target));
+            lines.append("  Feeds -> " + _node_label(target as UiNode));
         }
         for target in [n ->:FocusNext:->] {
-            lines.append("  FocusNext -> " + _node_label(target));
+            lines.append("  FocusNext -> " + _node_label(target as UiNode));
         }
         if isinstance(n, Screen) {
             for target in [n ->:Layer:->] {
@@ -129,7 +129,7 @@ def dump_graph(session: UiSession) -> str {
                     + ",modal="
                     + str(modal)
                     + ") -> "
-                    + _node_label(target)
+                    + _node_label(target as UiNode)
                 );
             }
         }
@@ -266,11 +266,11 @@ def dump_lifetimes(session: UiSession, n: UiNode) -> str {
         keys = ordered_child_keys(n);
         lines.append("children=" + ",".join(keys));
     }
-    owns = [node_id(t) for t in [n ->:Owns:->]];
+    owns = [node_id(t as UiNode) for t in [n ->:Owns:->]];
     if owns {
         lines.append("owns=" + ",".join(owns));
     }
-    owned_by = [node_id(t) for t in [n <-:Owns:<-]];
+    owned_by = [node_id(t as UiNode) for t in [n <-:Owns:<-]];
     if owned_by {
         lines.append("owned_by=" + ",".join(owned_by));
     }

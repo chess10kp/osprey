@@ -319,7 +319,7 @@ def _instantiate_tracked(
     archetype = registry.tags[elem.tag];
     key = elem.attrs.get("key", "");
     try {
-        ui_node = archetype(key=key);
+        ui_node = archetype(key=key) as UiNode;
     } except Exception as exc {
         errors.append(
             MarkupError(
