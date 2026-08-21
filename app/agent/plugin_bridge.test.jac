@@ -73,8 +73,9 @@ test "load_extension registers js tools and invoke round-trips" {
 
 test "default_registry is native-only until extension loads" {
     reg = default_registry();
-    assert get_tool(reg, "read_file") is not None;
-    assert get_tool(reg, "read_file").origin == "native";
+    native = get_tool(reg, "read_file");
+    assert native is not None;
+    assert native.origin == "native";
     native_n = len(as_tool_specs(reg));
     assert native_n >= 5;
     bridge = create_bridge("s-def");
@@ -140,4 +141,36 @@ test "plugin and ui kind helpers partition the seam" {
         raised = True;
     }
     assert raised;
+}
+
+
+test "node host load stub_echo and invoke round-trip" {
+    bridge = create_bridge("s-node");
+    reg = create_registry();
+    phase = ensure_node_host(bridge);
+    assert phase == "ready";
+    assert bridge.host_kind == "node";
+    kinds = drain_inbox(bridge);
+    assert "host_hello" in kinds;
+    stub = resolve_stub_echo();
+    names = load_extension_path(bridge, reg, "stub.echo", stub);
+    assert "echo" in names;
+    entry = get_tool(reg, "echo");
+    assert entry is not None;
+    assert entry.origin == "js";
+    result = invoke(reg, "echo", {"text": "hi"}, bridge);
+    assert result == "ECHO:hi";
+    dispose_bridge(bridge);
+    assert bridge.proc is None;
+}
+
+
+test "cold path never spawns node until ensure_node_host" {
+    bridge = create_bridge("s-cold");
+    assert bridge.proc is None;
+    assert bridge.host_kind == "";
+    ensure_host(bridge);
+    assert bridge.host_kind == "fake";
+    assert bridge.proc is None;
+    dispose_bridge(bridge);
 }
