@@ -878,6 +878,7 @@ workaround permanent.
 | Milestone | Date | Commit | Result / benchmark |
 |---|---|---|---|
 | Review | 2026-08-21 | this plan update | Plan corrected for placement, module seam, solver semantics, layout policies, verification, and hard cutover. |
+| M0 | 2026-08-22 | (this commit) | PASS. `constraints/algebra` + `constraints/solver` server-pinned in `app/`; kiwi-faithful required-constraint tableau; 7 tests green (`JAC_TEST_JOBS=0 jac test constraints/solver.test.jac`). Baseline: 2000 sparse row merges ~2.7 ms; 100-constraint one-shot chain solve ~7.7 ms (~77 µs/cst). Oracle venv provisions (`kiwisolver==1.5.0`); M0 system matches kiwi exactly (a=0, b=10, c=30). Decision recorded as D20. |
 | M0 | | | |
 | M1 | | | |
 | M2 | | | |
