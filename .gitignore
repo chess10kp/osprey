@@ -25,3 +25,11 @@ reference/
 dist/
 __pycache__/
 *.pyc
+
+# planning docs (local only)
+/docs/
+/ROADMAP.md
+/PLAN.md
+/TODO.md
+/CURSOR_PARITY.md
+/OSPUI.md
