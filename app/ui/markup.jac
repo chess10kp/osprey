@@ -5,14 +5,21 @@ Statically registered tag → archetype map. Unknown tag/property = error.
 no per-frame view, no runtime archetype generation.
 """
 
+import from re { compile as re_compile }
+
 import from ui.model {
     UiNode,
+    UiContainer,
     MainScreen,
     Header,
     TranscriptView,
     Status,
     Prompt,
     ApprovalOverlay,
+}
+
+import from ui.mutation {
+    append_child,
 }
 
 
@@ -34,16 +41,29 @@ obj TagRegistry {
 }
 
 
+obj _MarkupElem {
+    has tag: str = "",
+        attrs: dict[str, str] = {},
+        children: list[_MarkupElem] = [],
+        path: str = "";
+}
+
+
+glob _TAG_OPEN = re_compile(
+    r"""<\s*([A-Za-z_][A-Za-z0-9_]*)\s*([^>/]*?)\s*(/)?>"""
+);
+glob _TAG_CLOSE = re_compile(r"""</\s*([A-Za-z_][A-Za-z0-9_]*)\s*>""");
+glob _ATTR = re_compile(
+    r"""([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"""
+);
+
+
 def create_tag_registry() -> TagRegistry {
     return TagRegistry();
 }
 
 
-"""Register a markup tag name to a node archetype constructor.
-
-Helpers may accept known Jackal tags. Unknown registration is allowed for
-Gate 5 external widgets.
-"""
+"""Register a markup tag name to a node archetype constructor."""
 def register_tag(registry: TagRegistry, tag: str, archetype: any) {
     if not tag {
         raise ValueError("tag must not be empty");
@@ -64,25 +84,332 @@ def default_shell_registry() -> TagRegistry {
 }
 
 
-"""Lower markup source into a detached graph (one-time initialization).
+def _allowed_props(tag: str) -> set[str] {
+    base: set[str] = {"key"};
+    if tag == "Header" {
+        return base | {"title"};
+    }
+    if tag == "TranscriptView" {
+        return base | {
+            "scroll_offset",
+            "follow_tail",
+            "source_id",
+            "observed_revision",
+            "source",
+        };
+    }
+    if tag == "Prompt" {
+        return base | {"draft", "mode"};
+    }
+    if tag == "Status" {
+        return base | {"phase", "source"};
+    }
+    if tag == "MainScreen" or tag == "ApprovalOverlay" {
+        return base;
+    }
+    return base | {"value", "source", "title", "phase", "draft", "mode"};
+}
 
-Unit 12 implementation fills this in. Stub raises until then.
-"""
+
+def _parse_attrs(raw: str) -> dict[str, str] {
+    attrs: dict[str, str] = {};
+    for m in _ATTR.finditer(raw) {
+        name = m.group(1);
+        val = m.group(2);
+        if val is None {
+            val = m.group(3);
+        }
+        if val is None {
+            val = "";
+        }
+        attrs[name] = val;
+    }
+    return attrs;
+}
+
+
+def _parse_markup(source: str) -> (list[_MarkupElem], list[MarkupError]) {
+    errors: list[MarkupError] = [];
+    roots: list[_MarkupElem] = [];
+    stack: list[_MarkupElem] = [];
+    i = 0;
+    text = source;
+    n = len(text);
+    while i < n {
+        while i < n and text[i] in " \t\r\n" {
+            i += 1;
+        }
+        if i >= n {
+            break;
+        }
+        if text[i] != "<" {
+            next_lt = text.find("<", i);
+            if next_lt < 0 {
+                break;
+            }
+            i = next_lt;
+            continue;
+        }
+        close_m = _TAG_CLOSE.match(text, i);
+        if close_m is not None {
+            tag = close_m.group(1);
+            if not stack {
+                errors.append(
+                    MarkupError(path="/" + tag, message="unexpected close tag " + tag)
+                );
+            } else {
+                top = stack[len(stack) - 1];
+                if top.tag != tag {
+                    errors.append(
+                        MarkupError(
+                            path=top.path,
+                            message="mismatched close tag " + tag,
+                        )
+                    );
+                } else {
+                    stack.pop();
+                }
+            }
+            i = close_m.end();
+            continue;
+        }
+        open_m = _TAG_OPEN.match(text, i);
+        if open_m is None {
+            errors.append(
+                MarkupError(path="", message="malformed tag near index " + str(i))
+            );
+            break;
+        }
+        tag = open_m.group(1);
+        attr_raw = open_m.group(2);
+        if attr_raw is None {
+            attr_raw = "";
+        }
+        self_closing = open_m.group(3) is not None;
+        attrs = _parse_attrs(attr_raw);
+        parent_path = "";
+        if stack {
+            parent_path = stack[len(stack) - 1].path;
+        }
+        path = parent_path + "/" + tag;
+        elem = _MarkupElem(tag=tag, attrs=attrs, path=path);
+        if stack {
+            stack[len(stack) - 1].children.append(elem);
+        } else {
+            roots.append(elem);
+        }
+        if not self_closing {
+            stack.append(elem);
+        }
+        i = open_m.end();
+    }
+    if stack {
+        errors.append(
+            MarkupError(
+                path=stack[len(stack) - 1].path,
+                message="unclosed tag " + stack[len(stack) - 1].tag,
+            )
+        );
+    }
+    return (roots, errors);
+}
+
+
+def _coerce_value(raw: str, field: str) -> any {
+    if field in ("scroll_offset", "observed_revision") {
+        try {
+            return int(raw);
+        } except Exception {
+            return 0;
+        }
+    }
+    if field == "follow_tail" {
+        low = raw.lower();
+        return low in ("1", "true", "yes");
+    }
+    if field == "value" {
+        try {
+            return float(raw);
+        } except Exception {
+            return 0.0;
+        }
+    }
+    return raw;
+}
+
+
+def _field_name(attr: str) -> str {
+    if attr == "source" {
+        return "source_id";
+    }
+    return attr;
+}
+
+
+def _apply_attrs(
+    ui_node: UiNode,
+    tag: str,
+    attrs: dict[str, str],
+    path: str,
+    errors: list[MarkupError],
+) {
+    allowed = _allowed_props(tag);
+    for (name, raw) in attrs.items() {
+        if name not in allowed {
+            errors.append(
+                MarkupError(
+                    path=path,
+                    message="unknown property '" + name + "' on " + tag,
+                )
+            );
+            continue;
+        }
+        field = _field_name(name);
+        if not hasattr(ui_node, field) {
+            errors.append(
+                MarkupError(
+                    path=path,
+                    message="unknown property '" + name + "' on " + tag,
+                )
+            );
+            continue;
+        }
+        setattr(ui_node, field, _coerce_value(raw, field));
+    }
+}
+
+
+def _ctor_args(tag: str, attrs: dict[str, str]) -> str {
+    key = attrs.get("key", "");
+    parts: list[str] = ["key=" + repr(key)];
+    for (name, raw) in sorted(attrs.items()) {
+        if name == "key" {
+            continue;
+        }
+        if name not in _allowed_props(tag) {
+            continue;
+        }
+        field = _field_name(name);
+        if field in ("scroll_offset", "observed_revision", "follow_tail", "value") {
+            parts.append(field + "=" + str(_coerce_value(raw, field)));
+        } else {
+            parts.append(field + "=" + repr(raw));
+        }
+    }
+    return ", ".join(parts);
+}
+
+
+def _instantiate_tracked(
+    elem: _MarkupElem,
+    registry: TagRegistry,
+    errors: list[MarkupError],
+    gen_lines: list[str],
+    var_counter: list[int],
+) -> (UiNode | None, str) {
+    if elem.tag not in registry.tags {
+        errors.append(
+            MarkupError(
+                path=elem.path,
+                message="unknown tag '" + elem.tag + "'",
+            )
+        );
+        return (None, "");
+    }
+    archetype = registry.tags[elem.tag];
+    key = elem.attrs.get("key", "");
+    try {
+        ui_node = archetype(key=key);
+    } except Exception as exc {
+        errors.append(
+            MarkupError(
+                path=elem.path,
+                message="failed to construct " + elem.tag + ": " + str(exc),
+            )
+        );
+        return (None, "");
+    }
+    _apply_attrs(ui_node, elem.tag, elem.attrs, elem.path, errors);
+
+    var_counter[0] = var_counter[0] + 1;
+    var_name = "n" + str(var_counter[0]);
+    gen_lines.append(
+        var_name + " = " + elem.tag + "(" + _ctor_args(elem.tag, elem.attrs) + ");"
+    );
+
+    for child in elem.children {
+        (child_node, child_var) = _instantiate_tracked(
+            child, registry, errors, gen_lines, var_counter
+        );
+        if child_node is None {
+            continue;
+        }
+        if not isinstance(ui_node, UiContainer) {
+            errors.append(
+                MarkupError(
+                    path=elem.path,
+                    message=elem.tag + " cannot contain children",
+                )
+            );
+            continue;
+        }
+        append_child(ui_node, child_node);
+        gen_lines.append("append_child(" + var_name + ", " + child_var + ");");
+    }
+    return (ui_node, var_name);
+}
+
+
+"""Lower markup source into a detached graph (one-time initialization)."""
 def lower_markup(
     source: str,
     registry: TagRegistry | None = None,
     print_generated: bool = False,
 ) -> LowerResult {
-    _ = (source, registry, print_generated);
-    raise NotImplementedError("Unit 12: lower_markup");
+    reg = registry;
+    if reg is None {
+        reg = default_shell_registry();
+    }
+    (roots, parse_errors) = _parse_markup(source);
+    errors: list[MarkupError] = list(parse_errors);
+    if not roots {
+        if not errors {
+            errors.append(MarkupError(path="", message="empty markup"));
+        }
+        return LowerResult(errors=errors);
+    }
+    if len(roots) > 1 {
+        errors.append(
+            MarkupError(path="", message="markup must have a single root element")
+        );
+        return LowerResult(errors=errors);
+    }
+    gen_lines: list[str] = [];
+    counter: list[int] = [0];
+    (graph_root, root_var) = _instantiate_tracked(
+        roots[0], reg, errors, gen_lines, counter
+    );
+    if errors {
+        return LowerResult(errors=errors, generated_jac="\n".join(gen_lines));
+    }
+    generated: str = "\n".join(gen_lines);
+    if print_generated and root_var {
+        generated = generated + "\n# root: " + root_var;
+    }
+    return LowerResult(
+        graph_root=graph_root,
+        errors=[],
+        generated_jac=generated,
+    );
 }
 
 
-"""Return generated Jac graph construction for markup (print-generated mode).
-
-Unit 12 implementation fills this in. Stub raises until then.
-"""
+"""Return generated Jac graph construction for markup (print-generated mode)."""
 def print_generated(source: str, registry: TagRegistry | None = None) -> str {
-    _ = (source, registry);
-    raise NotImplementedError("Unit 12: print_generated");
+    result = lower_markup(source, registry, print_generated=True);
+    if result.errors {
+        msgs = [e.message for e in result.errors];
+        raise ValueError("markup errors: " + "; ".join(msgs));
+    }
+    return result.generated_jac;
 }
