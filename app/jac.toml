@@ -26,6 +26,8 @@ default_codespace = "native"
 "ui.terminal" = "server"
 "ui.virtual_terminal" = "server"
 "ui.input" = "server"
+"ui.layout" = "server"
+"ui.renderer" = "server"
 
 [dependencies]
 httpx = "~=0.28"
