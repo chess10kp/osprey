@@ -1,4 +1,4 @@
-"""Tests for frontmatter, file mention parser, context usage, tasks, custom commands, dev mode, overlay rows."""
+"""Tests for frontmatter, file mention parser, context usage, tasks, custom commands, dev mode."""
 
 import json
 import os
@@ -69,21 +69,9 @@ from _session_permissions_toolchain import (
     load_permission_patterns as _load_patterns,
     needs_tool_approval as _needs_approval,
 )
-from _approval_display_toolchain import format_approval_display as _format_approval
-from _mermaid_render_toolchain import (
-    detect_diagram_type as _detect_type,
-    parse_flowchart as _parse_flow,
-    render_mermaid_ascii as _render_mermaid,
-)
-from _completions_toolchain import get_suggestions as _get_suggestions
 from _context_input_toolchain import (
     _safe_resolve,
     expand_context_input_sync,
-)
-from _overlay_rows_toolchain import (
-    task_status_icon,
-    format_task_overlay_row,
-    format_tasks_overlay_header,
 )
 
 
@@ -384,129 +372,6 @@ def test_needs_tool_approval_yolo():
     assert not _needs_approval("yolo", "bash", {"command": "rm -rf /tmp/x"})
 
 
-# --- Approval display tests ---
-
-
-def test_format_approval_bash():
-    result = _format_approval("bash", {"command": "echo hello"})
-    assert result["headline"] == "bash — shell command"
-    assert "echo hello" in " ".join(l["text"] for l in result["previewLines"])
-
-
-def test_format_approval_edit():
-    result = _format_approval("edit", {
-        "path": "src/main.ts",
-        "edits": [{"oldText": "old", "newText": "new"}],
-    })
-    assert result["headline"] == "edit — src/main.ts"
-    tones = [l["tone"] for l in result["previewLines"]]
-    assert "removed" in tones
-    assert "added" in tones
-
-
-def test_format_approval_subagent():
-    result = _format_approval("bash", {"command": "ls"}, subagent_name="scout")
-    assert "scout" in result["headline"] or "scout" in " ".join(result["detailLines"])
-
-
-# --- Completions tests ---
-
-
-def test_completions_slash_help():
-    results = _get_suggestions("/he")
-    assert any(r["value"] == "/help" for r in results)
-
-
-def test_completions_empty():
-    results = _get_suggestions("hello")
-    assert results == []
-
-
-def test_completions_auth_step():
-    results = _get_suggestions("a", auth_step_kind="provider_picker", providers=["anthropic", "openai"])
-    assert len(results) > 0
-    assert any("anthropic" in r["value"] for r in results)
-
-
-def test_completions_file_suggestions():
-    results = _get_suggestions("@src/", file_paths=["src/main.ts", "src/util.ts", "lib/helper.py"])
-    assert any("main.ts" in r["label"] for r in results)
-
-
-def test_completions_login_subcommand():
-    results = _get_suggestions("/login an", providers=["anthropic", "openai"])
-    assert any("anthropic" in r["value"] for r in results)
-
-
-def test_completions_custom_commands():
-    results = _get_suggestions("/my-cmd", custom_commands=["/my-cmd", "/other"])
-    assert any(r["value"] == "/my-cmd" for r in results)
-
-
-# --- Mermaid render tests ---
-
-
-def test_mermaid_detect_flowchart():
-    assert _detect_type("flowchart LR\n  A --> B") == "flowchart"
-
-
-def test_mermaid_detect_sequence():
-    assert _detect_type("sequenceDiagram\n  A->>B: hi") == "sequence"
-
-
-def test_mermaid_detect_class():
-    assert _detect_type("classDiagram\n  class Foo") == "class"
-
-
-def test_mermaid_detect_unknown():
-    assert _detect_type("something random") == "unknown"
-
-
-def test_mermaid_parse_flowchart():
-    source = "flowchart LR\n  A[Start] --> B[End]"
-    diagram = _parse_flow(source)
-    assert diagram["direction"] == "LR"
-    assert len(diagram["nodes"]) == 2
-    assert len(diagram["edges"]) == 1
-
-
-def test_mermaid_render_flowchart():
-    source = "flowchart TB\n  A[Start] --> B[End]"
-    result = _render_mermaid(source)
-    assert "Start" in result
-    assert "End" in result
-
-
-def test_mermaid_render_sequence():
-    source = "sequenceDiagram\n  participant A\n  participant B\n  A->>B: hello"
-    result = _render_mermaid(source)
-    assert "A" in result
-    assert "B" in result
-    assert "hello" in result
-
-
-def test_mermaid_render_state():
-    source = "stateDiagram-v2\n  idle --> running : start"
-    result = _render_mermaid(source)
-    assert "idle" in result
-    assert "running" in result
-
-
-def test_mermaid_render_class():
-    source = "classDiagram\n  class Foo {\n    +name: str\n    +bar()\n  }"
-    result = _render_mermaid(source)
-    assert "Foo" in result
-
-
-def test_mermaid_render_empty():
-    assert _render_mermaid("flowchart") == "(empty diagram)"
-
-
-def test_mermaid_render_unknown():
-    result = _render_mermaid("pie title\n  A: 30")
-    assert "unsupported" in result
-
-
 # --- Context input tests ---
 
 
@@ -544,27 +409,3 @@ def test_expand_context_file_mention():
         result = expand_context_input_sync(tmp, "@test.txt what do you think?")
         assert "hello from file" in result["result"]
         assert "<file" in result["result"]
-
-
-# --- Overlay rows tests ---
-
-def test_task_status_icon():
-    assert task_status_icon("pending") == "○"
-    assert task_status_icon("in_progress") == "◐"
-    assert task_status_icon("completed") == "✓"
-
-
-def test_format_task_overlay_row():
-    task = {"title": "Fix bug", "status": "pending", "description": "Critical"}
-    row = format_task_overlay_row(task, 0)
-    assert "Fix bug" in row
-    assert "Critical" in row
-
-
-def test_format_tasks_overlay_header():
-    tasks = [
-        {"title": "t", "status": "pending"},
-        {"title": "t", "status": "completed"},
-    ]
-    header = format_tasks_overlay_header(tasks)
-    assert "2 task(s)" in header

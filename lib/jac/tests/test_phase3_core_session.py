@@ -1,7 +1,6 @@
 """Tests for Phase 3 core + session Python toolchain modules.
 
 Covers:
-  - _tool_summary_toolchain  (lib/jac/core/)
   - _auto_compact_toolchain   (lib/jac/session/)
   - _session_index_toolchain  (lib/jac/session/)
 """
@@ -26,15 +25,6 @@ for _p in _sys_paths:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from _tool_summary_toolchain import (
-    enrich_tool_input_from_result,
-    format_tool_summary,
-    normalize_tool_input,
-    tool_bash_command,
-    tool_event_input,
-    tool_file_path,
-    tool_input_field,
-)
 from _auto_compact_toolchain import (
     build_llm_summary_prompt,
     build_mechanical_summary,
@@ -81,300 +71,7 @@ def _make_record(
 
 
 # =====================================================================
-# 1. _tool_summary_toolchain
-# =====================================================================
-
-
-class TestNormalizeToolInput:
-    def test_none_returns_none(self):
-        assert normalize_tool_input(None) is None
-
-    def test_dict_returns_dict(self):
-        d = {"path": "foo.jac"}
-        assert normalize_tool_input(d) == d
-
-    def test_json_object_string_returns_dict(self):
-        assert normalize_tool_input('{"path": "foo.jac"}') == {"path": "foo.jac"}
-
-    def test_json_array_string_returns_none(self):
-        assert normalize_tool_input("[1, 2, 3]") is None
-
-    def test_plain_string_returns_none(self):
-        assert normalize_tool_input("just some text") is None
-
-    def test_empty_string_returns_none(self):
-        assert normalize_tool_input("  ") is None
-
-    def test_invalid_json_string_returns_none(self):
-        assert normalize_tool_input("{broken") is None
-
-    def test_list_returns_none(self):
-        assert normalize_tool_input([1, 2, 3]) is None
-
-    def test_number_returns_none(self):
-        assert normalize_tool_input(42) is None
-
-
-class TestToolInputField:
-    def test_present_key_returns_value(self):
-        assert tool_input_field({"path": "foo.jac"}, "path") == "foo.jac"
-
-    def test_missing_key_returns_empty(self):
-        assert tool_input_field({"path": "foo.jac"}, "command") == ""
-
-    def test_none_input_returns_empty(self):
-        assert tool_input_field(None, "path") == ""
-
-    def test_null_value_returns_empty(self):
-        assert tool_input_field({"path": None}, "path") == ""
-
-    def test_non_string_value_is_stringified(self):
-        assert tool_input_field({"count": 42}, "count") == "42"
-
-
-class TestToolBashCommand:
-    def test_command_key(self):
-        assert tool_bash_command({"command": "ls -la"}) == "ls -la"
-
-    def test_cmd_key_fallback(self):
-        assert tool_bash_command({"cmd": "npm test"}) == "npm test"
-
-    def test_command_takes_precedence_over_cmd(self):
-        assert tool_bash_command({"command": "first", "cmd": "second"}) == "first"
-
-    def test_no_keys_returns_empty(self):
-        assert tool_bash_command({}) == ""
-
-    def test_none_returns_empty(self):
-        assert tool_bash_command(None) == ""
-
-
-class TestToolFilePath:
-    def test_path_key(self):
-        assert tool_file_path({"path": "a.jac"}) == "a.jac"
-
-    def test_file_path_key(self):
-        assert tool_file_path({"file_path": "b.jac"}) == "b.jac"
-
-    def test_target_file_key(self):
-        assert tool_file_path({"target_file": "c.jac"}) == "c.jac"
-
-    def test_file_key(self):
-        assert tool_file_path({"file": "d.jac"}) == "d.jac"
-
-    def test_precedence_order(self):
-        assert tool_file_path({"path": "a", "file_path": "b", "file": "c"}) == "a"
-        assert tool_file_path({"file_path": "b", "file": "c"}) == "b"
-        assert tool_file_path({"file": "c"}) == "c"
-
-    def test_none_returns_empty(self):
-        assert tool_file_path(None) == ""
-
-
-class TestFormatToolSummary:
-    def test_read_with_path(self):
-        assert format_tool_summary("read", {"path": "foo.jac"}) == "Read @ foo.jac"
-
-    def test_read_without_path(self):
-        assert format_tool_summary("read") == "Read file"
-
-    def test_write_with_path(self):
-        assert format_tool_summary("write", {"path": "out.jac"}) == "Wrote → out.jac"
-
-    def test_write_without_path(self):
-        assert format_tool_summary("write") == "Wrote file"
-
-    def test_edit_with_path(self):
-        assert format_tool_summary("edit", {"path": "main.jac"}) == "Edited main.jac"
-
-    def test_edit_without_path(self):
-        assert format_tool_summary("edit") == "Edited file"
-
-    def test_bash_with_command(self):
-        assert format_tool_summary("bash", {"command": "ls"}) == "$ ls"
-
-    def test_bash_without_command(self):
-        assert format_tool_summary("bash") == "Ran shell command"
-
-    def test_glob_with_pattern(self):
-        assert format_tool_summary("glob", {"pattern": "*.jac"}) == "Glob *.jac"
-
-    def test_glob_without_pattern(self):
-        assert format_tool_summary("glob") == "File search"
-
-    def test_agent_with_task(self):
-        assert format_tool_summary("agent", {"task": "refactor"}) == "Subagent: refactor"
-
-    def test_agent_with_prompt(self):
-        assert format_tool_summary("agent", {"prompt": "analyze"}) == "Subagent: analyze"
-
-    def test_agent_without_task(self):
-        assert format_tool_summary("agent") == "Delegated to subagent"
-
-    def test_update_task_with_id_and_status(self):
-        result = format_tool_summary("update_task", {
-            "updates": [{"id": "t1", "status": "done"}],
-        })
-        assert result == "Task t1 → done"
-
-    def test_update_task_with_multiple(self):
-        result = format_tool_summary("update_task", {
-            "updates": [{"id": "t1"}, {"id": "t2"}],
-        })
-        assert result == "Updated task t1 (+1)"
-
-    def test_update_task_no_updates(self):
-        assert format_tool_summary("update_task") == "Updated task"
-
-    def test_create_task_with_title(self):
-        assert format_tool_summary("create_task", {"title": "Fix bug"}) == "Created task: Fix bug"
-
-    def test_create_task_without_title(self):
-        assert format_tool_summary("create_task") == "Created task"
-
-    def test_mermaid(self):
-        assert format_tool_summary("mermaid") == "Rendered diagram"
-
-    def test_jac_check(self):
-        assert format_tool_summary("jac_check") == "Ran jac check"
-
-    def test_jac_check_syntax(self):
-        assert format_tool_summary("jac_check_syntax") == "Ran jac check"
-
-    def test_jac_run_with_file(self):
-        assert format_tool_summary("jac_run", {"file": "main.jac"}) == "Ran jac main.jac"
-
-    def test_jac_run_without_file(self):
-        assert format_tool_summary("jac_run") == "Ran jac file"
-
-    def test_jac_format(self):
-        assert format_tool_summary("jac_format") == "Formatted jac file(s)"
-
-    def test_jac_test(self):
-        assert format_tool_summary("jac_test") == "Ran jac test"
-
-    def test_jac_fix(self):
-        assert format_tool_summary("jac_fix") == "Ran jac fix loop"
-
-    def test_jac_doctor(self):
-        assert format_tool_summary("jac_doctor") == "Ran jac doctor"
-
-    def test_jac_create(self):
-        assert format_tool_summary("jac_create") == "Ran jac create"
-
-    def test_jac_cli_with_args(self):
-        assert format_tool_summary("jac_cli", {"args": ["check", "--verbose"]}) == "jac check --verbose"
-
-    def test_jac_cli_without_args(self):
-        assert format_tool_summary("jac_cli") == "Ran jac CLI"
-
-    def test_diagnostics(self):
-        assert format_tool_summary("diagnostics") == "Got diagnostics"
-
-    def test_hover(self):
-        assert format_tool_summary("hover") == "Looked up type info"
-
-    def test_definition(self):
-        assert format_tool_summary("definition") == "Found definition"
-
-    def test_references(self):
-        assert format_tool_summary("references") == "Found references"
-
-    def test_web_search_with_query(self):
-        assert format_tool_summary("web_search", {"search_term": "python"}) == "Web search: python"
-
-    def test_web_search_with_query_key(self):
-        assert format_tool_summary("web_search", {"query": "jac lang"}) == "Web search: jac lang"
-
-    def test_web_search_without_query(self):
-        assert format_tool_summary("web_search") == "Web search"
-
-    def test_web_fetch_with_url(self):
-        assert format_tool_summary("web_fetch", {"url": "https://example.com"}) == "Fetched https://example.com"
-
-    def test_web_fetch_without_url(self):
-        assert format_tool_summary("web_fetch") == "Fetched URL"
-
-    def test_unknown_jac_tool(self):
-        assert format_tool_summary("jac_custom") == "Ran jac_custom"
-
-    def test_unknown_tool(self):
-        assert format_tool_summary("my_custom_tool") == "Ran my_custom_tool"
-
-    def test_long_path_truncated(self):
-        long_path = "a" * 100
-        result = format_tool_summary("read", {"path": long_path})
-        assert len(result) <= 70  # "Read @ " + 60 + "…"
-        assert result.endswith("…")
-
-
-class TestEnrichToolInputFromResult:
-    def test_path_tool_already_has_path(self):
-        input_d = {"path": "foo.jac"}
-        result = enrich_tool_input_from_result("read", input_d, {"details": {"path": "bar.jac"}})
-        assert result == {"path": "foo.jac"}
-
-    def test_bash_already_has_command(self):
-        input_d = {"command": "ls"}
-        result = enrich_tool_input_from_result("bash", input_d, {"details": {"command": "pwd"}})
-        assert result == {"command": "ls"}
-
-    def test_enrich_path_from_details(self):
-        result = enrich_tool_input_from_result("read", {}, {"details": {"path": "foo.jac"}})
-        assert result == {"path": "foo.jac"}
-
-    def test_enrich_command_from_details(self):
-        result = enrich_tool_input_from_result("bash", {}, {"details": {"command": "ls -la"}})
-        assert result == {"command": "ls -la"}
-
-    def test_no_enrichment_without_details(self):
-        # Empty dict input is falsy in Python → returns None
-        result = enrich_tool_input_from_result("read", {}, {"no_details": True})
-        assert result is None
-
-    def test_none_result(self):
-        result = enrich_tool_input_from_result("read", {}, None)
-        assert result is None
-
-    def test_non_empty_input_preserved_with_none_result(self):
-        result = enrich_tool_input_from_result("read", {"extra": True}, None)
-        assert result == {"extra": True}
-
-    def test_none_input_none_result(self):
-        result = enrich_tool_input_from_result("read", None, None)
-        assert result is None
-
-    def test_enrich_file_key_from_details(self):
-        result = enrich_tool_input_from_result("read", {}, {"details": {"file": "bar.jac"}})
-        assert result == {"path": "bar.jac"}
-
-    def test_enrich_target_file_key_from_details(self):
-        result = enrich_tool_input_from_result("read", {}, {"details": {"target_file": "baz.jac"}})
-        assert result == {"path": "baz.jac"}
-
-
-class TestToolEventInput:
-    def test_from_input_key(self):
-        result = tool_event_input({"input": {"path": "foo.jac"}})
-        assert result == {"path": "foo.jac"}
-
-    def test_from_args_key(self):
-        result = tool_event_input({"args": {"command": "ls"}})
-        assert result == {"command": "ls"}
-
-    def test_input_takes_precedence(self):
-        result = tool_event_input({"input": {"path": "a"}, "args": {"path": "b"}})
-        assert result == {"path": "a"}
-
-    def test_neither_key_returns_none(self):
-        assert tool_event_input({}) is None
-
-    def test_string_input_returns_none(self):
-        assert tool_event_input({"input": "just a string"}) is None
-
-
-# =====================================================================
-# 2. _auto_compact_toolchain
+# 1. _auto_compact_toolchain
 # =====================================================================
 
 
@@ -512,7 +209,7 @@ class TestBuildLlmSummaryPrompt:
 
 
 # =====================================================================
-# 3. _session_index_toolchain
+# 2. _session_index_toolchain
 # =====================================================================
 
 
@@ -754,8 +451,11 @@ class TestPruneSessions:
     def test_prune_by_retention(self, tmp_path):
         d = str(tmp_path / "sessions")
         # One old, one recent
-        save_session_record(d, _make_record(session_id="sess_1", updated_at="2020-01-01T00:00:00Z"))
-        save_session_record(d, _make_record(session_id="sess_2", updated_at="2026-05-26T00:00:00Z"))
+        from datetime import datetime, timedelta, timezone
+        old_ts = datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
+        recent_ts = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        save_session_record(d, _make_record(session_id="sess_1", updated_at=old_ts))
+        save_session_record(d, _make_record(session_id="sess_2", updated_at=recent_ts))
         pruned = prune_sessions(d, {"retentionDays": 30})
         assert "sess_1" in pruned
         assert "sess_2" not in pruned
@@ -809,7 +509,7 @@ class TestRebuildIndex:
 
 
 # =====================================================================
-# 4. _session_persistence_toolchain
+# 3. _session_persistence_toolchain
 # =====================================================================
 
 # Ensure import path for session persistence
@@ -914,7 +614,7 @@ class TestFlushSessionRecord:
 
 
 # =====================================================================
-# 5. _auth_flow_toolchain
+# 4. _auth_flow_toolchain
 # =====================================================================
 
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "auth")))
@@ -1157,7 +857,7 @@ class TestAuthFlowStateMachine:
 
 
 # =====================================================================
-# 6. Orchestration: subagents + chains + runner helpers
+# 5. Orchestration: subagents + chains + runner helpers
 # =====================================================================
 
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "orchestration")))
