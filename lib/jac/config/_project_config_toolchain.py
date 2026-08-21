@@ -66,7 +66,7 @@ def boot_batch(cwd: str) -> dict:
 
 
 def session_boot_batch(cwd: str, project_config: dict) -> dict:
-    """Load session boot data in one call: always-allow tools, system prompt base, LSP config.
+    """Load session boot data in one call: always-allow tools, system prompt base.
 
     Parameters
     ----------
@@ -78,7 +78,6 @@ def session_boot_batch(cwd: str, project_config: dict) -> dict:
     Returns a dict with keys:
     - alwaysAllow: list of tool name strings
     - systemPromptBase: system prompt text (may be empty)
-    - lspConfig: resolved LSP config dict
     """
     import sys as _sys
     import os as _os
@@ -90,14 +89,11 @@ def session_boot_batch(cwd: str, project_config: dict) -> dict:
 
     from _session_permissions_toolchain import load_always_allow_tools as _load_always_allow
     from _system_prompt_toolchain import load_system_prompt_base as _load_sys_prompt
-    from _lsp_toolchain import resolve_lsp_config as _resolve_lsp
 
     always_allow = _load_always_allow(cwd, project_config)
     sys_prompt = _load_sys_prompt(cwd)
-    lsp_config = _resolve_lsp(cwd, project_config)
 
     return {
         "alwaysAllow": always_allow,
         "systemPromptBase": sys_prompt,
-        "lspConfig": lsp_config,
     }
