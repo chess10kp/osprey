@@ -109,6 +109,24 @@ def add_expressions(a: Expression, b: Expression) -> Expression {
 }
 
 
+"""Deterministic content key for duplicate detection (plan §5.4).
+
+Two constraints with the same normalized expression, relation, and
+strength produce the same key. Floats render via repr so the key is
+stable within and across processes for identical inputs."""
+def constraint_key(c: Constraint) -> str {
+    e = normalize_expression(c.expression);
+    parts: list[str] = [];
+    parts.append(c.relation.value);
+    parts.append(c.strength.value);
+    for t in e.terms {
+        parts.append(str(t.variable.id) + ":" + repr(t.coefficient));
+    }
+    parts.append("|" + repr(e.constant));
+    return ";".join(parts);
+}
+
+
 def eq(expr: Expression) -> Constraint {
     return Constraint(
         expression=normalize_expression(expr),

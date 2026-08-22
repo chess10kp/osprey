@@ -26,6 +26,12 @@ dist/
 __pycache__/
 *.pyc
 
+# Subagent runtime artifacts
+.pi-subagents/
+
+# App test runtime state (embedded postgres, session fixtures)
+app/.jac-test-home/
+
 # planning docs (local only)
 /docs/
 /ROADMAP.md
