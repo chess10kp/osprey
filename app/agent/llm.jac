@@ -28,16 +28,30 @@ import from .registry {
 obj Transport {
     has base_url: str = "https://api.openai.com/v1",
         api_key: str = "",
-        model: str = "";
+        model: str = "",
+        thinking: str = "";
 
-    def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
-        import httpx;
+    def _build_body(messages: list, tool_defs: list) -> dict {
+        # Single source of truth for the request body so tests can assert its
+        # exact shape without network I/O. With thinking == "" the returned
+        # dict is byte-identical to the pre-thinking-level body (no extra keys).
         body = {
             "model": self.model,
             "messages": messages,
             "stream": True,
         };
         if tool_defs { body["tools"] = tool_defs; }
+        # Reasoning effort: these bodies are OpenAI/OpenRouter chat-completion
+        # style, and OpenRouter's documented form is top-level
+        # `reasoning: {"effort": ...}` (OpenAI-compatible too via mapping).
+        # Omitted entirely when no level was requested.
+        if self.thinking { body["reasoning"] = {"effort": self.thinking}; }
+        return body;
+    }
+
+    def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        import httpx;
+        body = self._build_body(messages, tool_defs);
         headers = {};
         if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
         url = self.base_url.rstrip("/") + "/chat/completions";
@@ -99,13 +113,19 @@ obj Transport {
 
 
 """Pick a transport from the model name. Provider table lives here so the
-whole model edge is one swappable module."""
-def make_transport(model: str) -> Transport {
+whole model edge is one swappable module.
+
+`model` is always explicit (callers may override the session default global
+per turn); `thinking` optionally carries a reasoning level
+("off"|"minimal"|"low"|"medium"|"high", "" = omit from request body).
+"""
+def make_transport(model: str = "", thinking: str = "") -> Transport {
     if model.startswith("openrouter/") {
         return Transport(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY", ""),
             model=model[len("openrouter/"):],
+            thinking=thinking,
         );
     }
     if model.startswith("deepseek/") {
@@ -113,12 +133,14 @@ def make_transport(model: str) -> Transport {
             base_url="https://api.deepseek.com/v1",
             api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
             model=model[len("deepseek/"):],
+            thinking=thinking,
         );
     }
     return Transport(
         base_url=os.environ.get("OPENAI_COMPAT_BASE", "https://api.openai.com/v1"),
         api_key=os.environ.get("OPENAI_API_KEY", ""),
         model=model,
+        thinking=thinking,
     );
 }
 
@@ -385,6 +407,57 @@ test "tool defs are openai function shape" {
     assert defs[0]["type"] == "function";
     assert defs[0]["function"]["name"] == "x";
     assert defs[0]["function"]["parameters"]["type"] == "object";
+}
+
+
+test "request body omits reasoning when thinking unset" {
+    t = Transport(model="test-model");
+    assert t._build_body([], []) == {
+        "model": "test-model",
+        "messages": [],
+        "stream": True,
+    };
+}
+
+
+test "request body carries reasoning effort when thinking set" {
+    t = Transport(model="test-model", thinking="high");
+    assert t._build_body([{"role": "user", "content": "hi"}], [{"type": "function"}]) == {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "hi"}],
+        "stream": True,
+        "tools": [{"type": "function"}],
+        "reasoning": {"effort": "high"},
+    };
+    for level in ["off", "minimal", "low", "medium", "high"] {
+        t.thinking = level;
+        body = t._build_body([], []);
+        assert body["reasoning"] == {"effort": level};
+    }
+}
+
+
+test "make_transport binds explicit model and thinking per provider" {
+    tr = make_transport("openrouter/vendor/model-x", thinking="medium");
+    assert tr.base_url == "https://openrouter.ai/api/v1";
+    assert tr.model == "vendor/model-x";
+    assert tr.thinking == "medium";
+    assert tr._build_body([], [])["model"] == "vendor/model-x";
+
+    ds = make_transport("deepseek/deepseek-chat", thinking="low");
+    assert ds.model == "deepseek-chat";
+    assert ds.thinking == "low";
+
+    plain = make_transport("gpt-4o-mini", thinking="minimal");
+    assert plain.model == "gpt-4o-mini";
+    assert plain.thinking == "minimal";
+
+    # Backward-compat shapes: no thinking arg, default model arg.
+    legacy = make_transport("legacy-model");
+    assert legacy.thinking == "";
+    assert "reasoning" not in legacy._build_body([], []);
+    defaulted = make_transport();
+    assert defaulted.model == "";
 }
 
 
