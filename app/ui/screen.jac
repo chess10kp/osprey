@@ -48,6 +48,18 @@ import from ui.editor {
     AblePrompt,
 }
 
+import from ui.layout {
+    AxisSize,
+    SizeMode,
+    LayoutSpec,
+    LayoutDiagnostic,
+}
+
+import from ui.layout_state {
+    LayoutState,
+    set_spec,
+}
+
 
 obj ShellScreen {
     has screen: MainScreen,
@@ -225,4 +237,67 @@ def shell_resize(
             "payload": {"columns": columns, "rows": rows},
         }
     );
+}
+
+
+# ----------------------------------------------------------------------
+# Permanent layout configuration (LAYOUT-ENGINE-PLAN §4 invariant 9).
+# ----------------------------------------------------------------------
+
+def _fill() -> AxisSize {
+    return AxisSize(mode=SizeMode.FILL);
+}
+
+
+def _fixed(n: float) -> AxisSize {
+    return AxisSize(mode=SizeMode.FIXED, preferred=n);
+}
+
+
+def _grow(weight: float) -> AxisSize {
+    return AxisSize(mode=SizeMode.GROW, grow_weight=weight);
+}
+
+
+def _spec(width: AxisSize, height: AxisSize) -> LayoutSpec {
+    return LayoutSpec(width=width, height=height);
+}
+
+
+"""Install the permanent layout specs for the main shell (plan §4
+invariant 9): screen fills the root viewport; header/status/prompt keep
+the legacy fixed heights (1/1/2); transcript grows with scroll enabled.
+Mirrors the contracts gates.jac sets on the legacy engine so parity is
+testable at the M6 cutover.
+
+Returns the diagnostics of every failed set_spec; empty means success."""
+def configure_main_shell_layout(
+    state: LayoutState,
+    shell: ShellScreen,
+) -> list[LayoutDiagnostic] {
+    failures: list[LayoutDiagnostic] = [];
+
+    targets: list[UiNode] = [
+        shell.screen,
+        shell.header,
+        shell.transcript,
+        shell.status,
+        shell.prompt,
+    ];
+    specs: list[LayoutSpec] = [
+        _spec(_fill(), _fill()),
+        _spec(_fill(), _fixed(1.0)),
+        LayoutSpec(width=_fill(), height=_grow(1.0), scroll_vertical=True),
+        _spec(_fill(), _fixed(1.0)),
+        _spec(_fill(), _fixed(2.0)),
+    ];
+    for i in range(len(targets)) {
+        r = set_spec(state, targets[i], specs[i]);
+        if not r.ok {
+            for d in r.diagnostics {
+                failures.append(d);
+            }
+        }
+    }
+    return failures;
 }

@@ -882,7 +882,7 @@ workaround permanent.
 | M0 | | | |
 | M1 | | | |
 | M2 | | | |
-| M3 | | | |
-| M4 | | | |
+| M3 | 2026-08-24 | `d9d1539` | PASS. Incremental solver: constraint removal, edit variables, dual optimize. 26/26 solver tests. |
+| M4 | 2026-08-24 | (this commit) | PASS. Permanent types + registry lifecycle (`33018f1`); compiler templates with provenance (`ui/layout_compile.jac`, 86 tests), §7.2 largest-remainder quantizer (`ui/layout_quantize.jac`, 16 tests), `configure_main_shell_layout` in `ui.screen`. Deviation D23: partition arithmetic uses hard-claim-only split (fixed-only); soft intrinsic/bounded claims drive warnings + recursion spans only. Registry functions live in `ui.layout_state` until M6 (four permanent names collide with legacy helpers). |
 | M5 | | | |
 | M6 | | | |

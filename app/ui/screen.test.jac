@@ -7,8 +7,15 @@ import from ui.model {
     node_id,
 }
 
+import from ui.layout {
+    SizeMode,
+}
+import from ui.layout_state {
+    create_layout_state,
+}
 import from ui.runtime {
     create_session,
+    dispose_session,
     get_focus_node,
     set_focus,
 }
@@ -119,4 +126,35 @@ test "second build_main_shell reuses or refuses duplicate topology" {
         assert second is not None;
         assert node_id(second.screen) == node_id(first.screen);
     }
+}
+
+
+test "configure_main_shell_layout installs legacy-parity specs" {
+    handle = create_session();
+    session = handle.session;
+    shell = build_main_shell(session);
+    state = create_layout_state(80, 24);
+    failures = configure_main_shell_layout(state, shell);
+    assert failures == [];
+
+    # Screen fills; header/status/prompt keep legacy fixed heights;
+    # transcript grows with scroll enabled (mirrors gates.jac).
+    sid = node_id(shell.screen);
+    tid = node_id(shell.transcript);
+    hid = node_id(shell.header);
+    pid = node_id(shell.prompt);
+    stid = node_id(shell.status);
+    assert state.specs[sid].width.mode == SizeMode.FILL;
+    assert state.specs[sid].height.mode == SizeMode.FILL;
+    assert state.specs[hid].height.mode == SizeMode.FIXED;
+    assert state.specs[hid].height.preferred == 1.0;
+    assert state.specs[tid].height.mode == SizeMode.GROW;
+    assert state.specs[tid].height.grow_weight == 1.0;
+    assert state.specs[tid].scroll_vertical;
+    assert state.specs[stid].height.mode == SizeMode.FIXED;
+    assert state.specs[stid].height.preferred == 1.0;
+    assert state.specs[pid].height.mode == SizeMode.FIXED;
+    assert state.specs[pid].height.preferred == 2.0;
+
+    dispose_session(session);
 }
