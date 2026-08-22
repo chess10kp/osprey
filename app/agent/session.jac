@@ -373,8 +373,16 @@ def run_turn(message: str, on_event: any = render_event) -> str {
 }
 
 
-"""Extension commands visible to the shell/UI (name -> description meta)."""
+"""Extension commands visible to the shell/UI (name -> description meta).
+
+The bridge owns the authoritative set; this re-syncs from it so commands
+registered/unloaded after warm-up are reflected immediately.
+"""
 def list_commands() -> dict {
+    b = plugins.bridge;
+    if b is not None {
+        plugins.commands = dict((b as PluginBridge).commands);
+    }
     return dict(plugins.commands);
 }
 

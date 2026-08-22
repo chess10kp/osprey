@@ -9,7 +9,15 @@ Two frontends, one session:
 import sys;
 import os;
 import json;
-import from agent.session { run_turn, set_model, clear_history, model, json_event }
+import from agent.session {
+    run_turn,
+    set_model,
+    clear_history,
+    model,
+    json_event,
+    list_commands,
+    run_command,
+}
 
 
 def print_banner {
@@ -26,6 +34,7 @@ def print_help {
         "  /model NAME    switch model (e.g. openrouter/anthropic/claude-sonnet-5)\n"
         "  /clear         clear conversation history\n"
         "  /stats         toggle turn stats line (term mode)\n"
+        "  /commands      list extension commands\n"
         "  /exit          quit"
     );
 }
@@ -36,13 +45,41 @@ def handle_command(line: str) -> str | None {
     if line in ("/exit", "/quit") { return None; }
     if line == "/help" { print_help(); return ""; }
     if line == "/clear" { clear_history(); return "history cleared"; }
+    if line == "/commands" {
+        cmds = list_commands();
+        if not cmds { return "no extension commands loaded"; }
+        lines: list[str] = ["extension commands:"];
+        for raw_name in sorted(cmds.keys()) {
+            entry = cmds[raw_name];
+            name = str(raw_name);
+            desc = "";
+            if isinstance(entry, dict) {
+                got = entry.get("description", "");
+                if isinstance(got, str) { desc = got; }
+            }
+            if desc {
+                lines.append("  /" + name + "  " + desc);
+            } else {
+                lines.append("  /" + name);
+            }
+        }
+        return "\n".join(lines);
+    }
     if line.startswith("/model ") {
         name = line[len("/model "):].strip();
         if name { return "model -> " + set_model(name); }
         return "usage: /model NAME";
     }
     if line.startswith("/") {
-        return "unknown command: " + line + " (/help for list)";
+        # Extension commands take precedence over the unknown-command error.
+        parts = line[1:].split(None, 1);
+        name = parts[0] if parts else "";
+        args = parts[1].strip() if len(parts) > 1 else "";
+        if name and name in list_commands() {
+            return run_command(name, args);
+        }
+        hint = " (/commands for extension commands)";
+        return "unknown command: " + line + " (/help for list)" + hint;
     }
     return "";
 }
