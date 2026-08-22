@@ -848,6 +848,10 @@ def _emit_partition(
     span_flow = span_w if horizontal_flow else span_h;
     alloc = _allocate_span(flow_kids, span_flow);
     if alloc.overflow {
+        # M5 seam: hard_overflow partitions must NOT go through
+        # ui.layout_quantize.quantize_partition (no honest integer
+        # closure exists); the publisher quantizes their children
+        # clip-aware per the contract in the quantizer module docstring.
         result.diagnostics.append(LayoutDiagnostic(
             code=LayoutError.OVERFLOW,
             severity=LayoutSeverity.WARNING,

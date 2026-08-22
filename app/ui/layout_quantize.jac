@@ -25,6 +25,18 @@ LAYOUT-ENGINE-PLAN §7.2 (locked policy):
 - negative derived sizes are an internal invariant failure;
 - clips are computed AFTER quantization (M5's job).
 
+M5 INTEGRATION CONTRACT (overflow partitions): quantize_partition
+requires an exact integer closure on span. A partition whose REQUIRED
+FIXED claims exceed the parent span compiles solvable-with-warning
+(closing edge omitted, children stick out past the parent end), so it
+has NO honest integer partition and MUST NOT be handed here. The M5
+publisher handles those partitions clip-aware: quantize each child's
+edges independently (snap_edge), keep sizes as compiled, let frame
+validation clip against the parent box, and attach the OVERFLOW warning
+to the published frame. Only non-overflow partitions go through
+quantize_partition. This seam is deliberate; do not "fix" by relaxing
+the closure requirement.
+
 This module is pure: constraints.algebra constants only, no OSP types,
 no UI types, no solver, no measurement.
 """
@@ -208,7 +220,7 @@ def quantize_partition(req: PartitionRequest) -> QuantizeResult {
             );
         }
         return _quant_fail(
-            "flexible floors cannot shrink to close the deficit", -1
+            "flexible floors exceed remaining span under largest-remainder policy", -1
         );
     }
 
@@ -221,7 +233,6 @@ def quantize_partition(req: PartitionRequest) -> QuantizeResult {
             flexible.append(i);
         }
     }
-    guard = leftover;
     while leftover > 0 and len(flexible) {
         best = -1;
         for i in flexible {
@@ -232,13 +243,9 @@ def quantize_partition(req: PartitionRequest) -> QuantizeResult {
         sizes[best] += 1;
         remainders[best] -= 1.0;
         leftover -= 1;
-        guard -= 1;
-        if guard < -2 * n - 8 {
-            return _quant_fail("distribution failed to terminate", -1);
-        }
     }
 
-    res = _apply_bounds(req, fixed_flags, sizes, flexible, remainders);
+    res = _apply_bounds(req, sizes, flexible, remainders);
     return res;
 }
 
@@ -248,10 +255,14 @@ a bounded number of clamp-and-redistribute repairs to restore exact
 partition closure after a bound clamp moves cells.
 
 `remainders` carries the POST-distribution fractional state from the
-distribution loop, so repair moves respect the same ordering policy."""
+distribution loop, so repair moves respect the same ordering policy.
+
+Bounds are deliberately IGNORED for FIXED children: an explicit size
+beats every other policy (same rule as cross-axis STRETCH losing to
+FIXED), so their requests never enter imin/imax. Do not add them there
+without revisiting that decision."""
 def _apply_bounds(
     req: PartitionRequest,
-    fixed_flags: list[bool],
     sizes: list[int],
     flexible: list[int],
     remainders: list[float],
@@ -366,8 +377,6 @@ def _apply_bounds(
             break;
         }
     }
-    _ = fixed_flags;
-
     if sum(sizes) != req.span {
         return _quant_fail("partition does not close on span", -1);
     }
