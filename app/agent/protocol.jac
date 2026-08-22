@@ -328,6 +328,8 @@ glob PLUGIN_KINDS: set[str] = {
     "cmd_result",
     "hook_fire",
     "hook_done",
+    "md_transform",
+    "md_transformed",
 };
 
 

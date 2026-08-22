@@ -22,6 +22,7 @@ import from .plugin_bridge {
     load_extension_path,
     invoke_command,
     fire_hook,
+    transform_markdown,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -368,6 +369,14 @@ def run_turn(message: str, on_event: any = render_event) -> str {
                 "answer": answer,
             });
         }
+    }
+    # T2b: display-only markdown transformer chain over the complete answer,
+    # surfaced as a `message` event for JSON/UI clients (term mode ignores it
+    # — the raw stream is already printed). Never mutates session history.
+    if answer and on_event is not None {
+        xres = transform_markdown(bridge, answer);
+        shown = str(xres.get("markdown", answer)) if xres.get("ok") else answer;
+        on_event("message", {"role": "assistant", "content": shown});
     }
     return answer;
 }

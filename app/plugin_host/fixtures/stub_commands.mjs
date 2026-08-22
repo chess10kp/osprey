@@ -23,6 +23,11 @@ export default function (pi) {
     seen.push(event);
     return "ts:" + String(event?.message ?? "");
   });
+
+  // T2b: display-only markdown transformer — wraps fenced code blocks.
+  pi.registerMarkdownTransformer((markdown, _ctx) => {
+    return String(markdown ?? "").replaceAll("```", "≡≡≡");
+  });
 }
 
 /** Test introspection. */

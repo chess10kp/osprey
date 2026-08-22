@@ -10,9 +10,10 @@
  * working.
  *
  * Compat honesty (P4): this host ships **T2-partial** compatibility — tools
- * (T0/T1), commands, and lifecycle session hooks are real; events, renderers,
- * and transformers remain stubs. If an extension declares `requires` for a
- * stub surface, load fails loud — never silent success with dead stubs.
+ * (T0/T1), commands, lifecycle session hooks, and markdown transformers are
+ * real; UI events and renderers remain stubs. If an extension declares
+ * `requires` for a stub surface, load fails loud — never silent success with
+ * dead stubs.
  */
 
 import { pathToFileURL } from "node:url";
@@ -24,17 +25,20 @@ export const HOST_CAPS = [
   "updates",
   "commands",
   "session_hooks",
+  "transformers",
 ];
 export const COMPAT_TIER = "T2-partial";
 
 /** Surfaces that remain stubs today (not in HOST_CAPS). */
-const STUB_CAPS = new Set(["events", "renderers", "transformers"]);
+const STUB_CAPS = new Set(["events", "renderers"]);
 
 export function createHostState() {
   return {
     tools: new Map(),
     commands: new Map(),
     listeners: new Map(),
+    /** Ordered markdown transformers: [{ fn, extensionId }] in load order. */
+    mdTransformers: [],
     extensions: new Map(),
     cancelled: new Set(),
   };
@@ -115,6 +119,9 @@ function dropExtension(state, extensionId) {
       list.filter((l) => l.extensionId !== extensionId),
     );
   }
+  state.mdTransformers = state.mdTransformers.filter(
+    (t) => t.extensionId !== extensionId,
+  );
   state.extensions.delete(extensionId);
 }
 
@@ -194,12 +201,27 @@ function makePiApi(state, extensionId) {
       return api;
     },
 
+    registerMarkdownTransformer(fn) {
+      if (typeof fn !== "function") {
+        throw new Error("registerMarkdownTransformer requires a function");
+      }
+      if (!state.extensions.has(extensionId)) {
+        state.extensions.set(extensionId, {
+          tools: [],
+          commands: [],
+          hooks: 0,
+          transformers: 0,
+        });
+      }
+      const owned = state.extensions.get(extensionId);
+      owned.transformers = (owned.transformers ?? 0) + 1;
+      state.mdTransformers.push({ fn, extensionId });
+      return api;
+    },
+
     // ---- stubs so real Pi extensions do not crash on load ----
     // If declared in requires[], load fails before activate (see handleEnvelope).
     registerMessageRenderer(_type, _renderer) {
-      /* no-op */
-    },
-    registerMessageTransformer(_fn) {
       /* no-op */
     },
     sendMessage(_msg) {
@@ -307,7 +329,12 @@ export async function handleEnvelope(state, env, ctx = {}) {
     }
     try {
       dropExtension(state, id);
-      state.extensions.set(id, { tools: [], commands: [], hooks: 0 });
+      state.extensions.set(id, {
+        tools: [],
+        commands: [],
+        hooks: 0,
+        transformers: 0,
+      });
 
       const href = pathToFileURL(path).href;
       const mod = await import(`${href}?t=${Date.now()}`);
@@ -324,6 +351,8 @@ export async function handleEnvelope(state, env, ctx = {}) {
             id,
             tools: toolSchemasFor(state, id),
             commands: commandsFor(state, id),
+            transformers:
+              state.extensions.get(id)?.transformers ?? 0,
             compat: COMPAT_TIER,
             caps: HOST_CAPS,
           },
@@ -390,6 +419,27 @@ export async function handleEnvelope(state, env, ctx = {}) {
         },
       ];
     }
+  }
+
+  if (kind === "md_transform") {
+    // Display-only chain, run serially in extension load order. A throwing
+    // transformer keeps the output produced so far (Pi semantics).
+    let md = String(env.payload?.markdown ?? "");
+    const mctx = {
+      messageType: String(env.payload?.message_type ?? "assistant"),
+      isStreaming: Boolean(env.payload?.streaming),
+    };
+    for (const t of state.mdTransformers) {
+      try {
+        const out = await t.fn(md, mctx);
+        if (typeof out === "string") {
+          md = out;
+        }
+      } catch {
+        /* keep prior output, continue chain */
+      }
+    }
+    return [{ ...base, kind: "md_transformed", payload: { markdown: md } }];
   }
 
   if (kind === "hook_fire") {

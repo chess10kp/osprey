@@ -26,6 +26,7 @@ import from agent.plugin_bridge {
     resolve_node_bin,
     PluginBridge,
     fire_hook,
+    transform_markdown,
 }
 import from agent.registry { invoke, get_tool, ToolRegistry }
 
@@ -107,6 +108,14 @@ with entry {
         sys.exit(1);
     }
     print(f"  turn_start hook -> {hooks[0].get('result', '')}");
+    # T2b: markdown transformer chain over the same bridge.
+    xres = transform_markdown(bridge, "fenced:\n```py\nx=1\n```");
+    if not xres.get("ok") or "≡≡≡" not in str(xres.get("markdown", "")) {
+        print(f"FAIL: md_transform failed: {xres}");
+        session_dispose();
+        sys.exit(1);
+    }
+    print(f"  md_transform -> {xres.get('markdown', '').replace(chr(10), ' | ')}");
     session_dispose();
     print("dispose ok");
     print("plugin-host-smoke: PASS");

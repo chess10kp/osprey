@@ -34,6 +34,7 @@ obj FakePluginHost {
     has handlers: dict[str, any] = {},
         command_handlers: dict[str, any] = {},
         listeners: dict[str, list] = {},
+        md_transformers: list = [],
         extension_tools: dict[str, list[str]] = {},
         cancelled: set[str] = set(),
         node_version: str = "fake",
@@ -63,7 +64,8 @@ obj PluginBridge {
         host_caps: list = [],
         compat_tier: str = "T0",
         hello_payload: dict = {},
-        commands: dict = {};
+        commands: dict = {},
+        md_transformers: list = [];
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
     def invoke_js_tool(name: str, args: dict) -> str {
@@ -916,6 +918,10 @@ def unload_extension(
     for n in dead {
         bridge.commands.pop(n, None);
     }
+    bridge.md_transformers = [
+        t for t in bridge.md_transformers
+        if t.get("extension_id") != extension_id
+    ];
     if bridge.host_kind == "node" and _node_alive(bridge) {
         req = make_envelope(
             kind="ext_unload",
@@ -940,6 +946,17 @@ def unload_extension(
                 del h.handlers[name];
             }
         }
+        dead_cmds = [
+            n for n in list(h.command_handlers.keys())
+            if h.command_handlers[n].get("owner") == extension_id
+        ];
+        for n in dead_cmds {
+            del h.command_handlers[n];
+        }
+        h.md_transformers = [
+            t for t in h.md_transformers
+            if t.get("extension_id") != extension_id
+        ];
     }
     bridge.outbox.append(
         make_envelope(
@@ -1290,4 +1307,86 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
         }
     }
     return results;
+}
+
+
+# ======================= T2-partial: markdown transformers =======================
+
+"""Register a markdown transformer on the FAKE host (unit-test path)."""
+def register_fake_transformer(
+    bridge: PluginBridge,
+    fn: any,
+    extension_id: str = "fake.xform",
+) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is None {
+        raise RuntimeError("plugin host unavailable");
+    }
+    entry = {"fn": fn, "extension_id": extension_id};
+    h.md_transformers.append(entry);
+    bridge.md_transformers.append(entry);
+}
+
+
+"""Run the extension markdown-transformer chain over a complete block.
+
+Display-only (Pi semantics): the session/model context is never mutated.
+Returns {"ok": True, "markdown": <transformed>} — transformer errors keep
+the output produced so far and never fail the turn. With no host or no
+transformers this is an identity passthrough.
+"""
+def transform_markdown(
+    bridge: PluginBridge | None,
+    markdown: str,
+    message_type: str = "assistant",
+    streaming: bool = False,
+) -> dict {
+    md = str(markdown);
+    if bridge is None {
+        return {"ok": True, "markdown": md};
+    }
+    mctx = {"message_type": message_type, "isStreaming": streaming};
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="md_transform",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={
+                "markdown": md,
+                "message_type": message_type,
+                "streaming": streaming,
+            },
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "md_transformed", correlation_id=corr, timeout=10.0
+            );
+        } except Exception as e {
+            return {"ok": False, "error": str(e), "markdown": md};
+        }
+        _touch(bridge);
+        out = dict(reply.payload);
+        out["ok"] = True;
+        return out;
+    }
+    # Fake host path.
+    h = bridge.host;
+    if h is None or not h.alive {
+        return {"ok": True, "markdown": md};
+    }
+    for t in h.md_transformers {
+        try {
+            out = t["fn"](md, mctx);
+            if isinstance(out, str) {
+                md = out;
+            }
+        } except Exception {
+            # Keep prior output, continue the chain.
+        }
+    }
+    return {"ok": True, "markdown": md};
 }

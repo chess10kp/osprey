@@ -413,3 +413,75 @@ test "node host fires lifecycle hooks through the bridge" {
 
     dispose_bridge(bridge);
 }
+
+
+# ===================== T2b: markdown transformers =====================
+
+test "fake host transformer chain runs in order and isolates errors" {
+    bridge = create_bridge("s-xform");
+    reg = create_registry();
+
+    def _wrap_a(md: str, ctx: any) -> str {
+        return "a(" + str(md) + ")";
+    }
+
+    def _boom(md: str, ctx: any) -> str {
+        raise ValueError("xform failed");
+    }
+
+    def _wrap_c(md: str, ctx: any) -> str {
+        return "c[" + str(md) + "]";
+    }
+
+    register_fake_transformer(bridge, _wrap_a, extension_id="e1");
+    register_fake_transformer(bridge, _boom, extension_id="e2");
+    register_fake_transformer(bridge, _wrap_c, extension_id="e3");
+
+    res = transform_markdown(bridge, "hi");
+    assert res["ok"] is True;
+    # a applied, boom kept prior output, c wrapped the result.
+    assert res["markdown"] == "c[a(hi)]";
+
+    # Non-string returns keep prior output (chain from above still active).
+    def _none(md: str, ctx: any) -> str {
+        return 42;
+    }
+    register_fake_transformer(bridge, _none);
+    res2 = transform_markdown(bridge, "x");
+    assert res2["markdown"] == "c[a(x)]";
+
+    # Unload purges owned transformers.
+    unload_extension(bridge, reg, "e1");
+    res3 = transform_markdown(bridge, "hi");
+    assert res3["markdown"] == "c[hi]";
+
+    # Passthrough without a host.
+    empty = create_bridge("s-xform-none");
+    res4 = transform_markdown(empty, "raw");
+    assert res4 == {"ok": True, "markdown": "raw"};
+}
+
+
+test "node host transforms markdown through the bridge" {
+    bridge = create_bridge("s-t2b-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    load_extension_path(bridge, reg, "stub.commands", resolve_stub_commands());
+
+    res = transform_markdown(
+        bridge, "code:\n```py\nx=1\n```", message_type="assistant"
+    );
+    assert res["ok"] is True;
+    # stub_commands replaces ``` with ≡≡≡ (display-only chain over the wire).
+    assert "≡≡≡" in res["markdown"];
+    assert "```" not in res["markdown"];
+
+    # No transformers registered on this event path -> identity.
+    bare = create_bridge("s-t2b-bare");
+    ensure_node_host(bare);
+    res2 = transform_markdown(bare, "plain");
+    assert res2 == {"ok": True, "markdown": "plain"};
+
+    dispose_bridge(bare);
+    dispose_bridge(bridge);
+}
