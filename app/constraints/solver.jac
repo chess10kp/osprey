@@ -1,4 +1,4 @@
-"""Constraint solver — Jac port of the Kiwi simplex kernel (M0 slice).
+"""Constraint solver — Jac port of the Kiwi simplex kernel (M1/M2).
 
 Faithful adaptation of `nucleic/kiwi` `solverimpl.h` / `row.h` / `symbol.h`
 (BSD-2), which is also the differential oracle for this project
@@ -8,15 +8,15 @@ Faithful adaptation of `nucleic/kiwi` `solverimpl.h` / `row.h` / `symbol.h`
   Every iteration runs over sorted ids to reproduce C++ std::map ordering,
   which the oracle comparison depends on for tie-breaking.
 - Outcomes are typed results, not exceptions (plan §5.4).
-- Strengths will become symbolic LexWeight vectors at M2, not Kiwi's scalar
-  encoding (plan §8.2 divergence).
+- Strengths use symbolic LexWeight vectors, not Kiwi's scalar encoding. This
+  is the deliberate D20 divergence: one STRONG error dominates any finite
+  number of MEDIUM/WEAK errors.
 
-Not yet present (later milestones): non-required error symbols and
-objective cost-row semantics (M1/M2), constraint removal with marker
-pivoting (M3), edit variables / suggestValue / dualOptimize (M3), rollback
-journal (M1), content-based duplicate detection (M1). This slice gates the
-toolchain: finite floats, sparse dict rows, one deterministic solve,
-server placement.
+Not yet present (later milestones): constraint removal with marker pivoting
+(M3), edit variables / suggestValue / dualOptimize (M3). M1 required
+normalization, slack/dummy handling, deterministic pivoting, provenance,
+and exact rollback are complete. M2 adds non-required error symbols and the
+lexicographic objective cost row.
 
 Row invariant (as in kiwi/row.h): each row expresses
     constant + sum(cells[sym] * sym) == 0
@@ -27,13 +27,20 @@ import from constraints.algebra {
     EPSILON,
     Constraint,
     Expression,
+    LexWeight,
     Relation,
     StrengthTier,
     Variable,
     constraint_key,
     is_finite,
+    lex_add,
+    lex_is_negative,
+    lex_is_zero,
+    lex_scale,
+    lex_zero,
     near_zero,
     normalize_expression,
+    strength_weight,
 }
 import from constraints.results {
     ConstraintHandle,
@@ -67,8 +74,8 @@ obj MutationJournal {
         inserted_rows: list[int] = [],
         # Pre-mutation deep copies of pre-existing touched rows.
         row_snapshots: dict[int, Row] = {},
-        # Pre-mutation copy of the objective row, when touched.
-        objective_snapshot: Row | None = None;
+        # Pre-mutation copy of the lexicographic objective, when touched.
+        objective_snapshot: CostRow | None = None;
 }
 
 
@@ -153,6 +160,72 @@ obj Row {
 }
 
 
+# Lexicographic objective row. Tableau rows remain numeric; only objective
+# coefficients need symbolic tier arithmetic. The first differing component
+# (strong, medium, weak) decides every comparison, so scalar overflow or a
+# large count of weak errors can never outweigh one stronger error.
+obj CostRow {
+    has constant: LexWeight = LexWeight(),
+        cells: dict[int, LexWeight] = {};
+
+    def insert_symbol(symbol: int, coefficient: LexWeight) -> None {
+        if lex_is_zero(coefficient) {
+            return;
+        }
+        current = self.cells.get(symbol, lex_zero());
+        updated = lex_add(current, coefficient);
+        if lex_is_zero(updated) {
+            self.cells.pop(symbol);
+        } else {
+            self.cells[symbol] = updated;
+        }
+    }
+
+    def insert_row(other: Row, coefficient: LexWeight) -> None {
+        self.constant = lex_add(
+            self.constant,
+            lex_scale(coefficient, other.constant),
+        );
+        for symbol in sorted(other.cells.keys()) {
+            self.insert_symbol(
+                symbol,
+                lex_scale(coefficient, other.cells[symbol]),
+            );
+        }
+    }
+
+    def remove_symbol(symbol: int) -> None {
+        if symbol in self.cells {
+            self.cells.pop(symbol);
+        }
+    }
+
+    def clone() -> CostRow {
+        copy = CostRow(constant=LexWeight(tiers=[
+            self.constant.tiers[0],
+            self.constant.tiers[1],
+            self.constant.tiers[2],
+        ]));
+        for symbol in sorted(self.cells.keys()) {
+            weight = self.cells[symbol];
+            copy.cells[symbol] = LexWeight(tiers=[
+                weight.tiers[0], weight.tiers[1], weight.tiers[2],
+            ]);
+        }
+        return copy;
+    }
+
+    def substitute(symbol: int, row: Row) -> None {
+        coefficient = self.cells.get(symbol);
+        if coefficient is None {
+            return;
+        }
+        self.cells.pop(symbol);
+        self.insert_row(row, coefficient);
+    }
+}
+
+
 # One accepted constraint's normalized content, kept so the tableau can
 # be rebuilt under an alternate elimination order (see Solver._replay).
 obj StoredConstraint {
@@ -174,7 +247,7 @@ obj Solver {
         handle_keys: dict[int, str] = {},
         provenance: dict[int, str] = {},
         next_handle_id: int = 1,
-        objective: Row = Row(),
+        objective: CostRow = CostRow(),
         id_tick: int = 1,
         # Variable ids never collide across table rebuilds.
         next_var_id: int = 1,
@@ -200,16 +273,6 @@ obj Solver {
         # outcomes, not exceptions, at the interface).
         if not self._expression_is_finite(c_raw.expression) {
             return SolveResult(ok=False, error=SolveError.NON_FINITE_VALUE);
-        }
-        # Milestone boundary: error symbols and the symbolic objective
-        # arrive at M2; before that, non-required strengths are rejected
-        # rather than silently treated as required (plan §9 M1/M2).
-        if c_raw.strength != StrengthTier.REQUIRED {
-            return SolveResult(
-                ok=False,
-                error=SolveError.INVALID_EXPRESSION,
-                message="non-required strengths unsupported until M2",
-            );
         }
         c = Constraint(
             expression=normalize_expression(c_raw.expression),
@@ -321,10 +384,9 @@ obj Solver {
             self._insert_row(subject, row, jnl);
         }
 
-        # Optimizing after every mutation keeps the tableau consistent
-        # with smaller average work than batch optimizing (kiwi
-        # addConstraint comment). Empty objective => immediate return.
-        return self._optimize_toward(self.objective, jnl);
+        # Optimize after every mutation. The target is lexicographic, so
+        # higher tiers are exhausted before lower tiers are considered.
+        return self._optimize_cost(jnl);
     }
 
     """Rebuild the full stored history plus `candidate` from scratch under
@@ -398,6 +460,9 @@ obj Solver {
             tags[key] = tag;
         }
         scratch.cns = tags;
+        # Preserve the complete accepted set so a future rebuild after this
+        # adoption does not silently forget constraints.
+        scratch.history = list(order);
         return scratch;
     }
 
@@ -432,8 +497,10 @@ obj Solver {
         self.handle_keys = {};
         self.provenance = {};
         self.next_handle_id = 1;
-        self.objective = Row();
+        self.objective = CostRow();
         self.id_tick = 1;
+        self.next_var_id = 1;
+        self.history = [];
         self.generation = 0;
     }
 
@@ -592,12 +659,36 @@ obj Solver {
             slack = self._new_symbol_journaled(SymbolKind.SLACK, jnl);
             tag.marker = slack;
             row.insert_symbol(slack, coeff);
-            # Error symbols for non-required strengths arrive at M2.
+            if c.strength == StrengthTier.REQUIRED {
+                # A required inequality has only its non-negative slack.
+                tag.other = 0;
+            } else {
+                # LEQ violation is positive expression, hence -error; GEQ
+                # violation is negative expression, hence +error.
+                error = self._new_symbol_journaled(SymbolKind.ERROR, jnl);
+                tag.other = error;
+                row.insert_symbol(error, -coeff);
+                self._add_objective(error, strength_weight(c.strength), jnl);
+            }
         } else {
-            # Required equality: a dummy marker keeps the basis restricted.
-            dummy = self._new_symbol_journaled(SymbolKind.DUMMY, jnl);
-            tag.marker = dummy;
-            row.insert_symbol(dummy);
+            if c.strength == StrengthTier.REQUIRED {
+                # Required equality: a dummy marker keeps the basis restricted.
+                dummy = self._new_symbol_journaled(SymbolKind.DUMMY, jnl);
+                tag.marker = dummy;
+                row.insert_symbol(dummy);
+            } else {
+                # A soft equality needs two non-negative error directions.
+                # The marker/other pair is retained for future M3 removal.
+                plus = self._new_symbol_journaled(SymbolKind.ERROR, jnl);
+                minus = self._new_symbol_journaled(SymbolKind.ERROR, jnl);
+                tag.marker = plus;
+                tag.other = minus;
+                row.insert_symbol(plus, 1.0);
+                row.insert_symbol(minus, -1.0);
+                weight = strength_weight(c.strength);
+                self._add_objective(plus, weight, jnl);
+                self._add_objective(minus, weight, jnl);
+            }
         }
         if row.constant < 0.0 {
             row.reverse_sign();
@@ -705,9 +796,50 @@ obj Solver {
         }
     }
 
-    # Phase-2 simplex iterations until the target cost row is minimal
-    # (kiwi optimize / addWithArtificialVariable usage). With an empty
-    # objective this returns immediately.
+    # Add one error symbol to the symbolic objective. If the error is
+    # already basic, immediately express its cost through that basic row.
+    def _add_objective(
+        symbol: int,
+        weight: LexWeight,
+        jnl: MutationJournal,
+    ) -> None {
+        if lex_is_zero(weight) {
+            return;
+        }
+        self._touch_objective(jnl);
+        self.objective.insert_symbol(symbol, weight);
+        if symbol in self.rows {
+            self.objective.substitute(symbol, self.rows[symbol]);
+        }
+    }
+
+    # Phase-2 simplex over the symbolic objective. A negative vector means
+    # that entering the symbol improves the first tier that differs; sorted
+    # ids make equal-tier choices deterministic. This is multiobjective
+    # simplex, not a scalar approximation of Kiwi's objective.
+    def _optimize_cost(jnl: MutationJournal) -> SolveResult {
+        while True {
+            entering = self._get_entering_cost_symbol();
+            if entering == 0 {
+                return SolveResult(ok=True);
+            }
+            leaving = self._get_leaving_row(entering);
+            if leaving == 0 {
+                return SolveResult(
+                    ok=False,
+                    error=SolveError.INTERNAL_INVARIANT,
+                    message="lexicographic objective unbounded",
+                );
+            }
+            row = self._pop_row(leaving, jnl);
+            row.solve_for_symbols(leaving, entering);
+            self._substitute(entering, row, jnl);
+            self._insert_row(entering, row, jnl);
+        }
+    }
+
+    # Phase-2 simplex iterations until a numeric target cost row is minimal
+    # (used only by the artificial-variable feasibility phase).
     def _optimize_toward(
         target: Row,
         jnl: MutationJournal,
@@ -733,13 +865,25 @@ obj Solver {
         }
     }
 
-    """First non-dummy cell with negative coefficient, by ascending id
-    (kiwi getEnteringSymbol)."""
+    """First non-dummy cell with negative numeric coefficient."""
     def _get_entering_symbol(objective: Row) -> int {
         for symbol in sorted(objective.cells.keys()) {
             if (
                 self._kind_of(symbol) != SymbolKind.DUMMY
                 and objective.cells[symbol] < 0.0
+            ) {
+                return symbol;
+            }
+        }
+        return 0;
+    }
+
+    """First non-dummy cell with lexicographically negative cost."""
+    def _get_entering_cost_symbol() -> int {
+        for symbol in sorted(self.objective.cells.keys()) {
+            if (
+                self._kind_of(symbol) != SymbolKind.DUMMY
+                and lex_is_negative(self.objective.cells[symbol])
             ) {
                 return symbol;
             }

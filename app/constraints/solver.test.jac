@@ -8,6 +8,7 @@ ordering, and seeded property systems.
 import from constraints.algebra {
     Constraint,
     Expression,
+    LexWeight,
     Relation,
     StrengthTier,
     Term,
@@ -15,7 +16,9 @@ import from constraints.algebra {
     add_expressions,
     constraint_key,
     eq,
+    lex_compare,
     normalize_expression,
+    strength_weight,
 }
 # ConstraintHandle, SolveError, SolveResult, SolverSnapshot, Solver, and
 # Row come from constraints.results/constraints.solver implicitly:
@@ -153,19 +156,20 @@ test "duplicate constraints are rejected by content hash" {
     assert not dup2.ok;
     assert dup2.error == SolveError.DUPLICATE_CONSTRAINT;
 
-    # Same strength tier with different content keys differently; a
-    # non-required strength is rejected outright until M2.
+    # Same expression with a different strength is a distinct M2
+    # constraint. It is accepted as a soft error objective, not treated as
+    # a required duplicate.
     other_strength = Constraint(
         expression=e,
         relation=Relation.EQ,
         strength=StrengthTier.WEAK,
     );
     r3 = s.add_constraint(other_strength);
-    assert not r3.ok;
-    assert r3.error == SolveError.INVALID_EXPRESSION;
+    assert r3.ok;
 
-    # Generation did not advance on failures: only the first add counted.
-    assert s.generation == 1;
+    # The two accepted constraints each advance generation once; duplicate
+    # failures do not.
+    assert s.generation == 2;
 }
 
 
@@ -533,4 +537,99 @@ def _fixture_expr(vs: list[Variable], pairs: list, const: float) -> Expression {
         );
     }
     return acc;
+}
+
+
+# ----------------------------------------------------------------------
+# M2 constraint hierarchy: symbolic lexicographic objective.
+# ----------------------------------------------------------------------
+
+test "LexWeight compares tiers lexicographically" {
+    strong = strength_weight(StrengthTier.STRONG);
+    medium = strength_weight(StrengthTier.MEDIUM);
+    weak = strength_weight(StrengthTier.WEAK);
+    assert lex_compare(strong, medium) > 0;
+    assert lex_compare(medium, weak) > 0;
+    # Many lower-tier units still cannot cross one higher-tier unit.
+    many_weak = LexWeight(tiers=[0.0, 0.0, 1000000.0]);
+    assert lex_compare(strong, many_weak) > 0;
+    assert lex_compare(many_weak, strong) < 0;
+}
+
+
+test "strong soft equality dominates weak equality" {
+    s = Solver();
+    x = s.new_variable();
+    strong = Constraint(
+        expression=_sum([_vt(x), Expression(constant=-10.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.STRONG,
+    );
+    weak = Constraint(
+        expression=_vt(x),
+        relation=Relation.EQ,
+        strength=StrengthTier.WEAK,
+    );
+    assert s.add_constraint(strong).ok;
+    assert s.add_constraint(weak).ok;
+    assert s.snapshot().values[x.id] == 10.0;
+}
+
+
+test "medium soft equality dominates weak equality" {
+    s = Solver();
+    x = s.new_variable();
+    medium = Constraint(
+        expression=_sum([_vt(x), Expression(constant=-7.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.MEDIUM,
+    );
+    weak = Constraint(
+        expression=_sum([_vt(x), Expression(constant=-2.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.WEAK,
+    );
+    assert s.add_constraint(medium).ok;
+    assert s.add_constraint(weak).ok;
+    assert s.snapshot().values[x.id] == 7.0;
+}
+
+
+test "one strong error dominates many weak errors" {
+    s = Solver();
+    x = s.new_variable();
+    strong = Constraint(
+        expression=_sum([_vt(x), Expression(constant=-1000.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.STRONG,
+    );
+    assert s.add_constraint(strong).ok;
+    # Each weak equality has distinct content. Their aggregate scalar cost
+    # would be large, but lexicographic semantics must keep x at 1000.
+    for i in range(1, 21) {
+        weak = Constraint(
+            expression=_sum([_vt(x), Expression(constant=-float(i))]),
+            relation=Relation.EQ,
+            strength=StrengthTier.WEAK,
+        );
+        assert s.add_constraint(weak).ok;
+    }
+    assert s.snapshot().values[x.id] == 1000.0;
+}
+
+
+test "soft inequality minimizes only its violating side" {
+    s = Solver();
+    x = s.new_variable();
+    # Hard x == 3 and soft x <= 1: the soft error is exactly 2.
+    assert s.add_constraint(eq(_sum([
+        _vt(x), Expression(constant=-3.0),
+    ]))).ok;
+    soft = Constraint(
+        expression=_sum([_vt(x), Expression(constant=-1.0)]),
+        relation=Relation.LEQ,
+        strength=StrengthTier.STRONG,
+    );
+    assert s.add_constraint(soft).ok;
+    assert s.snapshot().values[x.id] == 3.0;
 }

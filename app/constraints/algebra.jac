@@ -49,6 +49,81 @@ enum StrengthTier {
 }
 
 
+# M2 objective coefficients are symbolic lexicographic vectors rather than
+# Kiwi's scalar 1e6/1e3/1 encoding.  A higher tier always dominates every
+# finite amount of lower-tier error.  REQUIRED constraints remain hard and
+# therefore have no objective coefficient.
+obj LexWeight {
+    has tiers: list[float] = [0.0, 0.0, 0.0];
+}
+
+
+def lex_zero() -> LexWeight {
+    return LexWeight(tiers=[0.0, 0.0, 0.0]);
+}
+
+
+def lex_add(a: LexWeight, b: LexWeight) -> LexWeight {
+    return LexWeight(tiers=[
+        a.tiers[0] + b.tiers[0],
+        a.tiers[1] + b.tiers[1],
+        a.tiers[2] + b.tiers[2],
+    ]);
+}
+
+
+def lex_neg(a: LexWeight) -> LexWeight {
+    return LexWeight(tiers=[-a.tiers[0], -a.tiers[1], -a.tiers[2]]);
+}
+
+
+def lex_scale(a: LexWeight, factor: float) -> LexWeight {
+    require_finite(factor);
+    return LexWeight(tiers=[
+        a.tiers[0] * factor,
+        a.tiers[1] * factor,
+        a.tiers[2] * factor,
+    ]);
+}
+
+
+# Return -1, 0, or 1 by the first differing tier (strong, medium, weak).
+def lex_compare(a: LexWeight, b: LexWeight) -> int {
+    for i in range(3) {
+        delta = a.tiers[i] - b.tiers[i];
+        if not near_zero(delta) {
+            return -1 if delta < 0.0 else 1;
+        }
+    }
+    return 0;
+}
+
+
+def lex_is_zero(a: LexWeight) -> bool {
+    return lex_compare(a, lex_zero()) == 0;
+}
+
+
+def lex_is_negative(a: LexWeight) -> bool {
+    return lex_compare(a, lex_zero()) < 0;
+}
+
+
+# REQUIRED is deliberately absent: hard constraints never enter the cost row.
+def strength_weight(strength: StrengthTier) -> LexWeight {
+    if strength == StrengthTier.STRONG {
+        return LexWeight(tiers=[1.0, 0.0, 0.0]);
+    }
+    if strength == StrengthTier.MEDIUM {
+        return LexWeight(tiers=[0.0, 1.0, 0.0]);
+    }
+    if strength == StrengthTier.WEAK {
+        return LexWeight(tiers=[0.0, 0.0, 1.0]);
+    }
+    return lex_zero();
+}
+
+
 obj Variable {
     has id: int;
 }
@@ -81,6 +156,9 @@ def normalize_expression(e: Expression) -> Expression {
         require_finite(t.coefficient);
         vid = t.variable.id;
         merged[vid] = merged.get(vid, 0.0) + t.coefficient;
+        # Finite input terms can still overflow when combined; reject the
+        # normalized result rather than allowing an infinity into the solver.
+        require_finite(merged[vid]);
     }
     terms: list[Term] = [];
     for vid in sorted(merged.keys()) {
