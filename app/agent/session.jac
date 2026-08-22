@@ -23,6 +23,7 @@ import from .plugin_bridge {
     invoke_command,
     fire_hook,
     transform_markdown,
+    drain_extension_traffic,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -341,6 +342,29 @@ def relay_tool_hooks(bridge: PluginBridge | None, inner: any) -> any {
 }
 
 
+"""Best-effort application of extension traffic pushed during a turn.
+
+sendMessage/sendUserMessage payloads join LLM context (history); entries
+and ui_events are transcript-only and surface as `entry` events. Never
+raises — extension traffic must not break the turn.
+"""
+def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
+    if bridge is None or on_event is None {
+        return;
+    }
+    try {
+        traffic = drain_extension_traffic(bridge);
+        for m in traffic["messages"] {
+            history.append({"role": str(m.get("role", "user")), "content": str(m.get("content", ""))});
+        }
+        for e in traffic["entries"] {
+            on_event("entry", dict(e));
+        }
+    } except Exception {
+    }
+}
+
+
 """Run one agent turn: wait for extension snapshot, then stream the loop.
 
 on_event(kind, data) is the UI boundary: the term renderer prints, the
@@ -411,6 +435,7 @@ def run_turn(message: str, on_event: any = render_event) -> str {
             });
             fire_hook(b2, "agent_end", {"answer": answer});
             fire_hook(b2, "agent_settled", {});
+            _apply_extension_traffic(b2, on_event);
         }
     }
     # T2b: display-only markdown transformer chain over the complete answer,

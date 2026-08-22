@@ -270,7 +270,7 @@ test "tool_cancel aborts slow Pi tool" {
     reg = create_registry();
     ensure_node_host(bridge);
     host = resolve_host_mjs();
-    slow = os.path.join(os.path.dirname(host), "fixtures", "pi_slow.mjs");
+    slow = os.path.join(os.path.dirname(str(host)), "fixtures", "pi_slow.mjs");
     load_extension_path(bridge, reg, "pi.slow", slow);
     # Fire invoke on a worker thread; cancel shortly after.
     import threading;
@@ -443,7 +443,7 @@ test "fake host transformer chain runs in order and isolates errors" {
     assert res["markdown"] == "c[a(hi)]";
 
     # Non-string returns keep prior output (chain from above still active).
-    def _none(md: str, ctx: any) -> str {
+    def _none(md: str, ctx: any) -> any {
         return 42;
     }
     register_fake_transformer(bridge, _none);
@@ -484,4 +484,75 @@ test "node host transforms markdown through the bridge" {
 
     dispose_bridge(bare);
     dispose_bridge(bridge);
+}
+
+
+# ===================== B1: extension traffic + control =====================
+
+test "fake host drains messages entries and ui events" {
+    bridge = create_bridge("s-b1");
+    reg = create_registry();
+
+    def _spill(args: str, ctx: any) -> str {
+        ctx["ui"].set_title("t1");
+        ctx["ui"].set_widget("w", "x");
+        return "spilled";
+    }
+
+    register_fake_command(bridge, "spill", _spill);
+    res = invoke_command(bridge, "spill", "");
+    assert res["ok"] is True;
+    assert res["ui_events"][0]["method"] == "setTitle";
+    assert res["ui_events"][1]["method"] == "setWidget";
+
+    fake_push_message(bridge, "assistant", "pushed note");
+    fake_push_entry(bridge, "note", {"k": "v"});
+    traffic = drain_extension_traffic(bridge);
+    assert traffic["messages"] == [{"role": "assistant", "content": "pushed note"}];
+    assert len(traffic["entries"]) == 3;
+    # Entries include the ui_event normalized from the command's UI calls.
+    entries: list[dict] = list(traffic["entries"]);
+    kinds: list[str] = [];
+    for entry in entries {
+        kinds.append(str(entry.get("type", "")));
+    }
+    assert "ui_event" in kinds;
+
+    # Drain clears.
+    traffic2 = drain_extension_traffic(bridge);
+    assert traffic2 == {"messages": [], "entries": []};
+}
+
+
+test "fake host enforces active tools" {
+    bridge = create_bridge("s-b1-active");
+    reg = create_registry();
+
+    def _noop() -> str {
+        return "ok";
+    }
+
+    names = load_extension(
+        bridge,
+        reg,
+        "b1.tools",
+        [{"name": "t_only", "description": "probe", "parameters": {"type": "object", "properties": {}}}],
+        {"t_only": _noop},
+    );
+
+    set_fake_active_tools(bridge, ["other_tool"]);
+    r1 = invoke(reg, "t_only", {}, bridge);
+    assert r1.startswith("ERROR:") and "not active" in r1;
+
+    set_fake_active_tools(bridge, None);
+    r2 = invoke(reg, "t_only", {}, bridge);
+    assert not r2.startswith("ERROR:");
+}
+
+
+test "session name round-trips on the bridge" {
+    bridge = create_bridge("s-b1-name");
+    ok = set_session_name(bridge, "my-session");
+    assert ok is True;
+    assert fake_session_name(bridge) == "my-session";
 }

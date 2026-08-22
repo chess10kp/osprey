@@ -14,6 +14,8 @@ import from .plugin_bridge {
     ensure_host,
     fire_hook,
     PluginBridge,
+    fake_push_message,
+    fake_push_entry,
 }
 import from .registry { invoke, get_tool, ToolRegistry }
 import from .extensions { load_extension_decls }
@@ -265,4 +267,35 @@ test "session_dispose fires session_shutdown before teardown" {
     register_fake_listener(b, "session_shutdown", _bye);
     session_dispose();
     assert seen == ["bye"];
+}
+
+
+test "extension traffic joins history and emits entry events" {
+    session_dispose();
+    st = session_boot("t-b1-traffic", os.getcwd(), []);
+    b = create_bridge("t-b1-traffic-fake");
+    plugins.bridge = b;
+    ensure_host(b);
+    fake_push_message(b, "user", "injected context");
+    fake_push_entry(b, "note", {"k": "v"});
+
+    seen: list[str] = [];
+
+    def _collect(kind: str, data: dict) {
+        seen.append(kind);
+    }
+
+    _apply_extension_traffic(b as PluginBridge, _collect);
+
+    assert history[-1] == {"role": "user", "content": "injected context"};
+    assert "entry" in seen;
+
+    # Second application with empty buffers is a no-op.
+    n = len(history);
+    _apply_extension_traffic(b as PluginBridge, _collect);
+    assert len(history) == n;
+    plugins.bridge = None;
+    dispose_bridge(b);
+    clear_history();
+    session_dispose();
 }

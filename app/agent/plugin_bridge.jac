@@ -35,6 +35,10 @@ obj FakePluginHost {
         command_handlers: dict[str, any] = {},
         listeners: dict[str, list] = {},
         md_transformers: list = [],
+        pending_messages: list = [],
+        pending_entries: list = [],
+        active_tools: any = None,
+        session_name: str = "",
         extension_tools: dict[str, list[str]] = {},
         cancelled: set[str] = set(),
         node_version: str = "fake",
@@ -65,7 +69,10 @@ obj PluginBridge {
         compat_tier: str = "T0",
         hello_payload: dict = {},
         commands: dict = {},
-        md_transformers: list = [];
+        md_transformers: list = [],
+        traffic_messages: list = [],
+        traffic_entries: list = [],
+        session_name: str = "";
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
     def invoke_js_tool(name: str, args: dict) -> str {
@@ -853,6 +860,7 @@ def load_extension_path(
         bridge.outbox.pop(0);
     }
     reply = _read_node_until(bridge, "ext_loaded", correlation_id=corr, timeout=timeout);
+    _absorb_payload(bridge, dict(reply.payload));
     err = reply.payload.get("error", "");
     if err {
         raise RuntimeError(f"ext_load failed: {err}");
@@ -1034,6 +1042,20 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
         );
         return f"ERROR: unknown js tool {name}";
     }
+    # Fake-host parity for active-tool enforcement (B1).
+    if h.active_tools is not None and name not in h.active_tools {
+        bridge.outbox.pop(0);
+        bridge.inbox.append(
+            make_envelope(
+                kind="tool_result",
+                session_id=bridge.session_id,
+                tool_id=name,
+                correlation_id=corr,
+                payload={"ok": False, "error": f"tool {name} is not active"},
+            )
+        );
+        return f"ERROR: tool {name} is not active";
+    }
     try {
         result = str(h.handlers[name](**args));
         ok = True;
@@ -1096,6 +1118,7 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
         return f"ERROR: {e}";
     }
     ok = bool(reply.payload.get("ok", False));
+    _absorb_payload(bridge, dict(reply.payload));
     if ok {
         return str(reply.payload.get("result", ""));
     }
@@ -1232,32 +1255,135 @@ def invoke_command(
     }
     notifications: list[str] = [];
     try {
-        result = entry["handler"](args, {"ui": FakeUi(notifications)});
-        return {
+        ui = FakeUi(notifications, []);
+        result = entry["handler"](args, {"ui": ui});
+        res_payload: dict = {
             "ok": True,
             "result": "" if result is None else str(result),
             "notifications": notifications,
         };
+        if ui.ui_events {
+            res_payload["ui_events"] = list(ui.ui_events);
+        }
+        _absorb_pending_fake(bridge, h);
+        _absorb_payload(bridge, res_payload);
+        return res_payload;
     } except Exception as e {
-        return {
+        err_payload: dict = {
             "ok": False,
             "error": str(e),
             "notifications": notifications,
         };
+        _absorb_pending_fake(bridge, h);
+        return err_payload;
     }
 }
 
 
-"""Minimal UI surface handed to fake-host handlers; collects notifications."""
+"""Absorb extension traffic (message pushes, entries, ui_events, session
+name) from a reply payload into bridge tracking buffers. Tolerates junk."""
+def _absorb_payload(bridge: PluginBridge, payload: dict) {
+    msgs: any = payload.get("messages", []);
+    if isinstance(msgs, list) {
+        for m in msgs {
+            if isinstance(m, dict) {
+                bridge.traffic_messages.append({
+                    "role": str(m.get("role", "user")),
+                    "content": str(m.get("content", "")),
+                });
+            }
+        }
+    }
+    ents: any = payload.get("entries", []);
+    if isinstance(ents, list) {
+        for e in ents {
+            if isinstance(e, dict) {
+                bridge.traffic_entries.append(dict(e));
+            }
+        }
+    }
+    uis: any = payload.get("ui_events", []);
+    if isinstance(uis, list) {
+        for u in uis {
+            if isinstance(u, dict) {
+                bridge.traffic_entries.append({
+                    "type": "ui_event",
+                    "method": str(u.get("method", "")),
+                    "args": u.get("args", []),
+                });
+            }
+        }
+    }
+    sn = payload.get("session_name", "");
+    if sn {
+        bridge.session_name = str(sn);
+    }
+}
+
+
+"""Pull per-listener ui_events buckets out of hook results."""
+def _absorb_hook_results(bridge: PluginBridge, results: list) {
+    for r in results {
+        if isinstance(r, dict) and r.get("ui_events") {
+            _absorb_payload(bridge, {"ui_events": r["ui_events"]});
+        }
+    }
+}
+
+def _absorb_pending_fake(bridge: PluginBridge, h: FakePluginHost) {
+    if h.pending_messages {
+        msgs = h.pending_messages;
+        h.pending_messages = [];
+        _absorb_payload(bridge, {"messages": msgs});
+    }
+    if h.pending_entries {
+        ents = h.pending_entries;
+        h.pending_entries = [];
+        _absorb_payload(bridge, {"entries": ents});
+    }
+}
+
+
+"""Minimal UI surface handed to fake-host handlers; collects notifications
+and display-method ui_events (parity with the JS makeUi surface)."""
 obj FakeUi {
-    has notifications: list[str];
+    has notifications: list[str],
+        ui_events: list;
 
     def notify(message: str, level: str = "info") {
         self.notifications.append(str(message));
     }
 
+    def _record(method: str, args: list) {
+        self.ui_events.append({"method": method, "args": args});
+    }
+
     def set_status(owner: str, text: str) {
-        # Native-UI surface — accepted on the wire, not rendered.
+        self._record("setStatus", [text]);
+    }
+
+    def set_widget(id: str, text: str) {
+        self._record("setWidget", [id, text]);
+    }
+
+    def set_footer(text: str) {
+        self._record("setFooter", [text]);
+    }
+
+    def set_title(text: str) {
+        self._record("setTitle", [text]);
+    }
+
+    def select(_title: str, _options: list) -> any {
+        return None;
+    }
+
+    def confirm(_message: str) -> bool {
+        return False;
+    }
+
+    def input(_message: str, _default: str = "") -> str {
+        return "";
     }
 }
 
@@ -1285,7 +1411,10 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
         }
         _touch(bridge);
         raw: any = reply.payload.get("results", []);
-        return raw if isinstance(raw, list) else [];
+        out_list: list = raw if isinstance(raw, list) else [];
+        _absorb_payload(bridge, dict(reply.payload));
+        _absorb_hook_results(bridge, out_list);
+        return out_list;
     }
     # Fake host path.
     h = bridge.host;
@@ -1296,16 +1425,23 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
     for handler in h.listeners.get(event, []) {
         notifications: list[str] = [];
         try {
-            out = handler(data, {"ui": FakeUi(notifications)});
-            results.append({
+            ui = FakeUi(notifications, []);
+            out = handler(data, {"ui": ui});
+            entry_r: dict = {
                 "ok": True,
                 "result": "" if out is None else str(out),
                 "notifications": notifications,
-            });
+            };
+            if ui.ui_events {
+                entry_r["ui_events"] = list(ui.ui_events);
+            }
+            results.append(entry_r);
         } except Exception as e {
             results.append({"ok": False, "error": str(e), "notifications": notifications});
         }
     }
+    _absorb_pending_fake(bridge, h);
+    _absorb_hook_results(bridge, results);
     return results;
 }
 
@@ -1371,6 +1507,7 @@ def transform_markdown(
         _touch(bridge);
         out = dict(reply.payload);
         out["ok"] = True;
+        _absorb_payload(bridge, out);
         return out;
     }
     # Fake host path.
@@ -1380,7 +1517,7 @@ def transform_markdown(
     }
     for t in h.md_transformers {
         try {
-            out = t["fn"](md, mctx);
+            out: any = t["fn"](md, mctx);
             if isinstance(out, str) {
                 md = out;
             }
@@ -1389,4 +1526,93 @@ def transform_markdown(
         }
     }
     return {"ok": True, "markdown": md};
+}
+
+
+# ======================= B1: extension traffic drain + control =======================
+
+"""Pop accumulated extension traffic (messages pushed via sendMessage/
+sendUserMessage; entries/ui_events from appendEntry + display UI calls).
+Returns {"messages": [...], "entries": [...]} and clears the buffers."""
+def drain_extension_traffic(bridge: PluginBridge | None) -> dict {
+    if bridge is None {
+        return {"messages": [], "entries": []};
+    }
+    h = bridge.host;
+    if h is not None {
+        _absorb_pending_fake(bridge, h);
+        if h.session_name {
+            _absorb_payload(bridge, {"session_name": h.session_name});
+        }
+    }
+    out: dict = {
+        "messages": list(bridge.traffic_messages),
+        "entries": list(bridge.traffic_entries),
+    };
+    bridge.traffic_messages.clear();
+    bridge.traffic_entries.clear();
+    return out;
+}
+
+
+"""Set the host-side session name (round-trips through any envelope)."""
+def set_session_name(bridge: PluginBridge, name: str, timeout: float = 5.0) -> bool {
+    bridge.session_name = str(name);
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="hook_fire",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"event": "__session_name", "data": {}, "session_name": str(name)},
+        );
+        try {
+            _write_node(bridge, req);
+            _read_node_until(
+                bridge, "hook_done", correlation_id=corr, timeout=timeout
+            );
+        } except Exception as e {
+            return False;
+        }
+    }
+    h = bridge.host;
+    if h is not None {
+        h.session_name = str(name);
+    }
+    return True;
+}
+
+
+# ---- fake-host helpers (unit-test parity for the JS API surface) ----
+
+def fake_push_message(bridge: PluginBridge, role: str, content: str) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is not None {
+        h.pending_messages.append({"role": role, "content": content});
+    }
+}
+
+
+def fake_push_entry(bridge: PluginBridge, type: str, data: dict) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is not None {
+        h.pending_entries.append({"type": type, "data": data});
+    }
+}
+
+
+def set_fake_active_tools(bridge: PluginBridge, names: list | None) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is not None {
+        h.active_tools = list(names) if names is not None else None;
+    }
+}
+
+
+def fake_session_name(bridge: PluginBridge) -> str {
+    return str(bridge.session_name);
 }
