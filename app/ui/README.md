@@ -15,18 +15,33 @@ side tables — never on graph nodes and never under Jac's persistent `root`.
 | `bindings.jac` | Domain source → UI target subscriptions (no cross-lifetime edges) |
 | `events.jac` | Typed walkers, target-and-bubble dispatch, effects |
 | `width.jac` | ANSI-aware display width, wrap, truncate |
+| `cells.jac` | Styled retained cells, SGR attrs, wide-grapheme blit, buffer diff |
+| `markdown_proj.jac` | Markdown → styled span lines (projection, not component tree) |
 | `terminal.jac` / `virtual_terminal.jac` | Process + in-memory terminal adapters |
-| `input.jac` | Byte → semantic event normalization / coalescing |
-| `layout.jac` | Measure/arrange side tables (contracts, rects, clips) |
-| `renderer.jac` | Retained damage, cell diff, one synchronized ANSI update |
+| `input.jac` | Byte → semantic event normalization / coalescing / ESC timeout |
+| `host.jac` | Process/virtual host tick: poll → decode → coalesce |
+| `layout.jac` | Measure/arrange side tables (contracts, rects, clips, scroll clamp) |
+| `renderer.jac` | Retained damage, styled cell diff, cursor show/hide, sync ANSI |
 | `screen.jac` | Jackal shell topology + editor / approval lifecycle |
-| `transcript.jac` | Visible+overscan virtualization, measure cache, follow-tail |
-| `inspect.jac` | Deterministic dumps + invariant validation |
-| `markup.jac` | One-time tag → graph lowering (`--print-generated`) |
+| `editor.jac` | Multiline draft, caret, selection, history; `AblePrompt` abilities |
+| `transcript.jac` | Visible+overscan virtualization, measure cache, follow-tail, spans |
+| `inspect.jac` | Deterministic dumps + invariant validation + leak narratives |
+| `n1_acceptance.jac` | N1 product-bar harness (resize, cancel, restore, retained paint) |
+| `markup.jac` | One-time tag → graph lowering — keep thin while authoring is unsettled |
 | `gates.jac` | Architecture gates 1–6 |
 | `progress_bar.jac` | Gate 5 external widget (also under `widgets/progress/`) |
+| `demo_complex_shell.jac` | Headless VirtualTerminal validation (PASS report, no TTY) |
+| `demo_live_shell.jac` | Interactive ProcessTerminal TUI session |
 
 Identity outside the graph is always `jid(node)` / `node_id(n)`.
+
+## Authoring pause
+
+While markup/DSL is unsettled: ship **runtime substrate** (cells, host loop,
+layout, transcript projection, protocol→shell, editor, inspect, N1 harness).
+Do not grow markup relations/bindings/handlers-in-markup or freeze `list[str]`
+as the forever paint DSL — strings remain an interim host convenience that
+lowers to styled cells.
 
 ## Lifetimes
 
@@ -46,8 +61,8 @@ Gate 1 asserts no UI jid is reachable from persistent `root`, and that dispose e
 - containment cycles, duplicate sibling keys, non-increasing ranks
 
 Inspection dumps (`dump_graph`, `dump_bindings`, `dump_event_path`,
-`explain_invalidation`, `dump_layout`, `dump_damage`, `dump_lifetimes`) read the
-semantic graph plus side tables only.
+`explain_invalidation`, `dump_layout`, `dump_damage`, `dump_lifetimes`,
+`dump_leak_narrative`) read the semantic graph plus side tables only.
 
 ## Migration rules
 
@@ -64,37 +79,37 @@ semantic graph plus side tables only.
 ```bash
 cd app
 export HOME="${HOME:-$PWD}/.jac-test-home"   # avoid /tmp tmpfs pressure
-JAC_TEST_JOBS=0 jac test ui/model.jac
-JAC_TEST_JOBS=0 jac test ui/transcript.jac
-JAC_TEST_JOBS=0 jac test ui/inspect.jac
-JAC_TEST_JOBS=0 jac test ui/markup.jac
+JAC_TEST_JOBS=0 jac test ui/cells.jac
+JAC_TEST_JOBS=0 jac test ui/markdown_proj.jac
+JAC_TEST_JOBS=0 jac test ui/renderer.jac
+JAC_TEST_JOBS=0 jac test ui/input.jac
+JAC_TEST_JOBS=0 jac test ui/host.jac
+JAC_TEST_JOBS=0 jac test ui/editor.jac
+JAC_TEST_JOBS=0 jac test ui/n1_acceptance.jac
 JAC_TEST_JOBS=0 jac test ui/gates.jac
+JAC_TEST_JOBS=0 jac test agent/protocol.jac
+# Headless N1 report:
+JACPATH=. jac run ui/n1_acceptance.jac
+# Headless shell demo:
+JACPATH=. jac run ui/demo_complex_shell.jac
+# Interactive live TUI (requires a real terminal):
+JACPATH=. jac run ui/demo_live_shell.jac
 jac check .
-
-# Individual gates (same module):
-JACPATH=app jac run - <<'EOF'   # or import run_gateN from ui.gates in a .jac file
-EOF
 ```
 
 If pg-embed init fails after a crashed run: `rm -rf ~/.cache/jac/pg/main`
 (and prefer a disk-backed `HOME`, not a full `/tmp` tmpfs).
 
-## Gate 4 benchmark (recorded)
+## Gate 4 benchmark
 
-Measured on the Unit 13 harness (`run_gate4_invalidation_bench`), 80×24
-virtual terminal, shell insert + two retained frames:
+Measured on `run_gate4_invalidation_bench` with header/transcript/status/prompt
+content wired (80×24). Re-run to refresh:
 
-| Metric | Value |
-|--------|------:|
-| `nodes_queried` | 6 |
-| `cells_written` (sum) | 0* |
-| `latency_ms` | ~2.5 |
-| `full_frame_cells` | 1920 |
-| `retained_cells` | 0* |
+```bash
+cd app && JACPATH=. jac run -c 'import from ui.gates { run_gate4_invalidation_bench }; print(run_gate4_invalidation_bench())'
+```
 
-\*Empty content contracts produce zero cell writes in this minimal shell paint;
-the important assertion is `retained_cells <= full_frame_cells`. Re-run the
-harness after wiring transcript/status content to refresh these numbers.
+Assert `retained_cells <= full_frame_cells` and first-frame `cells_written > 0`.
 
 ## Gates summary
 

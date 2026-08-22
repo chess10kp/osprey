@@ -40,6 +40,17 @@ import from ui.terminal {
     synchronized_write,
 }
 
+import from ui.cells {
+    CellBuffer,
+    StyleAttrs,
+    StyledCell,
+    create_buffer,
+    buffer_clear_rect,
+    buffer_blit_text,
+    buffer_to_plain_rows,
+    diff_buffers_ansi,
+}
+
 
 obj DamageRect {
     has rect: Rect = Rect(),
@@ -54,6 +65,7 @@ obj FrameResult {
         patch_rects: list[Rect] = [],
         cursor_row: int = -1,
         cursor_col: int = -1,
+        cursor_visible: bool = False,
         sync_wrapped: bool = False;
 }
 
@@ -72,14 +84,15 @@ obj CursorPos {
 
 obj Renderer {
     has layout: LayoutTables,
-        # Retained previous frame as row strings (display cells, no ANSI).
-        previous: list[str] = [],
+        # Retained previous frame as styled cells (OSPUI §15.1).
+        previous: CellBuffer | None = None,
         damage: list[DamageRect] = [],
         cursor_node_id: str = "",
         cursor_row_offset: int = 0,
         cursor_col_offset: int = 0,
         last_cursor_row: int = -1,
         last_cursor_col: int = -1,
+        last_cursor_visible: bool = False,
         graph_revision: int = 0,
         # Node ids marked dirty before measure clears the flags.
         pending_semantic: set[str] = set(),
@@ -148,56 +161,59 @@ def detach_node(renderer: Renderer, n: UiNode) {
 }
 
 
-def _blank_rows(columns: int, rows: int) -> list[str] {
-    blank = " " * columns;
-    out: list[str] = [];
-    for _i in range(rows) {
-        out.append(blank);
-    }
-    return out;
+def _blank_buffer(columns: int, rows: int) -> CellBuffer {
+    return create_buffer(columns, rows);
 }
 
 
-def _set_cell(rows: list[str], row: int, col: int, ch: str, columns: int) {
-    if row < 0 or row >= len(rows) or col < 0 or col >= columns {
+def _set_cell(
+    buf: CellBuffer,
+    row: int,
+    col: int,
+    ch: str,
+    attrs: StyleAttrs | None = None,
+) {
+    if row < 0 or row >= buf.rows or col < 0 or col >= buf.columns {
         return;
     }
-    line = rows[row];
-    if col >= len(line) {
-        line = line + (" " * (col + 1 - len(line)));
-    }
-    rows[row] = line[:col] + ch + line[col + 1:];
+    style = attrs if attrs is not None else StyleAttrs();
+    buf.cells[row][col] = StyledCell(
+        ch=ch if ch else " ",
+        attrs=StyleAttrs(
+            fg=style.fg,
+            bg=style.bg,
+            bold=style.bold,
+            dim=style.dim,
+            italic=style.italic,
+            underline=style.underline,
+            reverse=style.reverse,
+        ),
+    );
 }
 
 
 def _paint_text_into(
-    rows: list[str],
+    buf: CellBuffer,
     text: str,
     row: int,
     col: int,
-    columns: int,
     max_width: int,
+    attrs: StyleAttrs | None = None,
 ) {
     if max_width <= 0 {
         return;
     }
-    x = col;
-    for ch in text {
-        if x >= col + max_width or x >= columns {
-            break;
-        }
-        _set_cell(rows, row, x, ch, columns);
-        x += 1;
-    }
+    buffer_blit_text(buf, row, col, text, attrs, max_width);
 }
 
 
 def _paint_entry_lines(
-    rows: list[str],
+    buf: CellBuffer,
     layout_entry: LayoutEntry,
     columns: int,
     rows_n: int,
 ) {
+    _ = (columns, rows_n);
     rect = layout_entry.rect;
     clip = layout_entry.clip if not layout_entry.clip.is_empty() else rect;
     if clip.is_empty() or rect.is_empty() {
@@ -211,22 +227,20 @@ def _paint_entry_lines(
     for vis_i in range(clip.height) {
         src_i = vis_i + scroll;
         term_row = clip.y + vis_i;
-        if term_row < 0 or term_row >= rows_n {
+        if term_row < 0 or term_row >= buf.rows {
             continue;
         }
-        for c in range(clip.width) {
-            _set_cell(rows, term_row, clip.x + c, " ", columns);
-        }
+        buffer_clear_rect(buf, clip.x, term_row, clip.width, 1);
         if src_i < 0 or src_i >= len(lines) {
             continue;
         }
         _paint_text_into(
-            rows,
+            buf,
             lines[src_i],
             term_row,
             clip.x,
-            columns,
             clip.width,
+            None,
         );
     }
 }
@@ -235,7 +249,7 @@ def _paint_entry_lines(
 def _paint_tree(
     tables: LayoutTables,
     n: UiNode,
-    rows: list[str],
+    buf: CellBuffer,
     columns: int,
     rows_n: int,
 ) {
@@ -243,32 +257,32 @@ def _paint_tree(
     if entry is not None {
         if entry.contract.kind != LayoutKind.OVERLAY {
             if entry.wrapped_lines or node_id(n) in tables.content {
-                _paint_entry_lines(rows, entry, columns, rows_n);
+                _paint_entry_lines(buf, entry, columns, rows_n);
             }
         }
     }
     if isinstance(n, UiContainer) {
         for child in flow_children(tables, n) {
-            _paint_tree(tables, child, rows, columns, rows_n);
+            _paint_tree(tables, child, buf, columns, rows_n);
         }
     }
 }
 
 
-def _paint_frame_rows(renderer: Renderer, layout_root: UiNode) -> list[str] {
+def _paint_frame_buffer(renderer: Renderer, layout_root: UiNode) -> CellBuffer {
     cols = renderer.layout.columns;
     rows_n = renderer.layout.rows;
-    rows = _blank_rows(cols, rows_n);
-    _paint_tree(renderer.layout, layout_root, rows, cols, rows_n);
+    buf = _blank_buffer(cols, rows_n);
+    _paint_tree(renderer.layout, layout_root, buf, cols, rows_n);
     if isinstance(layout_root, Screen) {
         for overlay in layer_overlays(layout_root) {
             entry = get_entry(renderer.layout, overlay);
             if entry is not None {
-                _paint_entry_lines(rows, entry, cols, rows_n);
+                _paint_entry_lines(buf, entry, cols, rows_n);
             }
         }
     }
-    return rows;
+    return buf;
 }
 
 
@@ -329,7 +343,7 @@ def compute_damage(renderer: Renderer, layout_root: UiNode) -> list[DamageRect] 
         out.append(d);
     }
     _walk_damage(renderer, layout_root, out);
-    if not renderer.previous {
+    if renderer.previous is None {
         out.append(
             DamageRect(
                 rect=Rect(
@@ -370,49 +384,15 @@ def _pad_row(row: str, columns: int) -> str {
 
 
 def _diff_ansi(
-    previous: list[str],
-    desired: list[str],
+    previous: CellBuffer | None,
+    desired: CellBuffer,
     patch_rects: list[Rect],
     columns: int,
     rows_n: int,
 ) -> AnsiDiff {
-    parts: list[str] = [];
-    cells = 0;
-    rects = patch_rects;
-    if not rects {
-        rects = [Rect(x=0, y=0, width=columns, height=rows_n)];
-    }
-    for rect in rects {
-        y0 = max(0, rect.y);
-        y1 = min(rows_n, rect.bottom());
-        x0 = max(0, rect.x);
-        x1 = min(columns, rect.right());
-        for y in range(y0, y1) {
-            want = _pad_row(desired[y] if y < len(desired) else "", columns);
-            had = _pad_row(previous[y] if y < len(previous) else "", columns);
-            run_start = -1;
-            for x in range(x0, x1) {
-                wc = want[x] if x < len(want) else " ";
-                hc = had[x] if x < len(had) else " ";
-                if wc != hc {
-                    if run_start < 0 {
-                        run_start = x;
-                    }
-                } elif run_start >= 0 {
-                    segment = want[run_start:x];
-                    parts.append(f"\x1b[{y + 1};{run_start + 1}H{segment}");
-                    cells += len(segment);
-                    run_start = -1;
-                }
-            }
-            if run_start >= 0 {
-                segment = want[run_start:x1];
-                parts.append(f"\x1b[{y + 1};{run_start + 1}H{segment}");
-                cells += len(segment);
-            }
-        }
-    }
-    return AnsiDiff(text="".join(parts), cells_written=cells);
+    _ = (columns, rows_n);
+    diff = diff_buffers_ansi(previous, desired, patch_rects);
+    return AnsiDiff(text=diff.text, cells_written=diff.cells_written);
 }
 
 
@@ -444,7 +424,20 @@ def desired_cells(renderer: Renderer, layout_root: UiNode) -> list[str] {
         renderer.layout.columns,
         renderer.layout.rows,
     );
-    return _paint_frame_rows(renderer, layout_root);
+    buf = _paint_frame_buffer(renderer, layout_root);
+    return buffer_to_plain_rows(buf);
+}
+
+
+"""Materialize the desired styled cell buffer without writing a terminal."""
+def desired_buffer(renderer: Renderer, layout_root: UiNode) -> CellBuffer {
+    measure_and_arrange(
+        renderer.layout,
+        layout_root,
+        renderer.layout.columns,
+        renderer.layout.rows,
+    );
+    return _paint_frame_buffer(renderer, layout_root);
 }
 
 
@@ -471,13 +464,21 @@ def render_frame(
 
     measure_and_arrange(renderer.layout, layout_root, cols, rows_n);
     damage = compute_damage(renderer, layout_root);
-    desired = _paint_frame_rows(renderer, layout_root);
+    desired = _paint_frame_buffer(renderer, layout_root);
     patch_rects = _merge_damage(damage);
     diff = _diff_ansi(renderer.previous, desired, patch_rects, cols, rows_n);
     cursor = _resolve_cursor(renderer);
+    cursor_visible = cursor.row >= 0 and cursor.col >= 0;
     ansi = diff.text;
-    if cursor.row >= 0 and cursor.col >= 0 {
+    if cursor_visible {
+        if not term.cursor_visible {
+            term.show_cursor();
+        }
         ansi = ansi + f"\x1b[{cursor.row + 1};{cursor.col + 1}H";
+    } else {
+        if term.cursor_visible {
+            term.hide_cursor();
+        }
     }
     synchronized_write(term, ansi);
     renderer.previous = desired;
@@ -487,6 +488,7 @@ def render_frame(
     snapshot_rects(renderer.layout);
     renderer.last_cursor_row = cursor.row;
     renderer.last_cursor_col = cursor.col;
+    renderer.last_cursor_visible = cursor_visible;
     return FrameResult(
         damage=damage,
         cells_written=diff.cells_written,
@@ -494,6 +496,7 @@ def render_frame(
         patch_rects=patch_rects,
         cursor_row=cursor.row,
         cursor_col=cursor.col,
+        cursor_visible=cursor_visible,
         sync_wrapped=True,
     );
 }

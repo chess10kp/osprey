@@ -340,7 +340,8 @@ test "Resize walker carries terminal dimensions" {
     append_child_session(session, ui_root, screen);
     set_current_screen(session, screen);
     # OSPUI.md: walker Resize(UiEvent) { has width: int; has height: int; }
-    event = dispatch_event(session, Resize(width=120, height=40), screen);
+    event = Resize(width=120, height=40);
+    dispatch_event(session, event, screen);
     assert event.width == 120;
     assert event.height == 40;
     assert not event.handled;

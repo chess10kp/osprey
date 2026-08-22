@@ -198,3 +198,17 @@ test "unicode text survives normalization as TextEvent" {
     text = events[0] as TextEvent;
     assert text.text == "你";
 }
+
+
+test "esc timeout emits escape after armed delay" {
+    norm = InputNormalizer();
+    norm.esc_timeout_ms = 40;
+    held = norm.feed("\x1b");
+    assert held == [];
+    norm.arm_esc(100.0);
+    assert norm.flush_esc_timeout(120.0) == [];
+    late = norm.flush_esc_timeout(150.0);
+    assert len(late) == 1;
+    assert (late[0] as KeyEvent).key == "escape";
+    assert norm.buffer == "";
+}

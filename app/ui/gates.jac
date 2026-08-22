@@ -41,6 +41,9 @@ import from ui.layout {
     LayoutContract,
     LayoutKind,
     set_contract,
+    set_content,
+    fixed,
+    grow,
 }
 
 import from ui.renderer {
@@ -195,10 +198,18 @@ def run_gate4_invalidation_bench() -> Gate4Report {
         shell.screen,
         LayoutContract(kind=LayoutKind.VIEWPORT, fixed_width=80, fixed_height=24),
     );
+    set_contract(renderer.layout, shell.header, fixed(height=1));
+    set_contract(renderer.layout, shell.transcript, grow());
+    set_contract(renderer.layout, shell.status, fixed(height=1));
+    set_contract(renderer.layout, shell.prompt, fixed(height=2));
+    set_content(renderer.layout, shell.header, ["Jackal"]);
+    set_content(renderer.layout, shell.transcript, ["hello retained stream"]);
+    set_content(renderer.layout, shell.status, ["ready"]);
+    set_content(renderer.layout, shell.prompt, ["> "]);
 
     t0 = perf_counter();
     frame1 = render_frame(renderer, shell.screen, term);
-    shell_insert_text(session, shell, "x");
+    set_content(renderer.layout, shell.transcript, ["hello retained stream!"]);
     frame2 = render_frame(renderer, shell.screen, term);
     t1 = perf_counter();
 

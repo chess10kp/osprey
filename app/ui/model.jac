@@ -47,6 +47,11 @@ node TranscriptView(UiRegion) {
 node Prompt(UiRegion) {
     has draft: str = "";
     has mode: str = "insert";
+    has caret: int = 0;
+    has sel_anchor: int = -1;
+    has sel_end: int = -1;
+    has history: list[str] = [];
+    has history_index: int = -1;
 }
 
 

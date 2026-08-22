@@ -316,14 +316,34 @@ def decode_sequence(seq: str) -> HostEvent {
 }
 
 
-"""Stateful stdin normalizer with paste mode and incomplete-escape buffering."""
+obj EofEvent(HostEvent) {
+    def init() {
+        self.kind = "eof";
+    }
+}
+
+
+obj InterruptEvent(HostEvent) {
+    def init() {
+        self.kind = "interrupt";
+    }
+}
+
+
+"""Stateful stdin normalizer with paste mode and incomplete-escape buffering.
+
+Lone ESC stays incomplete until a follow-up byte arrives or
+`flush_esc_timeout(now_ms)` fires after `esc_timeout_ms` (default 50ms).
+"""
 obj InputNormalizer {
     has buffer: str = "",
         paste_mode: bool = False,
         paste_buffer: str = "",
         pending_resize: ResizeEvent | None = None,
         pending_mouse: MouseEvent | None = None,
-        pending_stream: str = "";
+        pending_stream: str = "",
+        esc_timeout_ms: int = 50,
+        esc_armed_at_ms: float = -1.0;
 
     def feed(data: str) -> list[HostEvent] {
         if not data and not self.buffer {
@@ -395,7 +415,38 @@ obj InputNormalizer {
                 out.append(event);
             }
         }
+        # Arm ESC timeout only while a lone ESC remains incomplete.
+        if self.buffer == ESC {
+            if self.esc_armed_at_ms < 0.0 {
+                self.esc_armed_at_ms = 0.0;
+            }
+        } else {
+            self.esc_armed_at_ms = -1.0;
+        }
         return out;
+    }
+
+    """Arm lone-ESC timer with wall-clock ms (call after feed when buffer is ESC)."""
+    def arm_esc(now_ms: float) {
+        if self.buffer == ESC {
+            self.esc_armed_at_ms = now_ms;
+        }
+    }
+
+    """If lone ESC has been pending longer than esc_timeout_ms, emit escape."""
+    def flush_esc_timeout(now_ms: float) -> list[HostEvent] {
+        if self.buffer != ESC {
+            return [];
+        }
+        if self.esc_armed_at_ms < 0.0 {
+            return [];
+        }
+        if now_ms - self.esc_armed_at_ms < float(self.esc_timeout_ms) {
+            return [];
+        }
+        self.buffer = "";
+        self.esc_armed_at_ms = -1.0;
+        return [KeyEvent(key="escape")];
     }
 
     """Record a resize; only the latest is emitted on flush_coalesced."""
@@ -417,6 +468,7 @@ obj InputNormalizer {
             out.append(decode_sequence(self.buffer));
             self.buffer = "";
         }
+        self.esc_armed_at_ms = -1.0;
         if self.paste_mode and self.paste_buffer {
             # Incomplete paste: emit accumulated text as paste rather than lose it.
             out.append(PasteEvent(text=self.paste_buffer));
@@ -451,6 +503,7 @@ obj InputNormalizer {
         self.pending_resize = None;
         self.pending_mouse = None;
         self.pending_stream = "";
+        self.esc_armed_at_ms = -1.0;
     }
 }
 

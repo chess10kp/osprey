@@ -273,8 +273,30 @@ def invalidate_layout(tables: LayoutTables, n: UiNode) {
 
 def set_scroll_offset(tables: LayoutTables, n: UiNode, offset: int) {
     entry = _ensure_entry(tables, n);
-    entry.scroll_offset = max(0, offset);
+    max_off = max(0, len(entry.wrapped_lines) - max(1, entry.rect.height));
+    if entry.rect.height <= 0 and entry.wrapped_lines {
+        max_off = max(0, len(entry.wrapped_lines) - 1);
+    }
+    entry.scroll_offset = max(0, min(offset, max_off));
     entry.layout_dirty = True;
+}
+
+
+"""Clamp an already-measured viewport scroll to content bounds."""
+def clamp_scroll_offset(tables: LayoutTables, n: UiNode) {
+    entry = get_entry(tables, n);
+    if entry is None {
+        return;
+    }
+    max_off = max(0, len(entry.wrapped_lines) - max(1, entry.rect.height));
+    if entry.scroll_offset > max_off {
+        entry.scroll_offset = max_off;
+        entry.layout_dirty = True;
+    }
+    if entry.scroll_offset < 0 {
+        entry.scroll_offset = 0;
+        entry.layout_dirty = True;
+    }
 }
 
 

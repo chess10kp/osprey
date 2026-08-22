@@ -13,17 +13,27 @@ import from ui.width {
     wrap_text,
 }
 
+import from ui.markdown_proj {
+    looks_like_markdown,
+    project_markdown,
+    proj_lines_to_span_dicts,
+}
+
 
 obj TranscriptMessage {
     has message_id: str,
         content: str = "",
         content_rev: int = 0,
-        style_rev: int = 0;
+        style_rev: int = 0,
+        # "plain" | "markdown" | "auto" — auto uses looks_like_markdown.
+        format: str = "auto";
 }
 
 
 obj MeasureCache {
-    has entries: dict[str, int] = {};
+    has entries: dict[str, int] = {},
+        hits: int = 0,
+        misses: int = 0;
 }
 
 
@@ -79,7 +89,30 @@ def _snapshot_key(content_rev: int, style_rev: int) -> str {
 }
 
 
+def _use_markdown(message: TranscriptMessage) -> bool {
+    if message.format == "markdown" {
+        return True;
+    }
+    if message.format == "plain" {
+        return False;
+    }
+    return looks_like_markdown(message.content);
+}
+
+
 def _message_lines(message: TranscriptMessage, width: int) -> list[str] {
+    if _use_markdown(message) {
+        proj = project_markdown(message.content, width);
+        dicts = proj_lines_to_span_dicts(proj);
+        out: list[str] = [];
+        for d in dicts {
+            out.append(str(d["text"]));
+        }
+        if not out {
+            return [""];
+        }
+        return out;
+    }
     lines = wrap_text(message.content, width);
     if not lines {
         return [""];
@@ -300,8 +333,10 @@ def measure_message_height(
         message.style_rev,
     );
     if key in proj.measure_cache.entries {
+        proj.measure_cache.hits += 1;
         return proj.measure_cache.entries[key];
     }
+    proj.measure_cache.misses += 1;
     lines = _message_lines(message, width);
     height = len(lines);
     if height < 1 {
@@ -309,6 +344,71 @@ def measure_message_height(
     }
     proj.measure_cache.entries[key] = height;
     return height;
+}
+
+
+"""Projection spans for visible lines — domain → text/style_id, not a component tree."""
+def project_visible_spans(proj: TranscriptProjection) -> list[dict] {
+    win = materialize_visible(proj);
+    # Prefer rich markdown spans when the visible window maps to md messages.
+    rich: list[dict] = [];
+    if proj.messages {
+        # Rebuild visible span rows from messages in the same order as
+        # materialize_visible (width + overscan window).
+        width = proj.viewport_width;
+        vh = proj.viewport_height;
+        if vh < 1 {
+            vh = 1;
+        }
+        overscan = proj.overscan;
+        ranges = _line_ranges(proj);
+        if ranges {
+            total = int(ranges[len(ranges) - 1]["end"]);
+            start = proj.view.scroll_offset;
+            if proj.view.follow_tail {
+                start = max(0, total - vh);
+            }
+            win_start = max(0, start - overscan);
+            win_end = min(total, start + vh + overscan);
+            for message in proj.messages {
+                msg_start = 0;
+                for row in ranges {
+                    if str(row["message_id"]) == message.message_id {
+                        msg_start = int(row["start"]);
+                        break;
+                    }
+                }
+                if _use_markdown(message) {
+                    md_lines = project_markdown(message.content, width);
+                    dicts = proj_lines_to_span_dicts(md_lines);
+                    for (i, d) in enumerate(dicts) {
+                        abs_line = msg_start + i;
+                        if abs_line < win_start or abs_line >= win_end {
+                            continue;
+                        }
+                        rich.append(d);
+                    }
+                } else {
+                    msg_lines = _message_lines(message, width);
+                    for (i, line) in enumerate(msg_lines) {
+                        abs_line = msg_start + i;
+                        if abs_line < win_start or abs_line >= win_end {
+                            continue;
+                        }
+                        rich.append({"text": line, "style_id": "default"});
+                    }
+                }
+            }
+            if rich {
+                return rich;
+            }
+        }
+    }
+    spans: list[dict] = [];
+    for line in win.lines {
+        spans.append({"text": line, "style_id": "default"});
+    }
+    return spans;
 }
 
 

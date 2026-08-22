@@ -7,10 +7,6 @@ instance along the unique Child containment path toward the screen, honor
 propagation_stopped independently of handled/default_prevented, run the
 framework default action unless prevented, and surface effects for
 post-propagation host execution.
-
-Dispatch accepts any session object exposing the UiSession fields used here
-(disposed, focus_id, current_screen, ui_root, tracked_node_ids) so this
-module does not import runtime.jac and create import cycles in test modules.
 """
 
 import from ui.model {
@@ -22,6 +18,10 @@ import from ui.model {
     Layer,
     node_id,
     ordered_children,
+}
+
+import from ui.runtime {
+    UiSession,
 }
 
 
@@ -111,7 +111,7 @@ def _find_node_by_jid(n: UiNode, target_jid: str) -> UiNode | None {
 }
 
 
-def _get_focus_node(session) -> UiNode | None {
+def _get_focus_node(session: UiSession) -> UiNode | None {
     if session.disposed or session.ui_root is None or not session.focus_id {
         return None;
     }
@@ -122,7 +122,7 @@ def _get_focus_node(session) -> UiNode | None {
 }
 
 
-def _set_focus(session, n: UiNode | None) {
+def _set_focus(session: UiSession, n: UiNode | None) {
     if n is None {
         session.focus_id = "";
         return;
@@ -152,7 +152,7 @@ def containment_path(target: UiNode) -> list[UiNode] {
 
 
 """Return the highest z_index modal overlay layered on the current screen."""
-def topmost_modal_overlay(session) -> Overlay | None {
+def topmost_modal_overlay(session: UiSession) -> Overlay | None {
     screen = session.current_screen;
     if screen is None {
         return None;
@@ -176,7 +176,7 @@ def topmost_modal_overlay(session) -> Overlay | None {
 
 """Resolve the target for untargeted (input) events:
 topmost modal overlay, else focused node, else current screen root."""
-def resolve_input_target(session) -> UiNode | None {
+def resolve_input_target(session: UiSession) -> UiNode | None {
     modal = topmost_modal_overlay(session);
     if modal is not None {
         return modal;
@@ -190,7 +190,7 @@ def resolve_input_target(session) -> UiNode | None {
 
 
 """Resolve the dispatch target. An explicit target bypasses the input chain."""
-def resolve_target(session, explicit_target: UiNode | None = None) -> UiNode | None {
+def resolve_target(session: UiSession, explicit_target: UiNode | None = None) -> UiNode | None {
     if explicit_target is not None {
         return explicit_target;
     }
@@ -198,14 +198,14 @@ def resolve_target(session, explicit_target: UiNode | None = None) -> UiNode | N
 }
 
 
-def run_default_action(session, event: UiEvent) {
+def run_default_action(session: UiSession, event: UiEvent) {
     if isinstance(event, MoveFocus) {
         _default_move_focus(session, event);
     }
 }
 
 
-def _default_move_focus(session, event: MoveFocus) {
+def _default_move_focus(session: UiSession, event: MoveFocus) {
     focused = _get_focus_node(session);
     if focused is None {
         return;
@@ -238,7 +238,7 @@ def _default_move_focus(session, event: MoveFocus) {
 
 
 """Deliver one event along the containment path, then run default actions."""
-def dispatch_event(session, event: UiEvent, target: UiNode | None = None) -> UiEvent {
+def dispatch_event(session: UiSession, event: UiEvent, target: UiNode | None = None) -> UiEvent {
     if session.disposed {
         raise ValueError("UiSession is disposed");
     }
@@ -262,7 +262,7 @@ def dispatch_event(session, event: UiEvent, target: UiNode | None = None) -> UiE
 
 """Dispatch one event and return effects for post-propagation host execution."""
 def dispatch_event_with_effects(
-    session,
+    session: UiSession,
     event: UiEvent,
     target: UiNode | None = None,
 ) -> list[Effect] {
@@ -286,7 +286,7 @@ def consume_effects(event: UiEvent) -> list[Effect] {
 
 
 """Trace the itinerary dispatch_event would run without mutating state."""
-def trace_event_path(session, target: UiNode | None = None) -> list[str] {
+def trace_event_path(session: UiSession, target: UiNode | None = None) -> list[str] {
     resolved = resolve_target(session, target);
     if resolved is None {
         return [];

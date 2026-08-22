@@ -31,6 +31,16 @@ import from ui.runtime {
 
 import from ui.events {
     SendPrompt,
+    InsertText,
+    Submit,
+    Cancel,
+    dispatch_event,
+}
+
+import from ui.editor {
+    editor_insert,
+    editor_submit,
+    AblePrompt,
 }
 
 
@@ -73,7 +83,7 @@ def build_main_shell(session: UiSession) -> ShellScreen {
     header = Header(key="header", title="Jackal");
     transcript = TranscriptView(key="transcript");
     status = Status(key="status", phase="ready");
-    prompt = Prompt(key="prompt");
+    prompt = AblePrompt(key="prompt");
 
     append_child_session(session, session.ui_root, screen);
     append_child_session(session, screen, header);
@@ -107,26 +117,38 @@ def shell_ids(shell: ShellScreen) -> ShellIdSnapshot {
 }
 
 
-"""Insert text into the focused prompt draft (multiline-aware)."""
+"""Insert text into the focused prompt draft (walker ability path)."""
 def shell_insert_text(session: UiSession, shell: ShellScreen, text: str) {
-    _ = session;
-    shell.prompt.draft = shell.prompt.draft + text;
+    event = InsertText(text=text);
+    dispatch_event(session, event, shell.prompt);
+    if not event.handled {
+        editor_insert(shell.prompt, text);
+    }
 }
 
 
 """Submit the prompt draft; returns host effects (e.g. SendPrompt)."""
 def shell_submit(session: UiSession, shell: ShellScreen) -> list[any] {
-    _ = session;
-    text = shell.prompt.draft;
-    shell.prompt.draft = "";
+    event = Submit();
+    dispatch_event(session, event, shell.prompt);
+    if event.effects {
+        return event.effects;
+    }
+    text = editor_submit(shell.prompt);
     return [SendPrompt(text=text)];
 }
 
 
 """Cancel in-progress edit / turn from the shell."""
 def shell_cancel(session: UiSession, shell: ShellScreen) {
-    _ = session;
-    shell.prompt.draft = "";
+    event = Cancel();
+    dispatch_event(session, event, shell.prompt);
+    if not event.handled {
+        shell.prompt.draft = "";
+        shell.prompt.caret = 0;
+        shell.prompt.sel_anchor = -1;
+        shell.prompt.sel_end = -1;
+    }
 }
 
 

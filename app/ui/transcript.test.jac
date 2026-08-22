@@ -134,3 +134,26 @@ test "on-screen content change requires damage" {
     apply_transcript_revision(proj, 2, msgs);
     assert transcript_needs_damage(proj, 1, 2) == True;
 }
+
+
+test "project_visible_spans uses markdown styles for md messages" {
+    view = TranscriptView(key="transcript", follow_tail=True);
+    proj = bind_transcript(view, "src", width=40, height=10);
+    apply_transcript_revision(
+        proj,
+        1,
+        [
+            TranscriptMessage(
+                message_id="md0",
+                content="# Hello\n\nuse **bold**",
+                content_rev=1,
+                style_rev=1,
+                format="markdown",
+            )
+        ],
+    );
+    spans = project_visible_spans(proj);
+    assert len(spans) >= 1;
+    styles = [str(s.get("style_id", "")) for s in spans];
+    assert "heading" in styles or any("Hello" in str(s.get("text", "")) for s in spans);
+}

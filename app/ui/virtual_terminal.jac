@@ -167,6 +167,16 @@ obj VirtualTerminal(Terminal) {
         return list(self.input_queue);
     }
 
+    """Non-blocking poll compatible with ProcessTerminal.poll_input."""
+    def poll_input(timeout_s: float = 0.0) -> str {
+        _ = timeout_s;
+        if not self.input_queue {
+            return "";
+        }
+        data = self.input_queue.pop(0);
+        return data;
+    }
+
     def take_input() -> list[str] {
         queued = self.input_queue;
         self.input_queue = [];

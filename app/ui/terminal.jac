@@ -165,6 +165,7 @@ obj ProcessTerminal(Terminal) {
         _old_sigint: any = None,
         _atexit_registered: bool = False,
         _stdin_buf: str = "",
+        eof: bool = False,
         on_resize: any = None,
         on_input: any = None,
         on_interrupt: any = None;
@@ -184,6 +185,7 @@ obj ProcessTerminal(Terminal) {
         self._old_sigint = None;
         self._atexit_registered = False;
         self._stdin_buf = "";
+        self.eof = False;
         self.restored = True;
     }
 
@@ -305,6 +307,7 @@ obj ProcessTerminal(Terminal) {
             return "";
         }
         if not data {
+            self.eof = True;
             return "";
         }
         text = data.decode("utf-8", errors="replace");
