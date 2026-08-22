@@ -28,6 +28,7 @@ export const HOST_CAPS = [
   "commands",
   "session_hooks",
   "transformers",
+  "providers",
 ];
 export const COMPAT_TIER = "T2-partial";
 
@@ -52,7 +53,8 @@ export function createHostState() {
     /** Stored registrations (honored surfaces report counts; caps stay honest). */
     shortcuts: [],
     flags: new Map(),
-    providers: new Set(),
+    /** Provider configs by name; each carries ownerExtensionId. */
+    providers: new Map(),
     messageRenderers: new Map(),
     entryRenderers: new Map(),
     labels: new Map(),
@@ -181,6 +183,11 @@ function dropExtension(state, extensionId) {
   state.mdTransformers = state.mdTransformers.filter(
     (t) => t.extensionId !== extensionId,
   );
+  for (const [name, p] of state.providers) {
+    if (p.ownerExtensionId === extensionId) {
+      state.providers.delete(name);
+    }
+  }
   state.extensions.delete(extensionId);
 }
 
@@ -368,14 +375,29 @@ function makePiApi(state, extensionId) {
     getThinkingLevel() {
       return state.thinkingLevel;
     },
+    /** P10: real storage. Models declared here ride the ext_loaded payload
+     * so the Jac side can route ext/<extension>/<model> ids. Request
+     * mutation happens via the before_provider_request hook. */
     registerProvider(cfg) {
-      const name = String(cfg?.name ?? cfg ?? "");
-      if (name) {
-        state.providers.add(name);
+      if (!cfg || typeof cfg !== "object" || typeof cfg.name !== "string" || !cfg.name) {
+        throw new Error("registerProvider requires a config object with a name");
       }
+      const models = Array.isArray(cfg.models)
+        ? cfg.models.map((m) => (typeof m === "string" ? { id: m } : m))
+        : [];
+      state.providers.set(cfg.name, {
+        name: cfg.name,
+        models,
+        baseUrl: cfg.baseUrl ?? "",
+        streaming: cfg.streaming !== false,
+        ownerExtensionId: extensionId,
+      });
     },
     unregisterProvider(name) {
-      state.providers.delete(String(name ?? ""));
+      const p = state.providers.get(String(name ?? ""));
+      if (p && p.ownerExtensionId === extensionId) {
+        state.providers.delete(String(name ?? ""));
+      }
     },
     /** Inter-extension event bus (real, local-only). */
     events: {
@@ -425,6 +447,21 @@ function commandsFor(state, extensionId) {
     const c = state.commands.get(name);
     return { name: c.name, description: c.description };
   });
+}
+
+function providersFor(state, extensionId) {
+  const out = [];
+  for (const p of state.providers.values()) {
+    if (p.ownerExtensionId === extensionId) {
+      out.push({
+        name: p.name,
+        models: p.models.map((m) => ({ id: String(m.id ?? ""), name: String(m.name ?? m.id ?? "") })),
+        base_url: p.baseUrl,
+        streaming: p.streaming,
+      });
+    }
+  }
+  return out;
 }
 
 function unsupportedRequires(requires) {
@@ -554,6 +591,7 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
             commands: commandsFor(state, id),
             transformers:
               state.extensions.get(id)?.transformers ?? 0,
+            providers: providersFor(state, id),
             compat: COMPAT_TIER,
             caps: HOST_CAPS,
           },
@@ -646,7 +684,7 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
     // edits) get a deep working copy handlers mutate IN PLACE; later handlers
     // see earlier mutations — Pi semantics. The final copy echoes back so the
     // Jac side observes chained mutations without per-handler round trips.
-    const MUTABLE_EVENTS = new Set(["tool_call", "context"]);
+    const MUTABLE_EVENTS = new Set(["tool_call", "context", "input"]);
     const working = MUTABLE_EVENTS.has(event)
       ? JSON.parse(JSON.stringify(data ?? {}))
       : data;
@@ -657,6 +695,16 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
       let entry = {};
       try {
         const out = await listener.handler(working, { ui });
+        // Transform verdicts rewrite the working text so later handlers see
+        // the composed input (Pi input-transform chaining).
+        if (
+          out &&
+          typeof out === "object" &&
+          out.action === "transform" &&
+          out.text != null
+        ) {
+          working.text = String(out.text);
+        }
         entry = {
           ok: true,
           extension_id: listener.extensionId,

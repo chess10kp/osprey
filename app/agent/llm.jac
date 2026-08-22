@@ -24,6 +24,8 @@ import from .registry {
 import from .plugin_bridge {
     PluginBridge,
     context_gate,
+    prepare_provider_request,
+    resolve_ext_model,
     tool_call_gate,
 }
 
@@ -70,6 +72,13 @@ obj Transport {
         headers = {};
         if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
         url = self.base_url.rstrip("/") + "/chat/completions";
+        yield from self._open_stream(url, headers, body);
+    }
+
+    """POST `body` to `url` and yield normalized chunks (shared by native
+    and P10 provider transports)."""
+    def _open_stream(url: str, headers: dict, body: dict) -> Generator[dict, None, None] {
+        import httpx;
         calls: dict[int, dict] = {};
         client_obj: any = httpx.Client(timeout=300.0);
         r: any = None;
@@ -159,6 +168,63 @@ def make_transport(model: str = "", thinking: str = "") -> Transport {
     );
 }
 
+
+"""P10 provider transport: serves `ext/<extension>/<model>` model ids.
+
+Resolves the owning extension's provider via bridge state, fires Pi's
+`before_provider_request` hook before each POST (body/url/headers mutation —
+full request control, trusted in-process code), then streams identically to
+the native transport."""
+obj ProviderTransport (Transport) {
+    has ext_bridge: any = None,
+        ext_cfg: dict = {};
+
+    override def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        body = self._build_body(messages, tool_defs);
+        headers = {};
+        if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
+        url = self.base_url.rstrip("/") + "/chat/completions";
+        if self.ext_bridge is not None {
+            try {
+                prepped = prepare_provider_request(
+                    self.ext_bridge as PluginBridge,
+                    self.model,
+                    url,
+                    headers,
+                    body,
+                );
+                url = str(prepped.get("url", url));
+                h2: any = prepped.get("headers");
+                if isinstance(h2, dict) { headers = h2; }
+                b2: any = prepped.get("body");
+                if isinstance(b2, dict) { body = b2; }
+            } except Exception {
+                # Hook failure never blocks the request.
+            }
+        }
+        yield from self._open_stream(url, headers, body);
+    }
+}
+
+
+"""Build a transport for an extension-declared model id.
+
+Returns None when the id is not in the ext/ namespace or no extension
+declared it — callers fall back to native routing."""
+def make_ext_transport(bridge: PluginBridge | None, model_id: str, thinking: str = "") -> ProviderTransport | None {
+    cfg = resolve_ext_model(bridge, model_id);
+    if cfg is None {
+        return None;
+    }
+    t = ProviderTransport(
+        base_url=str(cfg.get("base_url") or "https://api.openai.com/v1"),
+        model=str(cfg.get("model", "")),
+        thinking=thinking,
+    );
+    t.ext_bridge = bridge;
+    t.ext_cfg = cfg;
+    return t;
+}
 
 def _tool_defs(specs: list[ToolSpec]) -> list {
     defs = [];
@@ -273,7 +339,12 @@ def react_loop(
             } except Exception as e {
                 stream_error = str(e);
             } finally {
-                gen.close();
+                # Guard: custom Transport.stream impls may return a plain
+                # iterator with no .close().
+                try {
+                    gen.close();
+                } except AttributeError {
+                }
             }
             if aborted {
                 on_event("cancelled", {"phase": "streaming", "text": text});
@@ -749,5 +820,33 @@ test "react loop stops early on terminating block verdict" {
     assert messages[-1]["content"] == "ERROR: blocked by extension: dangerous command";
     kinds = [e[0] for e in _events];
     assert "error" in kinds;
+    dispose_bridge(bridge);
+}
+
+
+test "make_ext_transport wires provider config without network" {
+    import from .plugin_bridge {
+        create_bridge,
+        register_fake_provider,
+        dispose_bridge,
+    }
+
+    bridge = create_bridge("p10-transport");
+    register_fake_provider(bridge, {
+        "name": "acme",
+        "models": ["sonnet-x"],
+        "base_url": "https://acme.example/v1",
+    });
+
+    t = make_ext_transport(bridge as PluginBridge, "ext/fake.provider/sonnet-x");
+    assert t is not None;
+    assert t.base_url == "https://acme.example/v1";
+    assert t.model == "sonnet-x";
+    assert t.ext_cfg["provider"] == "acme";
+
+    # Unknown / non-ext ids fall back to None (native routing).
+    assert make_ext_transport(bridge as PluginBridge, "gpt-4o") is None;
+    assert make_ext_transport(bridge as PluginBridge, "ext/ghost/m") is None;
+    assert make_ext_transport(None, "ext/a/b") is None;
     dispose_bridge(bridge);
 }

@@ -38,6 +38,16 @@ export default function activate(pi) {
     return undefined;
   });
 
+  // Second input handler proving transforms CHAIN: this must see the
+  // rewritten text from the handler above, not the original.
+  pi.on("input", async (event) => {
+    const t = String(event.text ?? "");
+    if (t && t === t.toUpperCase() && /[A-Z]/.test(t)) {
+      return { action: "transform", text: t + "-CHAINED" };
+    }
+    return undefined;
+  });
+
   pi.on("context", async (event) => {
     if (Array.isArray(event.messages)) {
       event.messages.push({ role: "user", content: "[gated-context-injection]" });

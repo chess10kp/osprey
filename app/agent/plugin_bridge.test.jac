@@ -650,6 +650,36 @@ test "input_gate handles and transforms" {
 }
 
 
+test "input transforms chain across handlers on the fake host" {
+    bridge = create_bridge("s-b2-chain");
+    ensure_host(bridge);
+
+    def _first(data: dict, ctx: any) -> dict {
+        t = str(data.get("text", ""));
+        if t.startswith("?up ") {
+            return {"action": "transform", "text": t[4:].upper()};
+        }
+        return None;
+    }
+
+    def _second(data: dict, ctx: any) -> dict {
+        # Sees the REWRITTEN text from _first (chaining parity pin).
+        t = str(data.get("text", ""));
+        if t and t == t.upper() and any(c.isupper() for c in t) {
+            return {"action": "transform", "text": t + "-CHAINED"};
+        }
+        return None;
+    }
+
+    register_fake_listener(bridge, "input", _first);
+    register_fake_listener(bridge, "input", _second);
+    r = input_gate(bridge, "?up hi");
+    assert r["action"] == "transform";
+    assert r["text"] == "HI-CHAINED";
+    dispose_bridge(bridge);
+}
+
+
 test "context_gate applies in-place edits and replacements non-destructively" {
     bridge = create_bridge("s-b2-ctx");
     ensure_host(bridge);
@@ -729,11 +759,101 @@ test "node host echoes structured verdicts and mutated working data" {
     i1 = input_gate(bridge, "!gate");
     assert i1["action"] == "handled";
     i2 = input_gate(bridge, "?upper shout");
-    assert i2["action"] == "transform" and i2["text"] == "SHOUT";
+    # Fixture chains a second input handler that appends -CHAINED to
+    # all-caps text — proves shim-side transform chaining reaches us.
+    assert i2["action"] == "transform" and i2["text"] == "SHOUT-CHAINED";
 
     # before_agent_start systemPrompt verdict.
     a = agent_start_gate(bridge, "hello");
     assert a["systemPrompt"] == "\n[gated-system-append]";
 
+    dispose_bridge(bridge);
+}
+
+
+# ============================ P10: provider seam ============================
+
+test "register_fake_provider feeds resolve_ext_model" {
+    bridge = create_bridge("s-p10-fake");
+    register_fake_provider(bridge, {
+        "name": "acme",
+        "models": ["sonnet-x", {"id": "opus-y", "name": "Opus Y"}],
+        "base_url": "https://acme.example/v1",
+    });
+
+    c1 = resolve_ext_model(bridge, "ext/fake.provider/sonnet-x");
+    assert c1 is not None;
+    assert c1["provider"] == "acme";
+    assert c1["model"] == "sonnet-x";
+    assert c1["base_url"] == "https://acme.example/v1";
+    assert c1["streaming"] is True;
+
+    c2 = resolve_ext_model(bridge, "ext/fake.provider/opus-y");
+    assert c2 is not None and c2["model"] == "opus-y";
+
+    # Namespace mismatches -> None.
+    assert resolve_ext_model(bridge, "native/gpt") is None;
+    assert resolve_ext_model(bridge, "ext/ghost/model") is None;
+    assert resolve_ext_model(None, "ext/a/b") is None;
+    dispose_bridge(bridge);
+}
+
+
+test "prepare_provider_request applies edits and replacements" {
+    bridge = create_bridge("s-p10-prep");
+    ensure_host(bridge);
+
+    def _mutator(data: dict, ctx: any) -> any {
+        data["body"]["injected"] = True;
+        return None;
+    }
+
+    def _replacer(data: dict, ctx: any) -> dict {
+        return {"url": "https://proxy.example/v1/chat/completions"};
+    }
+
+    register_fake_listener(bridge, "before_provider_request", _mutator);
+    register_fake_listener(bridge, "before_provider_request", _replacer);
+
+    out = prepare_provider_request(
+        bridge,
+        "sonnet-x",
+        "https://api.openai.com/v1/chat/completions",
+        {"Authorization": "Bearer k"},
+        {"model": "sonnet-x", "messages": []},
+    );
+    assert out["body"].get("injected") is True;
+    assert out["url"] == "https://proxy.example/v1/chat/completions";
+    assert out["headers"]["Authorization"] == "Bearer k";
+
+    # No bridge -> identity passthrough.
+    plain = prepare_provider_request(None, "m", "u", {}, {});
+    assert plain == {"url": "u", "headers": {}, "body": {}};
+    dispose_bridge(bridge);
+}
+
+
+test "node host ext_loaded carries providers and unload drops them" {
+    bridge = create_bridge("s-p10-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    prov = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(prov), "fixtures", "pi_provider.mjs");
+    names = load_extension_path(bridge, reg, "pi.provider", path);
+    drain_inbox(bridge);
+
+    assert "acme" in bridge.providers;
+    cfg = bridge.providers["acme"];
+    assert cfg.get("extension_id") == "pi.provider";
+
+    c1 = resolve_ext_model(bridge, "ext/pi.provider/sonnet-x");
+    assert c1 is not None and c1["model"] == "sonnet-x";
+    c2 = resolve_ext_model(bridge, "ext/pi.provider/opus-y");
+    assert c2 is not None and c2["provider"] == "acme";
+
+    # Unload drops the provider registrations.
+    unload_extension(bridge, reg as ToolRegistry, "pi.provider");
+    assert "acme" not in bridge.providers;
+    assert resolve_ext_model(bridge, "ext/pi.provider/sonnet-x") is None;
     dispose_bridge(bridge);
 }
