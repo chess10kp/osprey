@@ -397,7 +397,11 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
 on_event(kind, data) is the UI boundary: the term renderer prints, the
 JSONL renderer serializes - one protocol, two clients.
 """
-def run_turn(message: str, on_event: any = render_event) -> str {
+def run_turn(
+    message: str,
+    on_event: any = render_event,
+    approve: any = None,
+) -> str {
     # Auto-boot with no decls if never booted (native-only path).
     if plugins.reg is None {
         session_boot(plugins.session_id, plugins.cwd if plugins.cwd else os.getcwd(), []);
@@ -501,7 +505,7 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         reg = plugins.reg if plugins.reg is not None else default_registry();
         answer = react_loop(
             history, [], transport, relay_tool_hooks(bridge, on_event),
-            reg=reg, bridge=bridge, cancel=turn_cancel,
+            reg=reg, bridge=bridge, cancel=turn_cancel, approve=approve,
         );
     } finally {
         plugins.active_cancel = None;

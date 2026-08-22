@@ -277,6 +277,8 @@ on_event(kind, data) fires as things happen:
   retry      {"attempt", "max_retries", "message"}
   loop_limit {"max_iters", "iterations"}
   cancelled  {"phase", "text"}   - cooperative abort via TurnCancel
+  approval_request  {"tool", "args"}
+  approval_decision {"tool", "approved"}
   error      {"message"}
 When `cancel` fires mid-stream the partial text is returned but NOT appended
 to history; when it fires before a tool runs, remaining calls get
@@ -293,9 +295,23 @@ def react_loop(
     bridge: any = None,
     max_retries: int = 2,
     cancel: TurnCancel | None = None,
+    approve: any = None,
 ) -> str {
     def _is_cancelled() -> bool {
         return cancel is not None and cancel.cancelled;
+    }
+
+    """Gate a tool call through the optional approver. True allows; any other
+    return (str reason) becomes the tool's error result."""
+    def _approved(name: str, args: dict) -> any {
+        if approve is None {
+            return True;
+        }
+        try {
+            return approve(name, args);
+        } except Exception as e {
+            return "approval gate failed: " + str(e);
+        }
     }
     # Prefer registry when provided so js-origin tools share one invoke path.
     active_specs = as_tool_specs(reg) if reg is not None else specs;
@@ -393,6 +409,23 @@ def react_loop(
             } except ValueError {
                 args = {};
             }
+            # Ask before executing; the approver may block (UI modal) or
+            # deny outright. A cancel while waiting counts as denial.
+            on_event("approval_request", {"tool": name, "args": args});
+            verdict: any = _approved(name, args if isinstance(args, dict) else {});
+            if verdict is not True or _is_cancelled() {
+                result = "ERROR: cancelled by user" if _is_cancelled() else f"ERROR: {verdict}";
+                on_event("approval_decision", {"tool": name, "approved": False});
+                safe_result = _cap_tool_result(result);
+                on_event("tool_result", {"tool": name, "result": safe_result});
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": str(cl.get("id", "")),
+                    "content": safe_result,
+                });
+                continue;
+            }
+            on_event("approval_decision", {"tool": name, "approved": True});
             on_event("tool_call", {"tool": name, "args": args});
             # Pi `tool_call` hook: handlers may mutate input in place and/or
             # return {block, reason?, terminate?}. First block wins.
@@ -553,10 +586,13 @@ test "react loop runs a tool then finishes" {
     answer = react_loop(messages, specs, ScriptedTransport(), _noop_event);
     assert answer == "done";
     kinds = [e[0] for e in _events];
-    assert kinds == ["chunk", "tool_call", "tool_result", "chunk"];
-    tc = _events[1][1];
+    assert kinds == [
+        "chunk", "approval_request", "approval_decision",
+        "tool_call", "tool_result", "chunk",
+    ];
+    tc = _events[3][1];
     assert tc["tool"] == "echo" and tc["args"] == {"text": "hi"};
-    tr = _events[2][1];
+    tr = _events[4][1];
     assert tr["result"] == "ECHO:hi";
     roles = [m["role"] for m in messages];
     assert roles == ["user", "assistant", "tool", "assistant"];
@@ -633,6 +669,53 @@ test "cancel before tool calls fills cancelled tool results" {
     assert messages[3]["content"] == "ERROR: cancelled by user";
     assert _events[-1][0] == "cancelled";
     assert _events[-1][1]["phase"] == "tool";
+}
+
+
+def _deny_all(name: str, args: dict) -> any {
+    return "denied by test policy";
+}
+
+
+def _allow_all(name: str, args: dict) -> any {
+    return True;
+}
+
+
+test "approve hook denial yields error tool result without executing" {
+    messages = [{"role": "user", "content": "echo hi"}];
+    specs = [ToolSpec(
+        name="echo",
+        description="echo",
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+        handler=_echo,
+    )];
+    _events.clear();
+    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, approve=_deny_all);
+    # The loop continues past a denial — the model sees the ERROR result
+    # and produces a final answer.
+    roles = [m["role"] for m in messages];
+    assert roles == ["user", "assistant", "tool", "assistant"];
+    assert messages[2]["content"].startswith("ERROR:");
+    assert "denied by test policy" in messages[2]["content"];
+    # No echo ran; the request + denial pair is on the event stream.
+    kinds = [e[0] for e in _events];
+    assert "approval_request" in kinds and "approval_decision" in kinds;
+    idx_req = kinds.index("approval_request");
+    assert _events[idx_req][1]["tool"] == "echo";
+}
+
+test "approve hook allow runs the tool unchanged" {
+    messages = [{"role": "user", "content": "echo hi"}];
+    specs = [ToolSpec(
+        name="echo",
+        description="echo",
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+        handler=_echo,
+    )];
+    _events.clear();
+    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, approve=_allow_all);
+    assert messages[2]["content"] == "ECHO:hi";
 }
 
 
@@ -718,7 +801,7 @@ test "unknown tool yields error result without crashing" {
     spec.tool_name = "missing";
     _events.clear();
     answer = react_loop(messages, [], spec, _noop_event);
-    assert "unknown tool" in _events[2][1]["result"];
+    assert "unknown tool" in _events[4][1]["result"];
     assert messages[2]["content"].startswith("ERROR");
 }
 
@@ -759,7 +842,7 @@ test "react loop invokes js tool via registry bridge" {
     _events.clear();
     answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
     assert answer == "done";
-    assert _events[2][1]["result"] == "JS:hi";
+    assert _events[4][1]["result"] == "JS:hi";
     dispose_bridge(bridge);
 }
 

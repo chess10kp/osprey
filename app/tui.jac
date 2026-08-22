@@ -19,7 +19,24 @@ import from agent.session {
     cancel_active_turn,
     model,
     set_model,
+    clear_history,
+    restore_history,
+    get_history,
+    list_commands,
+    run_command,
+    plugins,
+    new_session_id,
 }
+import from agent.modes { requires_approval }
+import from agent.sessions {
+    list_sessions,
+    latest_session_id,
+    get_session_record,
+    export_session,
+    save_session,
+    is_valid_session_id,
+}
+import os;
 
 import from ui.runtime {
     UiSession,
@@ -126,7 +143,10 @@ obj LiveShell {
         status_hint: str = "enter · ↑↓ history · esc quit",
         evq: any = None,
         worker: any = None,
-        tool_msg_id: str = "";
+        tool_msg_id: str = "",
+        appr_event: any = None,
+        appr_approved: bool = False,
+        appr_tool: str = "";
 }
 
 
@@ -427,24 +447,56 @@ def _begin_assistant_reply(app: LiveShell, user_text: str) {
     app.stream_full = "";
     app.stream_shown = 0;
     app.stream_tick = 0;
-    app.evq = queue.Queue();
+    # Capture the queue LOCALLY: _finish_stream nulls app.evq when the turn
+    # ends, and late worker events must never dereference that field.
+    q = queue.Queue();
+    app.evq = q;
     app.stream_msg_id = _push_turn(app, "assistant", "▍");
     app.status_hint = "streaming · esc abort";
 
     def collector(kind: str, data: dict) {
         try {
-            app.evq.put((str(kind), dict(data)));
+            q.put((str(kind), dict(data)));
         } except Exception {
         }
     }
 
+    # Tool approver: auto-allow read-only tools; destructive ones raise the
+    # modal and block the WORKER thread on an Event until the UI resolves it.
+    def approve(name: str, args: dict) -> any {
+        cmd = "";
+        if isinstance(args, dict) {
+            cmd = str(args.get("cmd", ""));
+        }
+        policy = requires_approval("normal", name, cmd);
+        if policy == "auto" {
+            return True;
+        }
+        if policy != "confirm" {
+            return "blocked in normal mode";
+        }
+        q.put(("__approve__", {"tool": name, "args": args}));
+        ev = threading.Event();
+        app.appr_event = ev;
+        app.appr_approved = False;
+        approved = ev.wait(600.0);
+        app.appr_event = None;
+        if not approved or not app.appr_approved {
+            return "denied by user";
+        }
+        return True;
+    }
+
     def worker_main {
         try {
-            answer = run_turn(user_text, collector);
-            app.evq.put(("__done__", {"answer": str(answer)}));
+            answer = run_turn(user_text, collector, approve=approve);
+            q.put(("__done__", {"answer": str(answer)}));
         } except Exception as e {
-            app.evq.put(("error", {"message": str(e)}));
-            app.evq.put(("__done__", {"answer": ""}));
+            try {
+                q.put(("error", {"message": str(e)}));
+            } except Exception {
+            }
+            q.put(("__done__", {"answer": ""}));
         }
     }
 
@@ -522,6 +574,38 @@ def _tick_stream(app: LiveShell) {
             _rewrite_turn(app, app.stream_msg_id, "assistant", "ERROR: " + msg[:400]);
             _finish_stream(app, "ERROR: " + msg[:400]);
             return;
+        } elif kind == "__approve__" {
+            tool_name = str(data.get("tool", "?"));
+            args: any = data.get("args", {});
+            parts: list[str] = [];
+            if isinstance(args, dict) {
+                for pair in args.items() {
+                    parts.append(str(pair[0]) + "=" + str(pair[1])[:60]);
+                }
+            }
+            app.appr_tool = tool_name + "(" + (", ".join(parts))[:160] + ")";
+            app.phase = "approval";
+            app.shell.status.phase = "approval";
+            shell_open_approval(app.session, app.shell);
+            _push_turn(app, "tool", "? approve " + app.appr_tool);
+            app.status_hint = "a accept · r deny";
+            app.dirty = True;
+        } elif kind == "__approve__" {
+            tool_name = str(data.get("tool", "?"));
+            a: any = data.get("args", {});
+            parts: list[str] = [];
+            if isinstance(a, dict) {
+                for pair in a.items() {
+                    parts.append(str(pair[0]) + "=" + str(pair[1])[:60]);
+                }
+            }
+            app.appr_tool = tool_name + "(" + (", ".join(parts))[:160] + ")";
+            app.phase = "approval";
+            app.shell.status.phase = "approval";
+            shell_open_approval(app.session, app.shell);
+            _push_turn(app, "tool", "? approve " + app.appr_tool);
+            app.status_hint = "a accept · r deny";
+            app.dirty = True;
         } elif kind == "__done__" {
             _finish_stream(app, str(data.get("answer", "")));
             return;
@@ -532,35 +616,43 @@ def _tick_stream(app: LiveShell) {
     }
 }
 def _accept_approval(app: LiveShell) {
-    if app.shell.approval is None {
+    if app.phase != "approval" {
         return;
     }
     shell_close_approval(app.session, app.shell);
-    # Drop the block caret from the finished assistant line.
-    _rewrite_turn(app, app.stream_msg_id, "assistant", app.stream_full);
-    _push_turn(app, "tool", "jac check  ✓  clean (demo — no subprocess)");
-    app.phase = "ready";
-    app.shell.status.phase = "ready";
-    app.progress_value = 1.0;
-    app.progress spawn SetProgress(value=1.0);
-    app.status_hint = "enter · ↑↓ history · esc quit";
+    app.appr_approved = True;
+    if app.appr_event is not None {
+        app.appr_event.set();
+    }
+    _push_turn(app, "tool", "\u2713 approved");
+    app.phase = "streaming";
+    app.shell.status.phase = "streaming";
+    app.status_hint = "streaming \u00b7 esc abort";
     app.dirty = True;
 }
 
 
 def _reject_approval(app: LiveShell) {
-    if app.shell.approval is None {
+    if app.phase == "approval" {
+        shell_close_approval(app.session, app.shell);
+        app.appr_approved = False;
+        if app.appr_event is not None {
+            app.appr_event.set();
+        }
+        _push_turn(app, "tool", "\u2717 denied");
+        app.phase = "streaming";
+        app.shell.status.phase = "streaming";
+        app.status_hint = "streaming \u00b7 esc abort";
+        app.dirty = True;
         return;
     }
-    shell_close_approval(app.session, app.shell);
-    _rewrite_turn(app, app.stream_msg_id, "assistant", app.stream_full);
-    _push_turn(app, "tool", "jac check  ✗  cancelled");
-    app.phase = "ready";
-    app.shell.status.phase = "ready";
-    app.progress_value = 0.0;
-    app.progress spawn SetProgress(value=0.0);
-    app.status_hint = "enter · ↑↓ history · esc quit";
-    app.dirty = True;
+    if app.phase == "streaming" {
+        cancel_active_turn();
+        app.status_hint = "aborting\u2026";
+        app.dirty = True;
+        return;
+    }
+    app.running = False;
 }
 
 
@@ -574,6 +666,113 @@ def _history_up(app: LiveShell) {
 def _history_down(app: LiveShell) {
     editor_history_next(app.shell.prompt);
     app.dirty = True;
+}
+
+
+"""Slash commands handled locally by the TUI (same set as the line REPL).
+Returns a display string; "" when the command produced no output."""
+def _run_slash(app: LiveShell, line: str) -> str {
+    cwd = os.getcwd();
+    if line in ("/exit", "/quit") {
+        app.running = False;
+        return "";
+    }
+    if line == "/clear" {
+        clear_history();
+        app.messages = [];
+        app.rev = 0;
+        apply_transcript_revision(app.proj, 0, app.messages);
+        return "history cleared";
+    }
+    if line == "/abort" {
+        return "turn aborted" if cancel_active_turn() else "no active turn";
+    }
+    if line == "/sessions" {
+        rows = list_sessions(cwd);
+        if not rows {
+            return "no saved sessions";
+        }
+        lines: list[str] = ["saved sessions:"];
+        for row in rows[:20] {
+            lines.append("  " + str(row.get("id", "")) + "  " + str(row.get("name", "")));
+        }
+        return "\n".join(lines);
+    }
+    if line.startswith("/resume") {
+        arg = line[len("/resume"):].strip();
+        sid: str = arg;
+        if not sid {
+            got = latest_session_id(cwd);
+            if got is None {
+                return "no saved sessions to resume";
+            }
+            sid = got;
+        }
+        rec = get_session_record(cwd, sid);
+        if rec is None {
+            return "unknown session: " + sid;
+        }
+        msgs: any = rec.get("messages", []);
+        if not isinstance(msgs, list) or not msgs {
+            return "session has no transcript: " + sid;
+        }
+        restore_history(msgs as list);
+        # Repaint transcript from restored messages (skip system prompt).
+        app.messages = [];
+        app.rev = 0;
+        apply_transcript_revision(app.proj, 0, app.messages);
+        for m in msgs as list {
+            if isinstance(m, dict) and str(m.get("role", "")) != "system" {
+                _push_turn(app, str(m.get("role", "")), str(m.get("content", "")));
+            }
+        }
+        return "resumed " + sid + " (" + str(len(msgs)) + " messages)";
+    }
+    if line.startswith("/export") {
+        arg = line[len("/export"):].strip();
+        path = arg if arg else "jackal-transcript.md";
+        hist = get_history();
+        has_content = False;
+        for m in hist {
+            if isinstance(m, dict) and str(m.get("role", "")) != "system" {
+                has_content = True;
+                break;
+            }
+        }
+        if not has_content {
+            return "nothing to export yet";
+        }
+        if not is_valid_session_id(plugins.session_id) {
+            plugins.session_id = new_session_id();
+        }
+        try {
+            meta = save_session(cwd, hist, session_id=plugins.session_id);
+        } except Exception as e {
+            return "ERROR: could not save transcript: " + str(e);
+        }
+        if export_session(cwd, str(meta["id"]), path) {
+            return "exported to " + path;
+        }
+        return "ERROR: could not write " + path;
+    }
+    if line.startswith("/model ") {
+        name = line[len("/model "):].strip();
+        if name {
+            return "model -> " + set_model(name);
+        }
+        return "usage: /model NAME";
+    }
+    if line.startswith("/") {
+        parts = line[1:].split(None, 1);
+        cname = parts[0] if parts else "";
+        cargs = parts[1].strip() if len(parts) > 1 else "";
+        cmds = list_commands();
+        if cname and cname in cmds {
+            return run_command(cname, cargs);
+        }
+        return "unknown command: " + line + " (/help for list)";
+    }
+    return "";
 }
 
 
@@ -632,6 +831,14 @@ def _handle_key(app: LiveShell, key: str) {
             return;
         }
         shell_submit(app.session, app.shell);
+        if text.startswith("/") {
+            reply = _run_slash(app, text);
+            if reply {
+                _push_turn(app, "tool", reply);
+            }
+            app.dirty = True;
+            return;
+        }
         _begin_assistant_reply(app, text);
         return;
     }
