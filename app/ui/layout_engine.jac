@@ -124,7 +124,26 @@ def _place_axis(
 
     placed = False;
     info = infos.get(parent_id);
+    aligned = False;
     if info is not None and len(info.child_ids) == len(kids) {
+        # Element-wise identity, not just length: quantized sizes must
+        # never map onto the wrong children if grouping ever drifts.
+        aligned = True;
+        for i in range(len(kids)) {
+            if info.child_ids[i] != kids[i] {
+                aligned = False;
+            }
+        }
+        if not aligned {
+            warnings.append(LayoutDiagnostic(
+                code=LayoutError.INTERNAL_INVARIANT,
+                severity=LayoutSeverity.ERROR,
+                message="partition child order misaligned with scope walk",
+                node_ids=[parent_id],
+            ));
+        }
+    }
+    if info is not None and aligned {
         req = PartitionRequest(
             span=p_end - p_start,
             targets=info.targets,
@@ -187,7 +206,8 @@ def compute_layout(
 
     # ---- Phase H ----------------------------------------------------
     naturals_w: dict[str, Size] = {};
-    for id_str in state.specs.keys() {
+    for scoped in order {
+        id_str = scoped.id_str;
         lines: list[str] = [];
         content = state.content.get(id_str);
         if content is not None {

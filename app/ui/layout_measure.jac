@@ -7,6 +7,11 @@ wrapped exactly once per (node, content revision, integer width, style
 revision) — the cache holds one entry per node because revisions are
 monotonic and older wraps can never be reused again (plan §4 invariant
 6); memory is therefore O(nodes), never O(history).
+
+Known cost by design: viewport resize ping-pong (A->B->A widths)
+invalidates the single entry per width change and recomputes wraps every
+frame. That is correct behavior under this bound, not a bug to fix with
+a multi-entry cache; revisit only if resize benchmarks say otherwise.
 """
 
 import from ui.width {
