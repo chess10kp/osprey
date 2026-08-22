@@ -117,7 +117,42 @@ obj CompileResult {
     has ok: bool = True,
         solver: Solver | None = None,
         nodes: dict[str, NodeEdges] = {},
-        diagnostics: list[LayoutDiagnostic] = [];
+        diagnostics: list[LayoutDiagnostic] = [],
+        # Recorded per run, for the axis that owns each flow partition
+        # (engine feeds these to the largest-remainder quantizer).
+        partitions: list[PartitionInfo] = [];
+}
+
+
+"""Axis-phase gate: does this phase emit constraints on the horizontal
+axis? Phase full emits both; h only left/right facts; v only
+top/bottom. This is what lets the engine solve width, quantize, wrap
+text once at integer widths, and only then solve height (plan 7.1)
+without a convergence loop."""
+def _wants(phase: str, horizontal: bool) -> bool {
+    if phase == "h" {
+        return horizontal;
+    }
+    if phase == "v" {
+        return not horizontal;
+    }
+    return True;  # full
+}
+
+
+"""One container flow partition, recorded for the engine so it can run
+§7.2 largest-remainder quantization per partition (edge snapping alone
+would not honor the approved LR correction). Populated for the axis that
+OWNS the flow; spans are the continuous values used at allocation time."""
+obj PartitionInfo {
+    has parent_id: str,
+        horizontal: bool,
+        span: float,
+        child_ids: list[str] = [],
+        targets: list[float] = [],
+        fixed: list[bool] = [],
+        minimums: list[float] = [],
+        maximums: list[float] = [];
 }
 
 
@@ -286,6 +321,9 @@ def _collect_scope(layout_root: UiNode) -> _Scope {
     overlays = _collect_overlays(layout_root, seen);
     for scoped in overlays {
         overlay_ids[scoped.id_str] = True;
+        # Overlay roots are scope members too: without this they would
+        # get no variables, no specs check, and no frame entry.
+        scope.order.append(scoped);
     }
 
     root_id = node_id(layout_root);
@@ -461,43 +499,64 @@ def _emit_pin_edge(
 
 
 """Required viewport pinning of the root's four edges (plan §6.1)."""
-def _emit_root(result: CompileResult, edges: NodeEdges, viewport: Viewport) -> bool {
+def _emit_root(
+    result: CompileResult,
+    edges: NodeEdges,
+    viewport: Viewport,
+    phase: str,
+) -> bool {
     id_str = edges.id_str;
-    if not _emit_pin_edge(result, edges.left, 0.0, id_str, "h") {
-        return False;
+    if _wants(phase, True) {
+        if not _emit_pin_edge(result, edges.left, 0.0, id_str, "h") {
+            return False;
+        }
+        if not _emit_pin_edge(
+            result, edges.right, float(viewport.columns), id_str, "h"
+        ) {
+            return False;
+        }
     }
-    if not _emit_pin_edge(result, edges.top, 0.0, id_str, "v") {
-        return False;
+    if _wants(phase, False) {
+        if not _emit_pin_edge(result, edges.top, 0.0, id_str, "v") {
+            return False;
+        }
+        if not _emit_pin_edge(
+            result, edges.bottom, float(viewport.rows), id_str, "v"
+        ) {
+            return False;
+        }
     }
-    if not _emit_pin_edge(
-        result, edges.right, float(viewport.columns), id_str, "h"
-    ) {
-        return False;
-    }
-    return _emit_pin_edge(
-        result, edges.bottom, float(viewport.rows), id_str, "v"
-    );
+    return True;
 }
 
 
-def _emit_invariants(result: CompileResult, edges: NodeEdges) -> bool {
+def _emit_invariants(
+    result: CompileResult,
+    edges: NodeEdges,
+    phase: str,
+) -> bool {
     id_str = edges.id_str;
-    if not _emit(
-        result,
-        _expr([_t(edges.right), _t(edges.left, -1.0)]),
-        Relation.GEQ,
-        StrengthTier.REQUIRED,
-        _prov("invariant", edges.id_str, "h"),
-    ) {
-        return False;
+    if _wants(phase, True) {
+        if not _emit(
+            result,
+            _expr([_t(edges.right), _t(edges.left, -1.0)]),
+            Relation.GEQ,
+            StrengthTier.REQUIRED,
+            _prov("invariant", edges.id_str, "h"),
+        ) {
+            return False;
+        }
     }
-    return _emit(
-        result,
-        _expr([_t(edges.bottom), _t(edges.top, -1.0)]),
-        Relation.GEQ,
-        StrengthTier.REQUIRED,
-        _prov("invariant", edges.id_str, "v"),
-    );
+    if _wants(phase, False) {
+        return _emit(
+            result,
+            _expr([_t(edges.bottom), _t(edges.top, -1.0)]),
+            Relation.GEQ,
+            StrengthTier.REQUIRED,
+            _prov("invariant", edges.id_str, "v"),
+        );
+    }
+    return True;
 }
 
 
@@ -820,6 +879,7 @@ def _emit_partition(
     natural_sizes: dict[str, Size],
     span_w: float,
     span_h: float,
+    phase: str,
 ) -> bool {
     spec = owner.spec;
     parent_edges = owner.edges;
@@ -847,6 +907,26 @@ def _emit_partition(
 
     span_flow = span_w if horizontal_flow else span_h;
     alloc = _allocate_span(flow_kids, span_flow);
+    if _wants(phase, horizontal_flow) {
+        info = PartitionInfo(
+            parent_id=parent_edges.id_str,
+            horizontal=horizontal_flow,
+            span=span_flow,
+        );
+        for i in range(len(flow_kids)) {
+            kid_size = flow_kids[i].size;
+            mx = kid_size.maximum;
+            if mx is None {
+                mx = 1e308;
+            }
+            info.child_ids.append(flow_kids[i].entry.edges.id_str);
+            info.targets.append(alloc.targets[i]);
+            info.fixed.append(_flow_weight(kid_size) == 0.0);
+            info.minimums.append(kid_size.minimum);
+            info.maximums.append(mx);
+        }
+        result.partitions.append(info);
+    }
     if alloc.overflow {
         # M5 seam: hard_overflow partitions must NOT go through
         # ui.layout_quantize.quantize_partition (no honest integer
@@ -862,7 +942,8 @@ def _emit_partition(
     }
 
     # Adjacency chain: first start pinned to parent start; siblings chain.
-    if len(flow_kids) {
+    # Emitted only when this phase owns the flow axis.
+    if len(flow_kids) and _wants(phase, horizontal_flow) {
         if not _emit(
             result,
             _expr([
@@ -893,10 +974,13 @@ def _emit_partition(
 
     has_flexible = False;
     for i in range(len(flow_kids)) {
+        # Cross-axis facts (further down) must be emitted in BOTH phases
+        # when they fall on the current axis; only FLOW-axis size facts
+        # are gated to the phase that owns the flow axis.
         kid = flow_kids[i];
         kid_edges = kid.entry.edges;
         kid_scoped = kid.entry.scoped;
-        if _flow_weight(kid.size) > 0.0 {
+        if _wants(phase, horizontal_flow) and _flow_weight(kid.size) > 0.0 {
             has_flexible = True;
             if not _emit(
                 result,
@@ -918,7 +1002,7 @@ def _emit_partition(
             ) {
                 return False;
             }
-        } else {
+        } elif _wants(phase, horizontal_flow) {
             if not _emit_sized_axis(
                 result,
                 kid.size,
@@ -936,10 +1020,13 @@ def _emit_partition(
 
         # Cross-axis resolution against the parent content box. The
         # cross axis is the opposite of THIS container's flow axis.
-        if not _emit_cross_axis(
-            result, kid.entry, owner, natural_sizes, not horizontal_flow,
-        ) {
-            return False;
+        if _wants(phase, not horizontal_flow) {
+            if not _emit_cross_axis(
+                result, kid.entry, owner, natural_sizes,
+                not horizontal_flow,
+            ) {
+                return False;
+            }
         }
 
         # Recurse: the child's own flow span is what it was allocated;
@@ -949,7 +1036,7 @@ def _emit_partition(
         if isinstance(kid.entry.scoped.target, UiContainer) {
             if not _emit_partition(
                 result, kid.entry, entries_by_id, natural_sizes,
-                child_span_w, child_span_h,
+                child_span_w, child_span_h, phase,
             ) {
                 return False;
             }
@@ -962,7 +1049,7 @@ def _emit_partition(
     # out of the parent and the publisher clips them (plan §6.2 step 3)
     # — forcing closure here would turn the warned overflow into an
     # UNSATISFIABLE frame.
-    if has_flexible and not alloc.hard_overflow {
+    if has_flexible and not alloc.hard_overflow and _wants(phase, horizontal_flow) {
         last_edges = flow_kids[len(flow_kids) - 1].entry.edges;
         if not _emit(
             result,
@@ -1085,6 +1172,7 @@ def _emit_overlay(
     owner: _Entry,
     root_edges: NodeEdges,
     natural_sizes: dict[str, Size],
+    phase: str,
 ) -> bool {
     edges = owner.edges;
     spec = owner.spec;
@@ -1101,7 +1189,7 @@ def _emit_overlay(
         spec.width.mode == SizeMode.FIXED
         or spec.width.mode == SizeMode.INTRINSIC
         or spec.width.mode == SizeMode.BOUNDED
-    ) {
+    ) and _wants(phase, True) {
         if not _emit_sized_axis(
             result, spec.width, edges.left, edges.right,
             True, id_str, natural_w, "overlay",
@@ -1113,7 +1201,7 @@ def _emit_overlay(
         spec.height.mode == SizeMode.FIXED
         or spec.height.mode == SizeMode.INTRINSIC
         or spec.height.mode == SizeMode.BOUNDED
-    ) {
+    ) and _wants(phase, False) {
         if not _emit_sized_axis(
             result, spec.height, edges.top, edges.bottom,
             False, id_str, natural_h, "overlay",
@@ -1137,7 +1225,7 @@ def _emit_overlay(
         or anchor == OverlayAnchor.LEFT
         or anchor == OverlayAnchor.RIGHT
     );
-    if centered_h {
+    if centered_h and _wants(phase, True) {
         if not _emit(
             result,
             _expr([
@@ -1151,7 +1239,7 @@ def _emit_overlay(
             return False;
         }
     }
-    if centered_v {
+    if centered_v and _wants(phase, False) {
         if not _emit(
             result,
             _expr([
@@ -1165,7 +1253,9 @@ def _emit_overlay(
             return False;
         }
     }
-    if anchor == OverlayAnchor.TOP or anchor == OverlayAnchor.BOTTOM {
+    if (
+        anchor == OverlayAnchor.TOP or anchor == OverlayAnchor.BOTTOM
+    ) and _wants(phase, False) {
         edge_var = edges.top if anchor == OverlayAnchor.TOP else edges.bottom;
         root_var = root_edges.top if anchor == OverlayAnchor.TOP else root_edges.bottom;
         if not _emit(
@@ -1178,7 +1268,9 @@ def _emit_overlay(
             return False;
         }
     }
-    if anchor == OverlayAnchor.LEFT or anchor == OverlayAnchor.RIGHT {
+    if (
+        anchor == OverlayAnchor.LEFT or anchor == OverlayAnchor.RIGHT
+    ) and _wants(phase, True) {
         edge_var = edges.left if anchor == OverlayAnchor.LEFT else edges.right;
         root_var = root_edges.left if anchor == OverlayAnchor.LEFT else root_edges.right;
         if not _emit(
@@ -1205,6 +1297,7 @@ def _emit_relation(
     rid: int,
     rel: LayoutRelation,
     edges_by_id: dict[str, NodeEdges],
+    phase: str = "full",
 ) -> bool {
     s = edges_by_id[rel.source_id];
     tgt = edges_by_id[rel.target_id];
@@ -1216,6 +1309,10 @@ def _emit_relation(
         "template=relation rel=" + str(rid)
         + " src=" + rel.provenance + " axis=" + axis_label
     );
+
+    if not _wants(phase, rel.axis.value == "horizontal") {
+        return True;  # Other phase owns this relation's axis.
+    }
 
     terms: list[Term] = [];
     constant = 0.0;
@@ -1292,6 +1389,7 @@ def compile_layout(
     layout_root: UiNode,
     viewport: Viewport,
     natural_sizes: dict[str, Size] = {},
+    phase: str = "full",
 ) -> CompileResult {
     scope = _collect_scope(layout_root);
     if scope.error is not None {
@@ -1375,12 +1473,12 @@ def compile_layout(
     root_entry = entries_by_id[node_id(layout_root)];
 
     # Root pins + per-node geometric invariants.
-    if not _emit_root(result, root_entry.edges, viewport) {
+    if not _emit_root(result, root_entry.edges, viewport, phase) {
         result.solver = None;
         return result;
     }
     for scoped in scope.order {
-        if not _emit_invariants(result, result.nodes[scoped.id_str]) {
+        if not _emit_invariants(result, result.nodes[scoped.id_str], phase) {
             result.solver = None;
             return result;
         }
@@ -1394,6 +1492,7 @@ def compile_layout(
         natural_sizes,
         float(viewport.columns),
         float(viewport.rows),
+        phase,
     ) {
         result.solver = None;
         return result;
@@ -1413,6 +1512,7 @@ def compile_layout(
             ov_entry,
             root_entry.edges,
             natural_sizes,
+            phase,
         ) {
             result.solver = None;
             return result;
@@ -1433,6 +1533,7 @@ def compile_layout(
                 natural_sizes,
                 ov_w,
                 ov_h,
+                phase,
             ) {
                 result.solver = None;
                 return result;
@@ -1443,10 +1544,21 @@ def compile_layout(
     # Registered spatial relations, ascending handle order.
     for rid in sorted(state.relations.keys()) {
         rel = state.relations[rid];
-        if not _emit_relation(result, rid, rel, result.nodes) {
+        if not _emit_relation(result, rid, rel, result.nodes, phase) {
             result.solver = None;
             return result;
         }
     }
     return result;
+}
+
+
+# ----------------------------------------------------------------------
+# Engine-facing helpers (M5 orchestration lives in ui.layout_engine).
+# ----------------------------------------------------------------------
+
+"""Validated scope walk shared with the engine: Child tree plus
+Screen-owned Layer overlays, z-index/jid ordered."""
+def collect_scope_for_engine(layout_root: UiNode) -> _Scope {
+    return _collect_scope(layout_root);
 }

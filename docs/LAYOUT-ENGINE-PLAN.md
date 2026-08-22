@@ -883,6 +883,7 @@ workaround permanent.
 | M1 | | | |
 | M2 | | | |
 | M3 | 2026-08-24 | `d9d1539` | PASS. Incremental solver: constraint removal, edit variables, dual optimize. 26/26 solver tests. |
-| M4 | 2026-08-24 | (this commit) | PASS. Permanent types + registry lifecycle (`33018f1`); compiler templates with provenance (`ui/layout_compile.jac`, 86 tests), §7.2 largest-remainder quantizer (`ui/layout_quantize.jac`, 16 tests), `configure_main_shell_layout` in `ui.screen`. Deviation D23: partition arithmetic uses hard-claim-only split (fixed-only); soft intrinsic/bounded claims drive warnings + recursion spans only. Registry functions live in `ui.layout_state` until M6 (four permanent names collide with legacy helpers). |
+| M5 (slice 1) | 2026-08-24 | (this commit) | PASS. `ui/layout_measure.jac` bounded per-node wrap cache; compiler axis phases ("h"/"v"/"full") + PartitionInfo exposure; `ui/layout_engine.jac` compute pipeline: natural widths -> H solve -> LR quantization -> wrap once -> V solve -> clips/scroll/overlay arrangement -> atomic publication. Overlay roots were missing from the compiled scope (fixed; no M4 test covered them — added). Slice 2 remains: legacy dual-run parity corpus + benchmark gate. |
+| M4 | 2026-08-24 | `8a6fbaf` | PASS. Permanent types + registry lifecycle (`33018f1`); compiler templates with provenance (`ui/layout_compile.jac`, 86 tests), §7.2 largest-remainder quantizer (`ui/layout_quantize.jac`, 16 tests), `configure_main_shell_layout` in `ui.screen`. Deviation D23: partition arithmetic uses hard-claim-only split (fixed-only); soft intrinsic/bounded claims drive warnings + recursion spans only. Registry functions live in `ui.layout_state` until M6 (four permanent names collide with legacy helpers). |
 | M5 | | | |
 | M6 | | | |

@@ -51,6 +51,17 @@ obj ContentEntry {
 }
 
 
+"""Cached wrapped lines for one node at one integer width (plan §7.1
+step 4). One entry per node — revisions are monotonic, so older wraps
+are never reusable and keeping only the newest bounds memory."""
+obj MeasureEntry {
+    has width: int,
+        content_revision: int,
+        style_revision: int,
+        lines: list[str];
+}
+
+
 """Permanent layout registry (plan §4).
 
 `solver` and `last_frame` are populated from M5; the fields exist now so
@@ -61,7 +72,8 @@ obj LayoutState {
         content: dict[str, ContentEntry] = {},
         relations: dict[int, LayoutRelation] = {},
         next_relation_id: int = 1,
-        measurement_cache: dict[str, list[str]] = {},
+        measurement_cache: dict[str, MeasureEntry] = {},
+        scroll_requests: dict[str, int] = {},
         last_frame: LayoutFrame | None = None;
 }
 
@@ -372,7 +384,7 @@ def set_scroll_offset(state: LayoutState, target: UiNode, requested_offset: int)
         return _error(LayoutError.STALE_NODE, "scroll for unregistered node", [id_str]);
     }
     state.specs[id_str].scroll_vertical = True;
-    # Requested offset rides on content until M5 publishes frames.
+    state.scroll_requests[id_str] = max(0, requested_offset);
     entry = state.content.get(id_str);
     if entry is None {
         state.content[id_str] = ContentEntry(
