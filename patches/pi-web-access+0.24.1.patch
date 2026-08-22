@@ -1,0 +1,27 @@
+diff --git a/node_modules/pi-web-access/extract.ts b/node_modules/pi-web-access/extract.ts
+index 5f3a9b1..c2d7e88 100644
+--- a/node_modules/pi-web-access/extract.ts
++++ b/node_modules/pi-web-access/extract.ts
+@@ -1,6 +1,21 @@
+ import { existsSync, readFileSync } from "node:fs";
+ import { Readability } from "@mozilla/readability";
+-import { resizeImage } from "@earendil-works/pi-coding-agent";
++// Jackal patch: pi-coding-agent versions that do not export resizeImage are
++// supported by resolving it lazily; image fetches degrade to a decode error.
++async function resizeImage(buffer: Uint8Array, mimeType: string, options: { maxWidth: number; maxHeight: number }): Promise<{ width: number; height: number; data: Uint8Array; mimeType: string } | undefined> {
++	try {
++		const mod = (await import("@earendil-works/pi-coding-agent")) as {
++			resizeImage?: (
++				buffer: Uint8Array,
++				mimeType: string,
++				options: { maxWidth: number; maxHeight: number },
++			) => Promise<{ width: number; height: number; data: Uint8Array; mimeType: string } | undefined>;
++		};
++		if (typeof mod?.resizeImage === "function") return await mod.resizeImage(buffer, mimeType, options);
++	} catch {
++	}
++	return undefined;
++}
+ import { parseHTML } from "linkedom";
+ import TurndownService from "turndown";
+ import pLimit from "p-limit";

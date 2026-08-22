@@ -21,11 +21,12 @@
     "pi-mcp-adapter": "^2.6.0",
     "pi-mermaid": "^0.3.0",
     "pi-subagents": "^0.24.2",
+    "pi-web-access": "^0.24.1",
     "wrap-ansi": "^10.0.0"
   },
   "scripts": {
     "postinstall": "patch-package",
-    "build:agent": "tsc -p tsconfig.json",
+    "build:agent": "node scripts/build-web-access.mjs && tsc -p tsconfig.json",
     "check": "npm run build:agent && node dist/index.js --check",
     "check:jac": "./scripts/jac-toolchain-check.sh",
     "test:jac": "./scripts/jac-test-harness.sh",
@@ -41,6 +42,7 @@
     "@earendil-works/pi-ai": "^0.75.4",
     "@inkjs/ui": "^2.0.0",
     "cli-table3": "^0.6.5",
+    "esbuild": "^0.28.2",
     "ink": "^7.0.3",
     "ink-testing-library": "^4.0.0",
     "patch-package": "^8.0.1",

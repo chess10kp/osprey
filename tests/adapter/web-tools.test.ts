@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   assertSafeFetchUrl,
+  formatWebSearchResponse,
   formatWebSearchResults,
-  htmlToReadableText,
-  parseBraveSearchResponse,
 } from "../../src/agent/web-tools.js";
 
 describe("assertSafeFetchUrl", () => {
@@ -23,41 +22,42 @@ describe("assertSafeFetchUrl", () => {
   });
 });
 
-describe("htmlToReadableText", () => {
-  it("strips tags and scripts", () => {
-    const html = "<html><head><script>alert(1)</script></head><body><h1>Hi</h1><p>There</p></body></html>";
-    const text = htmlToReadableText(html);
-    expect(text).toContain("Hi");
-    expect(text).toContain("There");
-    expect(text).not.toContain("alert");
-    expect(text).not.toContain("<");
-  });
-});
-
-describe("parseBraveSearchResponse", () => {
-  it("extracts web results", () => {
-    const data = {
-      web: {
-        results: [
-          { title: "A", url: "https://a.test", description: "alpha" },
-          { title: "B", url: "https://b.test", snippet: "beta" },
-        ],
-      },
-    };
-    expect(parseBraveSearchResponse(data)).toEqual([
-      { title: "A", url: "https://a.test", description: "alpha" },
-      { title: "B", url: "https://b.test", description: "beta" },
-    ]);
-  });
-});
-
 describe("formatWebSearchResults", () => {
   it("formats numbered results", () => {
     const text = formatWebSearchResults([
-      { title: "Doc", url: "https://x.test", description: "summary" },
+      { title: "Doc", url: "https://x.test", snippet: "summary" },
     ]);
     expect(text).toContain("1. Doc");
     expect(text).toContain("https://x.test");
     expect(text).toContain("summary");
+  });
+
+  it("handles empty results", () => {
+    expect(formatWebSearchResults([])).toBe("No results found.");
+  });
+});
+
+describe("formatWebSearchResponse", () => {
+  it("prefers the synthesized answer plus sources", () => {
+    const text = formatWebSearchResponse({
+      answer: "Pi-web-access supports many providers.",
+      provider: "exa",
+      results: [{ title: "Repo", url: "https://github.com/x/y", snippet: "desc" }],
+    });
+    expect(text).toContain("Pi-web-access supports many providers.");
+    expect(text).toContain("1. Repo");
+    expect(text).toContain("https://github.com/x/y");
+  });
+
+  it("falls back to sources when there is no answer", () => {
+    const text = formatWebSearchResponse({
+      answer: "",
+      results: [{ title: "Only", url: "https://only.test" }],
+    });
+    expect(text).toContain("1. Only");
+  });
+
+  it("reports no results for an empty response", () => {
+    expect(formatWebSearchResponse({ answer: "", results: [] })).toBe("No results found.");
   });
 });
