@@ -174,14 +174,6 @@ def buffer_get(buf: CellBuffer, row: int, col: int) -> StyledCell {
 }
 
 
-def buffer_set(buf: CellBuffer, row: int, col: int, cell: StyledCell) {
-    if row < 0 or row >= buf.rows or col < 0 or col >= buf.columns {
-        return;
-    }
-    buf.cells[row][col] = copy_cell(cell);
-}
-
-
 def buffer_clear_rect(
     buf: CellBuffer,
     x: int,

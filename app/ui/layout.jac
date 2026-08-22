@@ -282,24 +282,6 @@ def set_scroll_offset(tables: LayoutTables, n: UiNode, offset: int) {
 }
 
 
-"""Clamp an already-measured viewport scroll to content bounds."""
-def clamp_scroll_offset(tables: LayoutTables, n: UiNode) {
-    entry = get_entry(tables, n);
-    if entry is None {
-        return;
-    }
-    max_off = max(0, len(entry.wrapped_lines) - max(1, entry.rect.height));
-    if entry.scroll_offset > max_off {
-        entry.scroll_offset = max_off;
-        entry.layout_dirty = True;
-    }
-    if entry.scroll_offset < 0 {
-        entry.scroll_offset = 0;
-        entry.layout_dirty = True;
-    }
-}
-
-
 """Remove layout state for a disposed node. Caller must snapshot prev_rect first."""
 def clear_node(tables: LayoutTables, n: UiNode) {
     nid = node_id(n);

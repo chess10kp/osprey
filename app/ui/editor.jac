@@ -78,18 +78,6 @@ def editor_clear_selection(prompt: Prompt) {
 }
 
 
-"""True when the prompt should handle keys (no modal overlay trapping focus)."""
-def editor_should_handle(session: UiSession, modal_open: bool = False) -> bool {
-    if session.disposed {
-        return False;
-    }
-    if modal_open {
-        return False;
-    }
-    return True;
-}
-
-
 def _delete_selection(prompt: Prompt) {
     if not editor_has_selection(prompt) {
         return;

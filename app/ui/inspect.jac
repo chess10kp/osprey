@@ -400,37 +400,3 @@ def validate_invariants(session: UiSession) -> list[InspectFinding] {
 }
 
 
-"""Explain leftover UI jids after dispose (leak narrative)."""
-def dump_leak_narrative(session: UiSession) -> str {
-    lines: list[str] = [];
-    if not session.disposed {
-        lines.append("session_disposed=False");
-        return "\n".join(lines);
-    }
-    lines.append("session_disposed=True");
-    if session.tracked_node_ids {
-        lines.append(
-            "leaked_tracked=" + ",".join(sorted(list(session.tracked_node_ids)))
-        );
-    } else {
-        lines.append("leaked_tracked=<none>");
-    }
-    if session.bindings.by_target {
-        lines.append(
-            "leaked_bindings=" + str(len(session.bindings.by_target))
-        );
-    } else {
-        lines.append("leaked_bindings=0");
-    }
-    if session.capabilities.by_node {
-        lines.append(
-            "leaked_capabilities=" + str(len(session.capabilities.by_node))
-        );
-    } else {
-        lines.append("leaked_capabilities=0");
-    }
-    if session.focus_id {
-        lines.append("stale_focus=" + session.focus_id);
-    }
-    return "\n".join(lines);
-}

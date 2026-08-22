@@ -166,32 +166,6 @@ def _blank_buffer(columns: int, rows: int) -> CellBuffer {
 }
 
 
-def _set_cell(
-    buf: CellBuffer,
-    row: int,
-    col: int,
-    ch: str,
-    attrs: StyleAttrs | None = None,
-) {
-    if row < 0 or row >= buf.rows or col < 0 or col >= buf.columns {
-        return;
-    }
-    style = attrs if attrs is not None else StyleAttrs();
-    buf.cells[row][col] = StyledCell(
-        ch=ch if ch else " ",
-        attrs=StyleAttrs(
-            fg=style.fg,
-            bg=style.bg,
-            bold=style.bold,
-            dim=style.dim,
-            italic=style.italic,
-            underline=style.underline,
-            reverse=style.reverse,
-        ),
-    );
-}
-
-
 def _paint_text_into(
     buf: CellBuffer,
     text: str,
@@ -375,14 +349,6 @@ def _merge_damage(damage: list[DamageRect]) -> list[Rect] {
 }
 
 
-def _pad_row(row: str, columns: int) -> str {
-    if len(row) >= columns {
-        return row[:columns];
-    }
-    return row + (" " * (columns - len(row)));
-}
-
-
 def _diff_ansi(
     previous: CellBuffer | None,
     desired: CellBuffer,
@@ -426,18 +392,6 @@ def desired_cells(renderer: Renderer, layout_root: UiNode) -> list[str] {
     );
     buf = _paint_frame_buffer(renderer, layout_root);
     return buffer_to_plain_rows(buf);
-}
-
-
-"""Materialize the desired styled cell buffer without writing a terminal."""
-def desired_buffer(renderer: Renderer, layout_root: UiNode) -> CellBuffer {
-    measure_and_arrange(
-        renderer.layout,
-        layout_root,
-        renderer.layout.columns,
-        renderer.layout.rows,
-    );
-    return _paint_frame_buffer(renderer, layout_root);
 }
 
 

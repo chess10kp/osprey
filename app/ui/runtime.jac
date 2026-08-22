@@ -198,11 +198,6 @@ def record_invalidation(
 }
 
 
-def enqueue_event(session: UiSession, kind: str, payload: dict[str, any]) {
-    session.event_queue.append({"kind": kind, "payload": payload});
-}
-
-
 """BFS from Jac persistent root across all edge types; return UI jids found."""
 def ui_jids_reachable_from_persistent_root(ui_jids: set[str]) -> list[str] {
     found: list[str] = [];
