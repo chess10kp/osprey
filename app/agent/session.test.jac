@@ -201,3 +201,68 @@ test "turn_start and turn_end hooks fire around a turn" {
     dispose_bridge(b);
     session_dispose();
 }
+
+
+# ===================== full-compat Phase A: event coverage =====================
+
+test "relay_tool_hooks fires pi-named tool events and delegates" {
+    session_dispose();
+    b = create_bridge("t-relay");
+    plugins.bridge = b;
+    ensure_host(b);
+    seen: list[str] = [];
+    inner_seen: list[str] = [];
+
+    def _on_start(data: dict, ctx: any) -> str {
+        seen.append("start:" + str(data.get("tool", "")));
+        return "";
+    }
+
+    def _on_end(data: dict, ctx: any) -> str {
+        seen.append("end:" + str(data.get("tool", "")));
+        return "";
+    }
+
+    register_fake_listener(b, "tool_execution_start", _on_start);
+    register_fake_listener(b, "tool_execution_end", _on_end);
+
+    def _inner(kind: str, data: dict) {
+        inner_seen.append(kind);
+    }
+
+    relay = relay_tool_hooks(b as PluginBridge, _inner);
+    relay("chunk", {"content": "x"});
+    relay("tool_call", {"tool": "read", "args": {"path": "a.jac"}});
+    relay("tool_result", {"tool": "read", "result": "ok"});
+    assert seen == ["start:read", "end:read"];
+    assert inner_seen == ["chunk", "tool_call", "tool_result"];
+
+    # Identity without a bridge — native path keeps zero overhead.
+    relay2 = relay_tool_hooks(None, _inner);
+    assert relay2 is _inner;
+    plugins.bridge = None;
+    dispose_bridge(b);
+    session_dispose();
+}
+
+
+test "session_dispose fires session_shutdown before teardown" {
+    session_dispose();
+    st = session_boot("t-shutdown", os.getcwd(), []);
+    b = plugins.bridge;
+    if b is None {
+        b = create_bridge("t-shutdown-fake");
+        plugins.bridge = b;
+        ensure_host(b);
+    }
+    seen: list[str] = [];
+
+    def _bye(data: dict, ctx: any) -> str {
+        seen.append("bye");
+        return "";
+    }
+
+    register_fake_listener(b, "session_shutdown", _bye);
+    session_dispose();
+    assert seen == ["bye"];
+}

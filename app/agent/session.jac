@@ -296,6 +296,11 @@ def session_dispose {
     }
     b = plugins.bridge;
     if b is not None {
+        # Pi lifecycle: extensions get session_shutdown before teardown.
+        try {
+            fire_hook(b as PluginBridge, "session_shutdown", {});
+        } except Exception {
+        }
         dispose_bridge(b as PluginBridge);
         plugins.bridge = None;
     }
@@ -305,6 +310,34 @@ def session_dispose {
     plugins.loaded = 0;
     plugins.total = 0;
     plugins.commands.clear();
+}
+
+
+"""Relay tool-loop events to extension listeners under Pi event names.
+
+Returns an event handler that first fires the matching Pi hook
+(tool_execution_start / tool_execution_end) then delegates to `inner`.
+With no bridge this is the identity — zero overhead on the native path.
+"""
+def relay_tool_hooks(bridge: PluginBridge | None, inner: any) -> any {
+    if bridge is None {
+        return inner;
+    }
+    def relayed(kind: str, data: dict) {
+        if kind == "tool_call" {
+            fire_hook(bridge, "tool_execution_start", {
+                "tool": str(data.get("tool", "")),
+                "args": data.get("args", {}),
+            });
+        } elif kind == "tool_result" {
+            fire_hook(bridge, "tool_execution_end", {
+                "tool": str(data.get("tool", "")),
+                "result": str(data.get("result", ""))[:2000],
+            });
+        }
+        inner(kind, data);
+    }
+    return relayed;
 }
 
 
@@ -343,13 +376,20 @@ def run_turn(message: str, on_event: any = render_event) -> str {
     _n_tools = 0;
     bridge = plugins.bridge;
     # T2-partial lifecycle hooks — best-effort, never fatal.
+    # Pi event order: before_agent_start -> turn/agent start -> tools...
     if bridge is not None {
-        fire_hook(bridge as PluginBridge, "turn_start", {"message": message});
+        b = bridge as PluginBridge;
+        fire_hook(b, "before_agent_start", {"message": message});
+        fire_hook(b, "turn_start", {"message": message});
+        fire_hook(b, "agent_start", {"message": message});
     }
     answer = "";
     try {
         reg = plugins.reg if plugins.reg is not None else default_registry();
-        answer = react_loop(history, [], transport, on_event, reg=reg, bridge=bridge);
+        answer = react_loop(
+            history, [], transport, relay_tool_hooks(bridge, on_event),
+            reg=reg, bridge=bridge,
+        );
     } finally {
         if on_event is render_event {
             sys.stdout.write("\n");
@@ -363,11 +403,14 @@ def run_turn(message: str, on_event: any = render_event) -> str {
             on_event("turn_end", {"secs": time.time() - _t0, "tools": _n_tools});
         }
         if bridge is not None {
-            fire_hook(bridge as PluginBridge, "turn_end", {
+            b2 = bridge as PluginBridge;
+            fire_hook(b2, "turn_end", {
                 "secs": time.time() - _t0,
                 "tools": _n_tools,
                 "answer": answer,
             });
+            fire_hook(b2, "agent_end", {"answer": answer});
+            fire_hook(b2, "agent_settled", {});
         }
     }
     # T2b: display-only markdown transformer chain over the complete answer,
