@@ -20,6 +20,7 @@ default_codespace = "native"
 # path stays server-pinned; no implicit native fallback.
 "constraints.algebra" = "server"
 "constraints.solver" = "server"
+"constraints.layout_relations" = "server"
 "core.edit" = "native"
 "ui.model" = "server"
 "ui.mutation" = "server"
