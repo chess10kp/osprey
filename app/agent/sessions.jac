@@ -21,8 +21,14 @@ runtime, and legacy-written transcripts plus indexes load here unchanged.
 list_sessions reads index.json but merges in directory-scan entries when
 the index is missing, stale, or corrupt, rebuilding it when needed.
 
-Not ported (runtime-loop concerns): auto-save timers, model-ref persistence,
-compaction backups, legacy latest.json migration, retention pruning.
+Not ported (runtime-loop concerns): auto-save timers, compaction backups,
+legacy latest.json migration, retention pruning.
+
+Deviation from byte-compat: save_session accepts an optional `model` ref.
+When non-empty it is stored as a seventh top-level key "model" so restore
+can bring back model+transcript together. Legacy loaders ignore unknown
+keys, so files remain loadable there; saves without a model stay
+byte-identical to the six-key format.
 """
 
 import os;
@@ -268,7 +274,10 @@ stored verbatim under `messages`. Returns metadata:
 `session_id` preserves its original createdAt stamp (and prior name when no
 new name is given).
 """
-def save_session(cwd: str, history: list, name: str = "", session_id: str = "") -> dict {
+def save_session(
+    cwd: str, history: list, name: str = "", session_id: str = "",
+    model: str = "",
+) -> dict {
     sid = session_id if session_id else new_session_id();
     if not is_valid_session_id(sid) {
         raise ValueError("invalid session id: " + str(sid));
@@ -283,6 +292,7 @@ def save_session(cwd: str, history: list, name: str = "", session_id: str = "") 
 
     created = _now_iso();
     prior_name = "";
+    prior_model = "";
     existing = _read_json(path);
     if _is_record(existing) {
         prior_created = existing.get("createdAt");
@@ -292,6 +302,10 @@ def save_session(cwd: str, history: list, name: str = "", session_id: str = "") 
         recorded = existing.get("sessionName");
         if isinstance(recorded, str) {
             prior_name = recorded;
+        }
+        prior_rec_model = existing.get("model");
+        if isinstance(prior_rec_model, str) {
+            prior_model = prior_rec_model;
         }
     }
 
@@ -313,6 +327,14 @@ def save_session(cwd: str, history: list, name: str = "", session_id: str = "") 
         "updatedAt": updated,
         "messages": history,
     };
+    final_model = model.strip() if isinstance(model, str) else "";
+    if not final_model {
+        final_model = prior_model;
+    }
+    if final_model {
+        # Optional seventh key — see module docstring deviation note.
+        record["model"] = final_model;
+    }
     if not _write_json(path, record) {
         raise ValueError("cannot write transcript: " + path);
     }
@@ -330,7 +352,22 @@ def save_session(cwd: str, history: list, name: str = "", session_id: str = "") 
         "created": created,
         "updated": updated,
         "messageCount": len(history),
+        "model": final_model,
     };
+}
+
+
+"""Full transcript record for one session, or None when unknown/corrupt.
+Used by restore flows that need model + metadata, not just messages."""
+def get_session_record(cwd: str, session_id: str) -> dict | None {
+    if not is_valid_session_id(session_id) {
+        return None;
+    }
+    rec = _read_json(_session_path(cwd, session_id));
+    if not _is_record(rec) {
+        return None;
+    }
+    return rec;
 }
 
 
@@ -469,4 +506,88 @@ def latest_session_id(cwd: str) -> str | None {
         return None;
     }
     return str(entries[0].get("id"));
+}
+
+
+"""Export one session transcript as readable Markdown.
+
+Writes to `path` (parent dirs created). Tool messages render as fenced
+blocks under their preceding call. True on success; False for unknown ids,
+unwritable targets, or corrupt transcripts."""
+def export_session(cwd: str, session_id: str, path: str) -> bool {
+    rec: dict | None = get_session_record(cwd, session_id);
+    if rec is None {
+        return False;
+    }
+    messages = rec.get("messages");
+    if not isinstance(messages, list) {
+        return False;
+    }
+    lines: list[str] = [];
+    name = str(rec.get("sessionName", "session"));
+    lines.append("# " + name);
+    lines.append("");
+    lines.append("- session: " + session_id);
+    lines.append("- updated: " + str(rec.get("updatedAt", "")));
+    rec_model = rec.get("model");
+    if isinstance(rec_model, str) and rec_model {
+        lines.append("- model: " + rec_model);
+    }
+    lines.append("");
+    for msg in messages {
+        if not isinstance(msg, dict) {
+            continue;
+        }
+        role = str(msg.get("role", ""));
+        content = str(msg.get("content", "") or "");
+        if role == "user" {
+            lines.append("## user");
+            lines.append("");
+            lines.append(content);
+            lines.append("");
+        } elif role == "assistant" {
+            calls = msg.get("tool_calls");
+            if isinstance(calls, list) and calls {
+                for call in calls {
+                    if not isinstance(call, dict) { continue; }
+                    fn: any = call.get("function", {});
+                    if not isinstance(fn, dict) { continue; }
+                    lines.append(
+                        "**tool call: " + str(fn.get("name", "")) + "**"
+                    );
+                    lines.append("");
+                    lines.append("```json");
+                    lines.append(str(fn.get("arguments", "{}")));
+                    lines.append("```");
+                    lines.append("");
+                }
+            }
+            if content {
+                lines.append("## assistant");
+                lines.append("");
+                lines.append(content);
+                lines.append("");
+            }
+        } elif role == "tool" {
+            lines.append("### tool result");
+            lines.append("");
+            lines.append("```");
+            lines.append(content);
+            lines.append("```");
+            lines.append("");
+        } elif role == "system" {
+            # System prompts are runtime state, not transcript.
+            continue;
+        }
+    }
+    parent = os.path.dirname(os.path.abspath(path));
+    try {
+        os.makedirs(parent, exist_ok=True);
+        with open(path, "w") as fh {
+            fh.write("\n".join(lines).rstrip("\n") + "\n");
+        }
+    } except OSError {
+        return False;
+    }
+    return True;
 }

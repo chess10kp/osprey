@@ -335,3 +335,91 @@ test "latest_session_id resolves the most recently saved session" {
         _cleanup(tmp);
     }
 }
+
+
+test "model ref persists as optional seventh key and stays byte-compatible without one" {
+    tmp = _make_tmp();
+    try {
+        # No model -> exactly the legacy six keys.
+        meta = save_session(tmp, _hist("a"), name="plain");
+        raw = _read_raw(meta["path"]);
+        assert set(raw.keys()) == {
+            "sessionId", "sessionName", "cwd", "createdAt", "updatedAt",
+            "messages",
+        };
+        assert meta["model"] == "";
+
+        # With model -> seventh key present; re-save without arg keeps it.
+        m2 = save_session(tmp, _hist("b"), name="with-model",
+                          session_id=str(meta["id"]), model="openrouter/anthropic/claude-sonnet-5");
+        assert m2["model"] == "openrouter/anthropic/claude-sonnet-5";
+        rec = get_session_record(tmp, str(m2["id"]));
+        assert rec is not None;
+        assert rec["model"] == "openrouter/anthropic/claude-sonnet-5";
+
+        # Re-save with no model argument preserves the prior model ref.
+        m3 = save_session(tmp, _hist("c"), session_id=str(m2["id"]));
+        assert m3["model"] == "openrouter/anthropic/claude-sonnet-5";
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+test "get_session_record returns None for unknown or invalid ids" {
+    tmp = _make_tmp();
+    try {
+        assert get_session_record(tmp, "sess_123456789") is None;
+        assert get_session_record(tmp, "../escape") is None;
+        meta = save_session(tmp, _hist("x"));
+        rec = get_session_record(tmp, str(meta["id"]));
+        assert rec is not None;
+        assert rec["sessionId"] == meta["id"];
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+test "export_session writes readable markdown from a transcript" {
+    tmp = _make_tmp();
+    out_path = os.path.join(tmp, "export", "out.md");
+    try {
+        hist = [
+            {"role": "system", "content": "hidden system prompt"},
+            {"role": "user", "content": "list the files"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "list_dir", "arguments": "{\"path\": \".\"}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": "src/\napp.jac"},
+            {"role": "assistant", "content": "here they are"},
+        ];
+        meta = save_session(tmp, hist, name="probe run",
+                            model="openrouter/anthropic/claude-sonnet-5");
+        assert export_session(tmp, str(meta["id"]), out_path);
+        text: any = "";
+        fh = open(out_path, "r");
+        try {
+            text = fh.read();
+        } finally {
+            fh.close();
+        }
+        body = str(text);
+        assert "# probe run" in body;
+        assert "- model: openrouter/anthropic/claude-sonnet-5" in body;
+        assert "## user" in body and "list the files" in body;
+        assert "**tool call: list_dir**" in body;
+        assert "```json" in body and "{\"path\": \".\"}" in body;
+        assert "### tool result" in body and "src/" in body;
+        assert "here they are" in body;
+        # System prompt must not leak into the export.
+        assert "hidden system prompt" not in body;
+
+        # Unknown id and unwritable target both fail cleanly.
+        assert not export_session(tmp, "sess_987654321", out_path);
+        assert not export_session(tmp, str(meta["id"]), "/proc/nope/out.md");
+    } finally {
+        _cleanup(tmp);
+    }
+}
