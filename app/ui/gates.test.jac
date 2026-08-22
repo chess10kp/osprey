@@ -9,16 +9,6 @@ test "Gate 1 detached lifecycle passes" {
 }
 
 
-test "Gate 2 returns comparable metrics for walker vs callback" {
-    metrics: Gate2Report = run_gate2_prompt_vs_callback();
-    has_osp = metrics.walker_loc > 0 or metrics.osp_loc > 0;
-    assert has_osp;
-    assert metrics.callback_loc > 0;
-    has_verdict = metrics.retain_walkers or metrics.advantage != "";
-    assert has_verdict;
-}
-
-
 test "Gate 3 layout and damage harness passes" {
     assert run_gate3_layout_damage() == True;
 }

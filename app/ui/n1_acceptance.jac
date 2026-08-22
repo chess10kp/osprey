@@ -180,7 +180,9 @@ def scenario_esc_timeout() -> N1Result {
     norm = InputNormalizer();
     norm.esc_timeout_ms = 50;
     first = norm.feed("\x1b");
-    assert first == [] or True;
+    # A lone ESC must be buffered, never emitted immediately — otherwise
+    # the escape-timeout policy below could not distinguish early vs late.
+    assert first == [];
     norm.arm_esc(0.0);
     early = norm.flush_esc_timeout(10.0);
     late = norm.flush_esc_timeout(60.0);

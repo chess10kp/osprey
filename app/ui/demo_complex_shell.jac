@@ -480,7 +480,7 @@ def run_complex_shell_demo(
     _step(
         demo,
         "approval_paint",
-        "Approve tool" in joined3 or "jac_check" in joined3 or frame3.cells_written >= 0,
+        "Approve tool" in joined3 and "jac_check" in joined3,
         "cells=" + str(frame3.cells_written),
     );
 

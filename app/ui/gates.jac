@@ -74,15 +74,6 @@ import from ui.inspect {
 }
 
 
-obj Gate2Report {
-    has walker_loc: int = 0,
-        osp_loc: int = 0,
-        callback_loc: int = 0,
-        retain_walkers: bool = False,
-        advantage: str = "";
-}
-
-
 obj Gate4Report {
     has nodes_queried: int = 0,
         cells_written: int = 0,
@@ -134,27 +125,6 @@ def run_gate1_detached_lifecycle() -> bool {
         return False;
     }
     return True;
-}
-
-
-"""Gate 2 — Arrival dispatch value vs callback-prompt baseline."""
-def run_gate2_prompt_vs_callback() -> Gate2Report {
-    # OSP / walker prompt path: InsertText ability + dispatch.
-    walker_loc = 18;
-    osp_loc = 42;
-    # Conventional callback baseline: closure table + manual bubble.
-    callback_loc = 55;
-    return Gate2Report(
-        walker_loc=walker_loc,
-        osp_loc=osp_loc,
-        callback_loc=callback_loc,
-        retain_walkers=True,
-        advantage=(
-            "typed walkers give inspectable target/bubble paths, "
-            + "replayable events, and one-handler-per-archetype without "
-            + "a closure registry keyed by runtime id"
-        ),
-    );
 }
 
 
