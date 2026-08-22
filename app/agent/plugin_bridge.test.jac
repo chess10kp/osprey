@@ -240,7 +240,7 @@ test "resolve_node_bin returns executable path" {
 test "host_hello advertises compat tier and caps" {
     bridge = create_bridge("s-caps");
     ensure_node_host(bridge);
-    assert bridge.compat_tier in ("T0", "T1");
+    assert bridge.compat_tier in ("T0", "T1", "T2-partial");
     assert "tools" in bridge.host_caps;
     assert "cancel" in bridge.host_caps;
     dispose_bridge(bridge);
@@ -255,7 +255,7 @@ test "load_extension_path rejects unsupported requires" {
     raised = False;
     try {
         load_extension_path(
-            bridge, reg, "stub.echo", stub, requires=["commands"]
+            bridge, reg, "stub.echo", stub, requires=["renderers"]
         );
     } except RuntimeError {
         raised = True;
@@ -290,5 +290,126 @@ test "tool_cancel aborts slow Pi tool" {
     cancel_tool(bridge, corr);
     t.join(timeout=5.0);
     assert "cancel" in box["result"] or "ERROR" in box["result"];
+    dispose_bridge(bridge);
+}
+
+
+# ===================== T2-partial: commands + hooks =====================
+
+test "fake host command invoke round-trips with notifications" {
+    bridge = create_bridge("s-cmd");
+    reg = create_registry();
+
+    def _upper(args: str, ctx: any) -> str {
+        out = str(args).strip().upper();
+        ctx["ui"].notify("UPPER:" + out);
+        return out;
+    }
+
+    register_fake_command(bridge, "upper", _upper, description="Uppercase args");
+    assert "upper" in bridge.commands;
+    assert bridge.commands["upper"]["extension_id"] == "fake.commands";
+
+    res = invoke_command(bridge, "upper", "hello jackal");
+    assert res["ok"] is True;
+    assert res["result"] == "HELLO JACKAL";
+    assert res["notifications"] == ["UPPER:HELLO JACKAL"];
+
+    missing = invoke_command(bridge, "nope", "");
+    assert missing["ok"] is False;
+    assert "unknown command" in missing["error"];
+}
+
+
+test "fake host hook fire runs listeners serially and isolates errors" {
+    bridge = create_bridge("s-hook");
+    order: list[str] = [];
+
+    def _h1(event_data: dict, ctx: any) -> str {
+        order.append("h1");
+        return "one:" + str(event_data.get("message", ""));
+    }
+
+    def _boom(event_data: dict, ctx: any) -> str {
+        order.append("boom");
+        raise ValueError("listener failed");
+    }
+
+    def _h3(event_data: dict, ctx: any) -> str {
+        order.append("h3");
+        return "three";
+    }
+
+    register_fake_listener(bridge, "turn_start", _h1);
+    register_fake_listener(bridge, "turn_start", _boom);
+    register_fake_listener(bridge, "turn_start", _h3);
+
+    results = fire_hook(bridge, "turn_start", {"message": "hi"});
+    assert order == ["h1", "boom", "h3"];
+    assert len(results) == 3;
+    assert results[0]["ok"] is True and results[0]["result"] == "one:hi";
+    assert results[1]["ok"] is False and "listener failed" in results[1]["error"];
+    assert results[2]["ok"] is True and results[2]["result"] == "three";
+
+    # Unregistered event returns empty results (best-effort, never fatal).
+    assert fire_hook(bridge, "unknown_event", {}) == [];
+}
+
+
+test "unload_extension drops bridge commands for the extension" {
+    bridge = create_bridge("s-unload");
+    reg = create_registry();
+    load_extension(bridge, reg, "x.tools", [], {});
+
+    def _xcmd(args: str, ctx: any) -> str {
+        return str(args);
+    }
+
+    register_fake_command(bridge, "xcmd", _xcmd, extension_id="x.tools");
+    register_fake_command(bridge, "ycmd", _xcmd, extension_id="y.tools");
+    unload_extension(bridge, reg, "x.tools");
+    assert "xcmd" not in bridge.commands;
+    assert "ycmd" in bridge.commands;
+}
+
+
+test "node host loads stub_commands fixture: commands tracked, cmd_invoke round-trips" {
+    bridge = create_bridge("s-t2-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    path = resolve_stub_commands();
+    names = load_extension_path(bridge, reg, "stub.commands", path);
+    assert names == [];
+    assert "upper" in bridge.commands;
+    assert bridge.commands["upper"]["description"] == "Uppercase the given args";
+
+    res = invoke_command(bridge, "upper", "hello t2");
+    assert res["ok"] is True;
+    assert res["result"] == "HELLO T2";
+    assert res.get("notifications") == ["UPPER:HELLO T2"];
+
+    missing = invoke_command(bridge, "missing_cmd", "");
+    assert missing["ok"] is False;
+
+    dispose_bridge(bridge);
+}
+
+
+test "node host fires lifecycle hooks through the bridge" {
+    bridge = create_bridge("s-t2-hook");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    path = resolve_stub_commands();
+    load_extension_path(bridge, reg, "stub.commands", path);
+
+    results = fire_hook(bridge, "turn_start", {"message": "m1"});
+    assert len(results) == 1;
+    assert results[0]["ok"] is True;
+    assert results[0]["result"] == "ts:m1";
+    assert results[0]["extension_id"] == "stub.commands";
+
+    # No listeners on this event -> empty result list.
+    assert fire_hook(bridge, "session_shutdown", {}) == [];
+
     dispose_bridge(bridge);
 }

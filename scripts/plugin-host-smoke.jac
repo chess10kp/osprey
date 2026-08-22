@@ -16,13 +16,16 @@ import from agent.session {
     session_dispose,
     wait_extensions_ready,
     extensions_status,
+    run_command,
     plugins,
 }
 import from agent.plugin_bridge {
     resolve_stub_echo,
     resolve_pi_greet,
+    resolve_stub_commands,
     resolve_node_bin,
     PluginBridge,
+    fire_hook,
 }
 import from agent.registry { invoke, get_tool, ToolRegistry }
 
@@ -31,6 +34,7 @@ with entry {
     t_wall0 = time.time();
     stub = resolve_stub_echo();
     greet = resolve_pi_greet();
+    cmds = resolve_stub_commands();
     node_bin = resolve_node_bin();
     print(f"node_bin={node_bin}");
     print("session_boot (parallel sidecar)…");
@@ -40,6 +44,7 @@ with entry {
         [
             {"id": "stub.echo", "path": stub, "runtime": "node"},
             {"id": "pi.greet", "path": greet, "runtime": "node"},
+            {"id": "stub.commands", "path": cmds, "runtime": "node"},
         ],
         wait_budget_s=15.0,
     );
@@ -55,8 +60,8 @@ with entry {
         session_dispose();
         sys.exit(1);
     }
-    if ready.loaded != 2 {
-        print(f"FAIL: expected 2 extensions loaded, got {ready.loaded}");
+    if ready.loaded != 3 {
+        print(f"FAIL: expected 3 extensions loaded, got {ready.loaded}");
         session_dispose();
         sys.exit(1);
     }
@@ -87,6 +92,21 @@ with entry {
         session_dispose();
         sys.exit(1);
     }
+    # T2-partial: commands + lifecycle hooks through the same bridge.
+    cmd_out = run_command("upper", "smoke t2");
+    print(f"  /upper -> {cmd_out.replace(chr(10), ' | ')}");
+    if "UPPER:SMOKE T2" not in cmd_out {
+        print("FAIL: command round-trip failed");
+        session_dispose();
+        sys.exit(1);
+    }
+    hooks = fire_hook(bridge as PluginBridge, "turn_start", {"message": "smoke"});
+    if not hooks or not hooks[0].get("ok") {
+        print(f"FAIL: hook_fire failed: {hooks}");
+        session_dispose();
+        sys.exit(1);
+    }
+    print(f"  turn_start hook -> {hooks[0].get('result', '')}");
     session_dispose();
     print("dispose ok");
     print("plugin-host-smoke: PASS");

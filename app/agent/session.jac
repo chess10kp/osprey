@@ -20,6 +20,8 @@ import from .plugin_bridge {
     host_status,
     ensure_node_host,
     load_extension_path,
+    invoke_command,
+    fire_hook,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -49,7 +51,8 @@ obj SessionPlugins {
         t_ext_ready: float = 0.0,
         prompt_queue: list[str] = [],
         warm_future: any = None,
-        wait_budget_s: float = 5.0;
+        wait_budget_s: float = 5.0,
+        commands: dict = {};
 }
 
 
@@ -154,6 +157,12 @@ def _warm_sidecar(decls: list[ExtensionDecl], base_cwd: str) {
         plugins.ready = True;
         plugins.detail = "";
         plugins.t_ext_ready = time.time();
+        # T2-partial: mirror extension commands for the shell/UI layer.
+        plugins.commands.update(bridge.commands);
+        # Lifecycle hook: session is fully loaded (best-effort, never fatal).
+        fire_hook(bridge as PluginBridge, "session_start", {
+            "session_id": plugins.session_id,
+        });
     } except Exception as e {
         plugins.phase = "degraded";
         plugins.detail = str(e);
@@ -294,6 +303,7 @@ def session_dispose {
     plugins.phase = "idle";
     plugins.loaded = 0;
     plugins.total = 0;
+    plugins.commands.clear();
 }
 
 
@@ -330,9 +340,14 @@ def run_turn(message: str, on_event: any = render_event) -> str {
     transport = make_transport(model);
     _t0 = time.time();
     _n_tools = 0;
+    bridge = plugins.bridge;
+    # T2-partial lifecycle hooks — best-effort, never fatal.
+    if bridge is not None {
+        fire_hook(bridge as PluginBridge, "turn_start", {"message": message});
+    }
+    answer = "";
     try {
         reg = plugins.reg if plugins.reg is not None else default_registry();
-        bridge = plugins.bridge;
         answer = react_loop(history, [], transport, on_event, reg=reg, bridge=bridge);
     } finally {
         if on_event is render_event {
@@ -346,8 +361,48 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         } else {
             on_event("turn_end", {"secs": time.time() - _t0, "tools": _n_tools});
         }
+        if bridge is not None {
+            fire_hook(bridge as PluginBridge, "turn_end", {
+                "secs": time.time() - _t0,
+                "tools": _n_tools,
+                "answer": answer,
+            });
+        }
     }
     return answer;
+}
+
+
+"""Extension commands visible to the shell/UI (name -> description meta)."""
+def list_commands() -> dict {
+    return dict(plugins.commands);
+}
+
+
+"""Invoke an extension command through the plugin bridge.
+
+Returns a display string: the command result plus any ctx.ui.notify lines the
+handler emitted. Never raises — failures come back as ERROR strings.
+"""
+def run_command(name: str, args: str = "") -> str {
+    bridge = plugins.bridge;
+    if bridge is None {
+        return f"ERROR: no plugin host running (command /{name} unavailable)";
+    }
+    res: dict = invoke_command(bridge as PluginBridge, name, args);
+    lines: list[str] = [];
+    for note in res.get("notifications", []) or [] {
+        lines.append(str(note));
+    }
+    if res.get("ok") {
+        result_s = str(res.get("result", ""));
+        if result_s {
+            lines.append(result_s);
+        }
+    } else {
+        lines.append("ERROR: " + str(res.get("error", "command failed")));
+    }
+    return "\n".join(lines);
 }
 
 

@@ -4,7 +4,17 @@ import os;
 import time;
 import tempfile;
 
-import from .plugin_bridge { resolve_stub_echo, resolve_pi_greet, PluginBridge }
+import from .plugin_bridge {
+    resolve_stub_echo,
+    resolve_pi_greet,
+    resolve_stub_commands,
+    register_fake_command,
+    register_fake_listener,
+    create_bridge,
+    ensure_host,
+    fire_hook,
+    PluginBridge,
+}
 import from .registry { invoke, get_tool, ToolRegistry }
 import from .extensions { load_extension_decls }
 
@@ -42,7 +52,7 @@ test "session_boot parallel sidecar loads fixture and run_turn uses bridge" {
     assert ready.t_ext_ready_s >= ready.t_interactive_s;
     assert plugins.bridge is not None;
     assert plugins.bridge.host_kind == "node";
-    assert plugins.bridge.compat_tier in ("T0", "T1");
+    assert plugins.bridge.compat_tier in ("T0", "T1", "T2-partial");
     reg = plugins.reg;
     bridge = plugins.bridge;
     assert reg is not None;
@@ -65,13 +75,13 @@ test "unsupported requires fail loud at load" {
             "id": "stub.echo",
             "path": stub,
             "runtime": "node",
-            "requires": ["commands"],
+            "requires": ["renderers"],
         }],
         wait_budget_s=10.0,
     );
     ready = wait_extensions_ready(10.0);
     assert ready.phase == "degraded";
-    assert "unsupported" in ready.detail or "commands" in ready.detail;
+    assert "unsupported" in ready.detail or "renderers" in ready.detail;
     session_dispose();
 }
 
@@ -111,4 +121,83 @@ test "enqueue_prompt queues while loading" {
     drained = drain_prompt_queue();
     assert drained == ["hello"];
     assert drain_prompt_queue() == [];
+}
+
+
+# ===================== T2-partial: commands + hooks =====================
+
+import from .plugin_bridge { resolve_stub_commands, register_fake_command, register_fake_listener }
+
+
+test "session_boot mirrors extension commands and run_command round-trips" {
+    session_dispose();
+    stub = resolve_stub_commands();
+    st = session_boot(
+        "t-t2-cmd",
+        os.getcwd(),
+        [{"id": "stub.commands", "path": stub, "runtime": "node"}],
+        wait_budget_s=10.0,
+    );
+    ready = wait_extensions_ready(10.0);
+    assert ready.phase == "ready";
+    cmds = list_commands();
+    assert "upper" in cmds;
+    assert cmds["upper"]["extension_id"] == "stub.commands";
+
+    out = run_command("upper", "hello session");
+    assert "UPPER:HELLO SESSION" in out;
+
+    err = run_command("missing_cmd", "");
+    assert err.startswith("ERROR:");
+
+    session_dispose();
+    assert list_commands() == {};
+}
+
+
+test "run_command without a bridge degrades gracefully" {
+    session_dispose();
+    st = session_boot("t-t2-nobridge", os.getcwd(), []);
+    assert st.total == 0;
+    out = run_command("upper", "x");
+    assert out.startswith("ERROR:");
+    session_dispose();
+}
+
+
+test "turn_start and turn_end hooks fire around a turn" {
+    session_dispose();
+    # No decls -> no Node -> no bridge -> hooks are skipped silently. Use the
+    # fake host path instead: attach listeners to a manual bridge.
+    st = session_boot("t-t2-hooks", os.getcwd(), []);
+    b = plugins.bridge;
+    if b is None {
+        b = create_bridge("t-t2-hooks-fake");
+        plugins.bridge = b;
+        ensure_host(b);
+    }
+    seen: list[str] = [];
+
+    def _on_start(data: dict, ctx: any) -> str {
+        seen.append("start:" + str(data.get("message", "")));
+        return "";
+    }
+
+    def _on_end(data: dict, ctx: any) -> str {
+        seen.append("end:" + str(round(float(data.get("secs", 0.0)), 1)));
+        return "";
+    }
+
+    register_fake_listener(b, "turn_start", _on_start);
+    register_fake_listener(b, "turn_end", _on_end);
+
+    # Drive the hook path directly (react_loop needs a live model endpoint).
+    res = fire_hook(b, "turn_start", {"message": "hook-msg"});
+    assert len(res) == 1 and res[0]["ok"] is True;
+    res2 = fire_hook(b, "turn_end", {"secs": 0.4, "tools": 0});
+    assert len(res2) == 1;
+    assert seen == ["start:hook-msg", "end:0.4"];
+    plugins.bridge = None;
+    dispose_bridge(b);
+    session_dispose();
 }

@@ -32,6 +32,8 @@ glob HOST_CAPS_T0: list[str] = ["tools"],
 
 obj FakePluginHost {
     has handlers: dict[str, any] = {},
+        command_handlers: dict[str, any] = {},
+        listeners: dict[str, list] = {},
         extension_tools: dict[str, list[str]] = {},
         cancelled: set[str] = set(),
         node_version: str = "fake",
@@ -60,7 +62,8 @@ obj PluginBridge {
         restart_used: bool = False,
         host_caps: list = [],
         compat_tier: str = "T0",
-        hello_payload: dict = {};
+        hello_payload: dict = {},
+        commands: dict = {};
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
     def invoke_js_tool(name: str, args: dict) -> str {
@@ -129,6 +132,22 @@ def resolve_pi_greet(explicit: str = "") -> str {
     path = os.path.join(os.path.dirname(host), "fixtures", "pi_greet.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"pi_greet fixture missing: {path}");
+    }
+    return path;
+}
+
+
+def resolve_stub_commands(explicit: str = "") -> str {
+    if explicit {
+        if os.path.isfile(explicit) {
+            return os.path.abspath(explicit);
+        }
+        raise FileNotFoundError(f"stub_commands not found: {explicit}");
+    }
+    host = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(host), "fixtures", "stub_commands.mjs");
+    if not os.path.isfile(path) {
+        raise FileNotFoundError(f"stub_commands fixture missing: {path}");
     }
     return path;
 }
@@ -864,6 +883,21 @@ def load_extension_path(
             extension_id=extension_id,
         );
     }
+    # T2-partial: track registered commands so the session/UI can route them.
+    cmds: list = reply.payload.get("commands", []);
+    if isinstance(cmds, list) {
+        for cd in cmds {
+            c: any = cd;
+            cname = str(c.get("name", ""));
+            if cname {
+                bridge.commands[cname] = {
+                    "name": cname,
+                    "description": str(c.get("description", "")),
+                    "extension_id": extension_id,
+                };
+            }
+        }
+    }
     _touch(bridge);
     return names;
 }
@@ -873,6 +907,15 @@ def unload_extension(
     bridge: PluginBridge, reg: ToolRegistry, extension_id: str
 ) -> int {
     removed = unregister_extension(reg, extension_id);
+    dead: list[str] = [];
+    for n in list(bridge.commands.keys()) {
+        if bridge.commands[n].get("extension_id") == extension_id {
+            dead.append(n);
+        }
+    }
+    for n in dead {
+        bridge.commands.pop(n, None);
+    }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         req = make_envelope(
             kind="ext_unload",
@@ -1083,4 +1126,168 @@ def drain_inbox(bridge: PluginBridge) -> list[str] {
         }
     }
     return kinds;
+}
+
+
+# ======================= T2-partial: commands + hooks =======================
+
+"""Register a command handler on the FAKE host (unit-test path)."""
+def register_fake_command(
+    bridge: PluginBridge,
+    name: str,
+    handler: any,
+    description: str = "",
+    extension_id: str = "fake.commands",
+) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is None {
+        raise RuntimeError("plugin host unavailable");
+    }
+    h.command_handlers[name] = {"handler": handler, "owner": extension_id};
+    bridge.commands[name] = {
+        "name": name,
+        "description": description,
+        "extension_id": extension_id,
+    };
+}
+
+
+"""Register a lifecycle listener on the FAKE host (unit-test path)."""
+def register_fake_listener(bridge: PluginBridge, event: str, handler: any) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is None {
+        raise RuntimeError("plugin host unavailable");
+    }
+    if event not in h.listeners {
+        h.listeners[event] = [];
+    }
+    h.listeners[event].append(handler);
+}
+
+
+"""Invoke an extension command. Returns the cmd_result payload dict:
+{ok, result?, error?, notifications?}. Raises TimeoutError on Node silence."""
+def invoke_command(
+    bridge: PluginBridge, name: str, args: str = "", timeout: float = 10.0
+) -> dict {
+    if bridge.host_kind == "node" {
+        if not _node_alive(bridge) {
+            phase = maybe_restart_host(bridge);
+            if phase != "ready" or not _node_alive(bridge) {
+                host_status(bridge);
+                return {"ok": False, "error": "plugin host unavailable"};
+            }
+        }
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="cmd_invoke",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"name": name, "args": args},
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "cmd_result", correlation_id=corr, timeout=timeout
+            );
+        } except Exception as e {
+            return {"ok": False, "error": str(e)};
+        }
+        _touch(bridge);
+        return dict(reply.payload);
+    }
+    # Fake host path.
+    try {
+        ensure_host(bridge);
+    } except Exception as e {
+        return {"ok": False, "error": str(e)};
+    }
+    h = bridge.host;
+    if h is None or not h.alive {
+        return {"ok": False, "error": "plugin host unavailable"};
+    }
+    entry = h.command_handlers.get(name);
+    if entry is None {
+        return {"ok": False, "error": f"unknown command {name}"};
+    }
+    notifications: list[str] = [];
+    try {
+        result = entry["handler"](args, {"ui": FakeUi(notifications)});
+        return {
+            "ok": True,
+            "result": "" if result is None else str(result),
+            "notifications": notifications,
+        };
+    } except Exception as e {
+        return {
+            "ok": False,
+            "error": str(e),
+            "notifications": notifications,
+        };
+    }
+}
+
+
+"""Minimal UI surface handed to fake-host handlers; collects notifications."""
+obj FakeUi {
+    has notifications: list[str];
+
+    def notify(message: str, level: str = "info") {
+        self.notifications.append(str(message));
+    }
+
+    def set_status(owner: str, text: str) {
+        # Native-UI surface — accepted on the wire, not rendered.
+    }
+}
+
+
+"""Fire a lifecycle hook. Returns the per-listener results list from the
+hook_done payload: [{ok, extension_id, result|error, notifications?}].
+Returns [] when no host exists (hooks are best-effort, never fatal)."""
+def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.0) -> list {
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="hook_fire",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"event": event, "data": data},
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "hook_done", correlation_id=corr, timeout=timeout
+            );
+        } except Exception {
+            return [];
+        }
+        _touch(bridge);
+        raw: any = reply.payload.get("results", []);
+        return raw if isinstance(raw, list) else [];
+    }
+    # Fake host path.
+    h = bridge.host;
+    if h is None or not h.alive {
+        return [];
+    }
+    results: list = [];
+    for handler in h.listeners.get(event, []) {
+        notifications: list[str] = [];
+        try {
+            out = handler(data, {"ui": FakeUi(notifications)});
+            results.append({
+                "ok": True,
+                "result": "" if out is None else str(out),
+                "notifications": notifications,
+            });
+        } except Exception as e {
+            results.append({"ok": False, "error": str(e), "notifications": notifications});
+        }
+    }
+    return results;
 }

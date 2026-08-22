@@ -324,6 +324,10 @@ glob PLUGIN_KINDS: set[str] = {
     "tool_result",
     "tool_cancel",
     "tool_update",
+    "cmd_invoke",
+    "cmd_result",
+    "hook_fire",
+    "hook_done",
 };
 
 

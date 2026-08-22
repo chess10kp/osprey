@@ -9,32 +9,49 @@
  * Jackal also accepts the spike shape `{ handler(args) }` so fixtures keep
  * working.
  *
- * Compat honesty (P4): this host ships **T0/T1 tool-extension compatibility**.
- * Commands, events, renderers, and session hooks are stubs. If an extension
- * declares `requires` for those surfaces, load fails loud — never silent
- * success with dead stubs.
+ * Compat honesty (P4): this host ships **T2-partial** compatibility — tools
+ * (T0/T1), commands, and lifecycle session hooks are real; events, renderers,
+ * and transformers remain stubs. If an extension declares `requires` for a
+ * stub surface, load fails loud — never silent success with dead stubs.
  */
 
 import { pathToFileURL } from "node:url";
 
 /** Advertised capabilities — grow this list when real support lands. */
-export const HOST_CAPS = ["tools", "cancel", "updates"];
-export const COMPAT_TIER = "T1";
+export const HOST_CAPS = [
+  "tools",
+  "cancel",
+  "updates",
+  "commands",
+  "session_hooks",
+];
+export const COMPAT_TIER = "T2-partial";
 
 /** Surfaces that remain stubs today (not in HOST_CAPS). */
-const STUB_CAPS = new Set([
-  "commands",
-  "events",
-  "renderers",
-  "transformers",
-  "session_hooks",
-]);
+const STUB_CAPS = new Set(["events", "renderers", "transformers"]);
 
 export function createHostState() {
   return {
     tools: new Map(),
+    commands: new Map(),
+    listeners: new Map(),
     extensions: new Map(),
     cancelled: new Set(),
+  };
+}
+
+/** Minimal UI context handed to command/hook handlers. Notifications are
+ * collected and shipped back over the wire — not silently dropped. */
+function makeUi(state, extensionId) {
+  const bucket = [];
+  return {
+    notifications: bucket,
+    notify(message, _level) {
+      bucket.push(String(message ?? ""));
+    },
+    setStatus(_owner, _text) {
+      /* status line is a native-UI surface — accepted, not rendered */
+    },
   };
 }
 
@@ -79,6 +96,28 @@ function resultToString(result) {
   return String(result);
 }
 
+/** Remove every registration owned by an extension (tools, commands,
+ * listeners). Ownership is tracked per extension so unload stays exact. */
+function dropExtension(state, extensionId) {
+  const owned = state.extensions.get(extensionId);
+  if (!owned) {
+    return;
+  }
+  for (const name of owned.tools) {
+    state.tools.delete(name);
+  }
+  for (const name of owned.commands) {
+    state.commands.delete(name);
+  }
+  for (const [event, list] of state.listeners) {
+    state.listeners.set(
+      event,
+      list.filter((l) => l.extensionId !== extensionId),
+    );
+  }
+  state.extensions.delete(extensionId);
+}
+
 function makePiApi(state, extensionId) {
   const api = {
     registerTool(def) {
@@ -109,21 +148,54 @@ function makePiApi(state, extensionId) {
         run,
         extensionId,
       });
-      const list = state.extensions.get(extensionId) ?? [];
-      if (!list.includes(def.name)) {
-        list.push(def.name);
+      if (!state.extensions.has(extensionId)) {
+        state.extensions.set(extensionId, { tools: [], commands: [], hooks: 0 });
       }
-      state.extensions.set(extensionId, list);
+      const owned = state.extensions.get(extensionId);
+      if (!owned.tools.includes(def.name)) {
+        owned.tools.push(def.name);
+      }
+    },
+
+    registerCommand(name, def) {
+      if (typeof name !== "string" || !name) {
+        throw new Error("registerCommand requires a non-empty name");
+      }
+      if (!def || typeof def.handler !== "function") {
+        throw new Error(`registerCommand(${name}): handler required`);
+      }
+      state.commands.set(name, {
+        name,
+        description: def.description ?? "",
+        handler: def.handler,
+        extensionId,
+      });
+      const owned = state.extensions.get(extensionId);
+      if (owned && !owned.commands.includes(name)) {
+        owned.commands.push(name);
+      }
+    },
+
+    on(event, handler) {
+      if (typeof event !== "string" || !event) {
+        throw new Error("pi.on requires a non-empty event name");
+      }
+      if (typeof handler !== "function") {
+        throw new Error(`pi.on(${event}): handler must be a function`);
+      }
+      if (!state.listeners.has(event)) {
+        state.listeners.set(event, []);
+      }
+      state.listeners.get(event).push({ event, handler, extensionId });
+      const owned = state.extensions.get(extensionId);
+      if (owned) {
+        owned.hooks += 1;
+      }
+      return api;
     },
 
     // ---- stubs so real Pi extensions do not crash on load ----
     // If declared in requires[], load fails before activate (see handleEnvelope).
-    on(_event, _handler) {
-      return api;
-    },
-    registerCommand(_name, _def) {
-      /* no-op — T2 not advertised */
-    },
     registerMessageRenderer(_type, _renderer) {
       /* no-op */
     },
@@ -154,7 +226,7 @@ function makePiApi(state, extensionId) {
 }
 
 function toolSchemasFor(state, extensionId) {
-  const names = state.extensions.get(extensionId) ?? [];
+  const names = state.extensions.get(extensionId)?.tools ?? [];
   return names.map((name) => {
     const t = state.tools.get(name);
     return {
@@ -165,15 +237,20 @@ function toolSchemasFor(state, extensionId) {
   });
 }
 
+function commandsFor(state, extensionId) {
+  return (state.extensions.get(extensionId)?.commands ?? []).map((name) => {
+    const c = state.commands.get(name);
+    return { name: c.name, description: c.description };
+  });
+}
+
 function unsupportedRequires(requires) {
   const missing = [];
   for (const r of requires || []) {
     const need = String(r);
     if (!need) continue;
     if (!HOST_CAPS.includes(need) || STUB_CAPS.has(need)) {
-      if (!HOST_CAPS.includes(need)) {
-        missing.push(need);
-      }
+      missing.push(need);
     }
   }
   return missing;
@@ -229,11 +306,8 @@ export async function handleEnvelope(state, env, ctx = {}) {
       ];
     }
     try {
-      const prior = state.extensions.get(id) ?? [];
-      for (const name of prior) {
-        state.tools.delete(name);
-      }
-      state.extensions.delete(id);
+      dropExtension(state, id);
+      state.extensions.set(id, { tools: [], commands: [], hooks: 0 });
 
       const href = pathToFileURL(path).href;
       const mod = await import(`${href}?t=${Date.now()}`);
@@ -249,6 +323,7 @@ export async function handleEnvelope(state, env, ctx = {}) {
           payload: {
             id,
             tools: toolSchemasFor(state, id),
+            commands: commandsFor(state, id),
             compat: COMPAT_TIER,
             caps: HOST_CAPS,
           },
@@ -271,12 +346,77 @@ export async function handleEnvelope(state, env, ctx = {}) {
 
   if (kind === "ext_unload") {
     const id = String(env.payload?.id ?? "");
-    const names = state.extensions.get(id) ?? [];
-    for (const name of names) {
-      state.tools.delete(name);
-    }
-    state.extensions.delete(id);
+    dropExtension(state, id);
     return [];
+  }
+
+  if (kind === "cmd_invoke") {
+    const name = String(env.payload?.name ?? "");
+    const args = env.payload?.args ?? "";
+    const cmd = state.commands.get(name);
+    if (!cmd) {
+      return [
+        {
+          ...base,
+          kind: "cmd_result",
+          payload: { ok: false, error: `unknown command ${name}` },
+        },
+      ];
+    }
+    const ui = makeUi(state, cmd.extensionId);
+    try {
+      const result = await cmd.handler(args, { ui });
+      return [
+        {
+          ...base,
+          kind: "cmd_result",
+          payload: {
+            ok: true,
+            result: result == null ? "" : String(result),
+            notifications: ui.notifications,
+          },
+        },
+      ];
+    } catch (err) {
+      return [
+        {
+          ...base,
+          kind: "cmd_result",
+          payload: {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+            notifications: ui.notifications,
+          },
+        },
+      ];
+    }
+  }
+
+  if (kind === "hook_fire") {
+    const event = String(env.payload?.event ?? "");
+    const data = env.payload?.data ?? {};
+    const listeners = state.listeners.get(event) ?? [];
+    const results = [];
+    for (const listener of listeners) {
+      const ui = makeUi(state, listener.extensionId);
+      try {
+        const out = await listener.handler(data, { ui });
+        results.push({
+          ok: true,
+          extension_id: listener.extensionId,
+          result: out == null ? "" : String(out),
+          notifications: ui.notifications,
+        });
+      } catch (err) {
+        results.push({
+          ok: false,
+          extension_id: listener.extensionId,
+          error: err instanceof Error ? err.message : String(err),
+          notifications: ui.notifications,
+        });
+      }
+    }
+    return [{ ...base, kind: "hook_done", payload: { event, results } }];
   }
 
   if (kind === "tool_invoke") {
