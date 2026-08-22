@@ -20,29 +20,28 @@ Keys:
 
 import sys;
 
-import from ui.model {
-    node_id,
-}
-
 import from ui.runtime {
     UiSession,
     create_session,
     dispose_session,
-    register_capability,
-}
-
-import from ui.bindings {
-    subscribe,
 }
 
 import from ui.screen {
     ShellScreen,
     build_main_shell,
+    install_shell_contracts,
     shell_insert_text,
     shell_submit,
+    shell_cancel,
     shell_open_approval,
     shell_close_approval,
     shell_resize,
+}
+
+import from ui.editor {
+    editor_backspace,
+    editor_history_prev,
+    editor_history_next,
 }
 
 import from ui.transcript {
@@ -119,9 +118,6 @@ obj LiveShell {
         stream_msg_id: str = "",
         stream_tick: int = 0,
         spin_i: int = 0,
-        history: list[str] = [],
-        history_idx: int = -1,
-        history_draft: str = "",
         running: bool = True,
         dirty: bool = True,
         columns: int = 80,
@@ -415,9 +411,6 @@ def _apply_resize(app: LiveShell, columns: int, rows: int) {
 
 
 def _begin_assistant_reply(app: LiveShell, user_text: str) {
-    app.history = app.history + [user_text];
-    app.history_idx = -1;
-    app.history_draft = "";
     _push_turn(app, "user", user_text);
     app.phase = "streaming";
     app.shell.status.phase = "streaming";
@@ -500,32 +493,15 @@ def _reject_approval(app: LiveShell) {
 }
 
 
+"""Prompt history via the shared editor API (ui/editor.jac)."""
 def _history_up(app: LiveShell) {
-    if not app.history {
-        return;
-    }
-    if app.history_idx < 0 {
-        app.history_draft = app.shell.prompt.draft;
-        app.history_idx = len(app.history) - 1;
-    } elif app.history_idx > 0 {
-        app.history_idx -= 1;
-    }
-    app.shell.prompt.draft = app.history[app.history_idx];
+    editor_history_prev(app.shell.prompt);
     app.dirty = True;
 }
 
 
 def _history_down(app: LiveShell) {
-    if app.history_idx < 0 {
-        return;
-    }
-    if app.history_idx >= len(app.history) - 1 {
-        app.history_idx = -1;
-        app.shell.prompt.draft = app.history_draft;
-    } else {
-        app.history_idx += 1;
-        app.shell.prompt.draft = app.history[app.history_idx];
-    }
+    editor_history_next(app.shell.prompt);
     app.dirty = True;
 }
 
@@ -583,17 +559,19 @@ def _handle_key(app: LiveShell, key: str) {
         return;
     }
     if key == "backspace" {
-        draft = app.shell.prompt.draft;
-        if draft {
-            app.shell.prompt.draft = draft[:len(draft) - 1];
-            app.history_idx = -1;
+        if app.shell.prompt.draft {
+            editor_backspace(app.shell.prompt);
+            # Leave history-browse mode on manual edits (matches editor_insert).
+            app.shell.prompt.history_index = -1;
             app.dirty = True;
         }
         return;
     }
     if key == "ctrl+u" {
-        app.shell.prompt.draft = "";
-        app.history_idx = -1;
+        shell_cancel(app.session, app.shell);
+        # Gap: neither AblePrompt.on_cancel nor shell_cancel resets history
+        # state — no editor API op covers "clear draft + exit browse mode".
+        app.shell.prompt.history_index = -1;
         app.dirty = True;
         return;
     }
@@ -619,14 +597,12 @@ def _handle_host_events(app: LiveShell, events: list[HostEvent]) {
                 continue;
             }
             shell_insert_text(app.session, app.shell, event.text);
-            app.history_idx = -1;
             app.dirty = True;
         } elif isinstance(event, KeyEvent) {
             _handle_key(app, event.key);
         } elif isinstance(event, PasteEvent) {
             if app.shell.approval is None and app.phase != "streaming" {
                 shell_insert_text(app.session, app.shell, event.text);
-                app.history_idx = -1;
                 app.dirty = True;
             }
         }
@@ -640,13 +616,7 @@ def create_live_shell() -> LiveShell {
     session = handle.session;
     shell = build_main_shell(session);
     shell.header.title = "Jackal";
-    subscribe(
-        session.bindings,
-        "live.transcript",
-        node_id(shell.transcript),
-        "TranscriptChanged",
-    );
-    register_capability(session, node_id(shell.prompt), "cursor");
+    install_shell_contracts(session, shell, "live.transcript");
     proj = bind_transcript(
         shell.transcript,
         "live.transcript",

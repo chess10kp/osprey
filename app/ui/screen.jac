@@ -27,6 +27,11 @@ import from ui.runtime {
     open_modal_overlay,
     close_overlay,
     track_node,
+    register_capability,
+}
+
+import from ui.bindings {
+    subscribe,
 }
 
 import from ui.events {
@@ -102,6 +107,18 @@ def build_main_shell(session: UiSession) -> ShellScreen {
     );
     _SHELL_BY_SESSION[root_id] = shell;
     return shell;
+}
+
+
+"""Wire default shell contracts: transcript binding + prompt cursor capability."""
+def install_shell_contracts(session: UiSession, shell: ShellScreen, binding_name: str) {
+    subscribe(
+        session.bindings,
+        binding_name,
+        node_id(shell.transcript),
+        "TranscriptChanged",
+    );
+    register_capability(session, node_id(shell.prompt), "cursor");
 }
 
 

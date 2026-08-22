@@ -8,19 +8,16 @@ import from time { perf_counter }
 
 import from ui.model {
     MainScreen,
-    node_id,
     ordered_child_keys,
 }
 
 import from ui.runtime {
     create_session,
     dispose_session,
-    register_capability,
     ui_jids_reachable_from_persistent_root,
 }
 
 import from ui.bindings {
-    subscribe,
     is_empty,
 }
 
@@ -31,6 +28,7 @@ import from ui.events {
 
 import from ui.screen {
     build_main_shell,
+    install_shell_contracts,
     shell_insert_text,
     shell_open_approval,
     shell_close_approval,
@@ -88,13 +86,7 @@ def run_gate1_detached_lifecycle() -> bool {
     handle = create_session();
     session = handle.session;
     shell = build_main_shell(session);
-    subscribe(
-        session.bindings,
-        "session.events",
-        node_id(shell.transcript),
-        "TranscriptChanged",
-    );
-    register_capability(session, node_id(shell.prompt), "cursor");
+    install_shell_contracts(session, shell, "session.events");
     # Spawn a semantic walker on the prompt (process-local only).
     event = InsertText(text="gate1");
     dispatch_event(session, event, shell.prompt);

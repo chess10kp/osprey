@@ -23,17 +23,16 @@ import from ui.model {
 import from ui.runtime {
     create_session,
     dispose_session,
-    register_capability,
     ui_jids_reachable_from_persistent_root,
 }
 
 import from ui.bindings {
-    subscribe,
     is_empty,
 }
 
 import from ui.screen {
     build_main_shell,
+    install_shell_contracts,
     shell_ids,
     shell_insert_text,
     shell_submit,
@@ -212,13 +211,7 @@ def run_complex_shell_demo(
         "session=" + handle.ui_root_id[:8],
     );
 
-    subscribe(
-        session.bindings,
-        "demo.transcript",
-        node_id(shell.transcript),
-        "TranscriptChanged",
-    );
-    register_capability(session, node_id(shell.prompt), "cursor");
+    install_shell_contracts(session, shell, "demo.transcript");
     _step(
         demo,
         "bindings_and_cursor",
