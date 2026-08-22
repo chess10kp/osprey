@@ -7,6 +7,11 @@ pulling httpx (llm transport).
 import from typing { Callable }
 
 
+# Shared safety caps used by both tool execution and the ReAct history.
+glob MAX_TOOL_RESULT: int = 50_000,
+     MAX_SEARCH_RESULTS: int = 100;
+
+
 obj ToolSpec {
     has name: str,
         description: str = "",

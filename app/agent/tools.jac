@@ -6,9 +6,14 @@ to core/ modules which place native by inference.
 
 import os;
 import subprocess;
+import tempfile;
+import shutil;
+import fnmatch;
+import re;
 import from core.edit { apply_edit }
+import from .tool_spec { ToolSpec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
 
-glob MAX_TOOL_OUTPUT: int = 50_000,
+glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
      READ_LINE_CAP: int = 2_000;
 
 """Resolve a path against the process cwd; reject empty paths."""
@@ -88,7 +93,98 @@ sem run_command = "Run a shell command in the project root and return exit code 
 sem run_command.cmd = "The shell command line to execute.";
 sem run_command.timeout_secs = "Seconds before the command is killed (default 120).";
 
-import from .tool_spec { ToolSpec }
+
+def _skip_walk_dir(name: str) -> bool {
+    return name.startswith(".") or name in ["node_modules", ".jac", "__pycache__"];
+}
+
+
+def _search_limit(limit: int) -> int {
+    if limit <= 0 { return MAX_SEARCH_RESULTS; }
+    return min(limit, MAX_SEARCH_RESULTS);
+}
+
+
+def file_glob(pattern: str, base_dir: str = ".", max_results: int = MAX_SEARCH_RESULTS) -> str {
+    if not pattern { return "ERROR: pattern must not be empty"; }
+    base_path = resolve_path(base_dir);
+    if not os.path.isdir(base_path) { return f"ERROR: directory not found: {base_dir}"; }
+    cap = _search_limit(max_results);
+    matches: list[str] = [];
+    for walk_item in os.walk(base_path) {
+        current = walk_item[0];
+        dirs = walk_item[1];
+        files = walk_item[2];
+        dirs[:] = [d for d in dirs if not _skip_walk_dir(d)];
+        for name in files {
+            if name.startswith(".") { continue; }
+            full = os.path.join(current, name);
+            rel = os.path.relpath(full, base_path).replace(os.sep, "/");
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern) {
+                matches.append(rel);
+            }
+        }
+    }
+    matches.sort();
+    truncated = len(matches) > cap;
+    visible = matches[:cap];
+    out = "\n".join(visible);
+    if truncated { out += ("\n" if out else "") + f"... [truncated at {cap} results]"; }
+    return out;
+}
+sem file_glob = "Find files matching a pattern under the project root. Hidden directories, node_modules, .jac, and __pycache__ are skipped.";
+sem file_glob.pattern = "Shell-style file pattern such as **/*.jac or *.md.";
+sem file_glob.base_dir = "Directory to search, relative to the project root (default .).";
+sem file_glob.max_results = "Maximum results to return, capped at 100.";
+
+
+def content_grep(pattern: str, base_dir: str = ".", regex: bool = False, max_results: int = MAX_SEARCH_RESULTS) -> str {
+    if not pattern { return "ERROR: pattern must not be empty"; }
+    base_path = resolve_path(base_dir);
+    if not os.path.isdir(base_path) { return f"ERROR: directory not found: {base_dir}"; }
+    cap = _search_limit(max_results);
+    matcher: any = None;
+    if regex {
+        try { matcher = re.compile(pattern); }
+        except re.error as e { return f"ERROR: invalid regex: {e}"; }
+    }
+    matches: list[str] = [];
+    for walk_item in os.walk(base_path) {
+        current = walk_item[0];
+        dirs = walk_item[1];
+        files = walk_item[2];
+        dirs[:] = [d for d in dirs if not _skip_walk_dir(d)];
+        for name in files {
+            if name.startswith(".") { continue; }
+            full = os.path.join(current, name);
+            rel = os.path.relpath(full, base_path).replace(os.sep, "/");
+            try {
+                with open(full, "r", errors="replace") as f { lines = f.readlines(); }
+            } except (OSError, UnicodeError) { continue; }
+            for line_item in enumerate(lines, 1) {
+                line_no = line_item[0];
+                line = line_item[1];
+                text = line.rstrip("\n");
+                found = matcher.search(text) if regex else pattern in text;
+                if found {
+                    matches.append(f"{rel}:{line_no}:{text[:500]}");
+                }
+            }
+        }
+    }
+    matches.sort();
+    truncated = len(matches) > cap;
+    visible = matches[:cap];
+    out = "\n".join(visible);
+    if truncated { out += ("\n" if out else "") + f"... [truncated at {cap} matches]"; }
+    return out;
+}
+sem content_grep = "Search file contents for a literal or regular-expression pattern under the project root. Hidden directories, node_modules, .jac, and __pycache__ are skipped.";
+sem content_grep.pattern = "Text or regular expression to search for.";
+sem content_grep.base_dir = "Directory to search, relative to the project root (default .).";
+sem content_grep.regex = "Use regular-expression matching instead of literal matching (default false).";
+sem content_grep.max_results = "Maximum matches to return, capped at 100.";
+
 import from .registry {
     ToolRegistry,
     create_registry,
@@ -164,6 +260,35 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=run_command,
         ),
+        ToolSpec(
+            name="glob",
+            description="Find files matching a pattern under the project root, skipping hidden and generated directories.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Shell-style file pattern such as **/*.jac."},
+                    "base_dir": {"type": "string", "description": "Directory to search (default .)."},
+                    "max_results": {"type": "integer", "description": "Maximum results, capped at 100."},
+                },
+                "required": ["pattern"],
+            },
+            handler=file_glob,
+        ),
+        ToolSpec(
+            name="grep",
+            description="Search file contents for a literal or regular-expression pattern under the project root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Text or regular expression to search for."},
+                    "base_dir": {"type": "string", "description": "Directory to search (default .)."},
+                    "regex": {"type": "boolean", "description": "Use regex matching instead of literal matching."},
+                    "max_results": {"type": "integer", "description": "Maximum matches, capped at 100."},
+                },
+                "required": ["pattern"],
+            },
+            handler=content_grep,
+        ),
     ];
 }
 
@@ -175,4 +300,40 @@ def default_registry() -> ToolRegistry {
         register_native_spec(reg, spec);
     }
     return reg;
+}
+
+
+# ================================ tests =====================================
+
+test "glob finds files and skips generated directories" {
+    tmp = tempfile.mkdtemp();
+    try {
+        os.makedirs(os.path.join(tmp, "src"));
+        os.makedirs(os.path.join(tmp, "node_modules"));
+        with open(os.path.join(tmp, "src", "one.jac"), "w") as f { f.write("one"); }
+        with open(os.path.join(tmp, "node_modules", "hidden.jac"), "w") as f { f.write("skip"); }
+        found = file_glob("**/*.jac", tmp);
+        assert "src/one.jac" in found;
+        assert "hidden.jac" not in found;
+    } finally {
+        shutil.rmtree(tmp, ignore_errors=True);
+    }
+}
+
+
+test "grep finds literal and regex matches with a cap" {
+    tmp = tempfile.mkdtemp();
+    try {
+        with open(os.path.join(tmp, "notes.txt"), "w") as f {
+            f.write("needle one\nneedle two\nneedle three\n");
+        }
+        literal = content_grep("needle", tmp, False, 2);
+        assert "notes.txt:1:needle one" in literal;
+        assert "notes.txt:2:needle two" in literal;
+        assert "truncated at 2 matches" in literal;
+        regex = content_grep("needle [ot]wo", tmp, True);
+        assert "notes.txt:2:needle two" in regex;
+    } finally {
+        shutil.rmtree(tmp, ignore_errors=True);
+    }
 }

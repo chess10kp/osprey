@@ -13,8 +13,9 @@ dicts as they arrive:
 
 import os;
 import json;
+import time;
 import from typing { Callable, Generator }
-import from .tool_spec { ToolSpec }
+import from .tool_spec { ToolSpec, MAX_TOOL_RESULT }
 import from .registry {
     ToolRegistry,
     as_tool_specs,
@@ -146,13 +147,33 @@ def _find_spec(specs: list[ToolSpec], name: str) -> ToolSpec | None {
 }
 
 
+def _is_transient_error(message: str) -> bool {
+    lowered = message.lower();
+    for marker in ["429", "500", "502", "503", "504", "timeout", "timed out", "connection", "temporarily unavailable"] {
+        if marker in lowered { return True; }
+    }
+    return False;
+}
+
+
+def _cap_tool_result(result: any) -> str {
+    text = str(result);
+    if len(text) > MAX_TOOL_RESULT {
+        return text[:MAX_TOOL_RESULT] + "\n... [tool result truncated]";
+    }
+    return text;
+}
+
+
 """Drive the ReAct loop over `messages` IN PLACE (caller owns the history).
 
 on_event(kind, data) fires as things happen:
   chunk       {"content"}          - live model token
   tool_call   {"tool", "args"}     - a call is about to run
-  tool_result {"tool", "result"}   - a call finished
-  error       {"message"}
+  tool_result {"tool", "result"}   - a call finished (capped)
+  retry      {"attempt", "max_retries", "message"}
+  loop_limit {"max_iters", "iterations"}
+  error      {"message"}
 Returns the final assistant text.
 """
 def react_loop(
@@ -163,25 +184,49 @@ def react_loop(
     max_iters: int = 30,
     reg: ToolRegistry | None = None,
     bridge: any = None,
+    max_retries: int = 2,
 ) -> str {
     # Prefer registry when provided so js-origin tools share one invoke path.
     active_specs = as_tool_specs(reg) if reg is not None else specs;
     defs = _tool_defs(active_specs);
-    for _turn in range(max_iters) {
+    for turn in range(max_iters) {
         text = "";
         tool_calls: list = [];
-        for chunk in transport.stream(messages, defs) {
-            c: any = chunk;
-            if "error" in c {
-                on_event("error", {"message": c["error"]});
-                return text;
+        retries = 0;
+        while True {
+            stream_error = "";
+            text = "";
+            tool_calls = [];
+            try {
+                for chunk in transport.stream(messages, defs) {
+                    c: any = chunk;
+                    if "error" in c {
+                        stream_error = str(c["error"]);
+                        break;
+                    }
+                    piece: any = c.get("content");
+                    if piece {
+                        text = text + str(piece);
+                        on_event("chunk", {"content": str(piece)});
+                    }
+                    if "tool_calls" in c { tool_calls = c["tool_calls"]; }
+                }
+            } except Exception as e {
+                stream_error = str(e);
             }
-            piece: any = c.get("content");
-            if piece {
-                text = text + str(piece);
-                on_event("chunk", {"content": str(piece)});
+            if not stream_error { break; }
+            if retries < max_retries and _is_transient_error(stream_error) {
+                retries += 1;
+                on_event("retry", {
+                    "attempt": retries,
+                    "max_retries": max_retries,
+                    "message": stream_error,
+                });
+                time.sleep(0.1 * retries);
+                continue;
             }
-            if "tool_calls" in c { tool_calls = c["tool_calls"]; }
+            on_event("error", {"message": stream_error});
+            return text;
         }
         if not tool_calls {
             messages.append({"role": "assistant", "content": text});
@@ -194,8 +239,9 @@ def react_loop(
         });
         for call in tool_calls {
             cl: any = call;
-            name = str(cl["function"]["name"]);
-            raw: any = cl["function"].get("arguments") or "{}";
+            fn: any = cl.get("function", {});
+            name = str(fn.get("name", ""));
+            raw: any = fn.get("arguments") or "{}";
             try {
                 args = json.loads(raw);
             } except ValueError {
@@ -216,19 +262,35 @@ def react_loop(
                     }
                 }
             }
-            on_event("tool_result", {"tool": name, "result": result});
+            safe_result = _cap_tool_result(result);
+            on_event("tool_result", {"tool": name, "result": safe_result});
             messages.append({
                 "role": "tool",
-                "tool_call_id": str(cl["id"]),
-                "content": str(result),
+                "tool_call_id": str(cl.get("id", "")),
+                "content": safe_result,
             });
         }
     }
+    on_event("loop_limit", {"max_iters": max_iters, "iterations": max_iters});
     return "";
 }
 
 
 # ================================ tests =====================================
+
+obj RetryTransport(Transport) {
+    has calls: int = 0;
+
+    override def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        self.calls += 1;
+        if self.calls == 1 {
+            yield {"error": "HTTP 503: temporarily unavailable"};
+        } else {
+            yield {"content": "recovered"};
+        }
+    }
+}
+
 
 obj ScriptedTransport(Transport) {
     has tool_call_id: str = "call_1",
@@ -286,6 +348,34 @@ test "react loop runs a tool then finishes" {
     roles = [m["role"] for m in messages];
     assert roles == ["user", "assistant", "tool", "assistant"];
     assert messages[2]["tool_call_id"] == "call_1";
+}
+
+
+test "react loop retries transient transport errors" {
+    messages = [{"role": "user", "content": "hello"}];
+    _events.clear();
+    transport = RetryTransport();
+    answer = react_loop(messages, [], transport, _noop_event, max_retries=1);
+    assert answer == "recovered";
+    assert transport.calls == 2;
+    assert _events[0][0] == "retry";
+    assert _events[1][0] == "chunk";
+}
+
+
+test "react loop emits loop limit" {
+    messages = [{"role": "user", "content": "echo"}];
+    specs = [ToolSpec(
+        name="echo",
+        description="echo the text",
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+        handler=_echo,
+    )];
+    _events.clear();
+    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, max_iters=1);
+    assert answer == "";
+    assert _events[-1][0] == "loop_limit";
+    assert _events[-1][1]["max_iters"] == 1;
 }
 
 
