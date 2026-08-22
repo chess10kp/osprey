@@ -642,17 +642,29 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
   if (kind === "hook_fire") {
     const event = String(env.payload?.event ?? "");
     const data = env.payload?.data ?? {};
+    // Structured-verdict events (tool_call input chaining, context message
+    // edits) get a deep working copy handlers mutate IN PLACE; later handlers
+    // see earlier mutations — Pi semantics. The final copy echoes back so the
+    // Jac side observes chained mutations without per-handler round trips.
+    const MUTABLE_EVENTS = new Set(["tool_call", "context"]);
+    const working = MUTABLE_EVENTS.has(event)
+      ? JSON.parse(JSON.stringify(data ?? {}))
+      : data;
     const listeners = state.listeners.get(event) ?? [];
     const results = [];
     for (const listener of listeners) {
       const ui = makeUi(state, listener.extensionId);
       let entry = {};
       try {
-        const out = await listener.handler(data, { ui });
+        const out = await listener.handler(working, { ui });
         entry = {
           ok: true,
           extension_id: listener.extensionId,
           result: out == null ? "" : String(out),
+          // Structured verdict ({block}, {action}, {messages}, {systemPrompt})
+          // kept as a raw object; null when the handler returned a scalar.
+          verdict:
+            out && typeof out === "object" && !Array.isArray(out) ? out : null,
           notifications: ui.notifications,
         };
       } catch (err) {
@@ -660,6 +672,7 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
           ok: false,
           extension_id: listener.extensionId,
           error: err instanceof Error ? err.message : String(err),
+          verdict: null,
           notifications: ui.notifications,
         };
       }
@@ -668,7 +681,11 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
       }
       results.push(entry);
     }
-    return [{ ...base, kind: "hook_done", payload: { event, results } }];
+    const payload = { event, results };
+    if (working !== data) {
+      payload.data = working;
+    }
+    return [{ ...base, kind: "hook_done", payload }];
   }
 
   if (kind === "tool_invoke") {

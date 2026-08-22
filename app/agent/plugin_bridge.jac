@@ -161,6 +161,21 @@ def resolve_stub_commands(explicit: str = "") -> str {
     return path;
 }
 
+def resolve_pi_gated(explicit: str = "") -> str {
+    if explicit {
+        if os.path.isfile(explicit) {
+            return os.path.abspath(explicit);
+        }
+        raise FileNotFoundError(f"pi_gated not found: {explicit}");
+    }
+    host = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(host), "fixtures", "pi_gated.mjs");
+    if not os.path.isfile(path) {
+        raise FileNotFoundError(f"pi_gated fixture missing: {path}");
+    }
+    return path;
+}
+
 
 """Resolve Node binary for the sidecar (P5 packaging).
 
@@ -1330,6 +1345,240 @@ def _absorb_hook_results(bridge: PluginBridge, results: list) {
     }
 }
 
+# ===================== batch-2 events + structured verdicts =====================
+
+"""Fire a hook and return (results, final_data).
+
+For `tool_call` / `context` the host hands handlers a deep copy they mutate
+IN PLACE (later handlers see earlier mutations — Pi semantics) and echoes the
+final working copy back as hook_done payload `data`. Other events return
+`data` unchanged. Results entries carry `verdict`: the handler's raw object
+return ({block}, {action}, {messages}, ...) or None for scalar/None returns.
+Returns {results, data}; never raises on transport failure (empty results)."""
+def fire_hook_data(
+    bridge: PluginBridge | None, event: str, data: dict, timeout: float = 10.0
+) -> dict {
+    empty: dict = {"results": [], "data": dict(data)};
+    if bridge is None {
+        return empty;
+    }
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="hook_fire",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"event": event, "data": data},
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "hook_done", correlation_id=corr, timeout=timeout
+            );
+        } except Exception {
+            return empty;
+        }
+        _touch(bridge);
+        raw: any = reply.payload.get("results", []);
+        out_list: list = raw if isinstance(raw, list) else [];
+        final: any = reply.payload.get("data");
+        final_data: dict = dict(final) if isinstance(final, dict) else dict(data);
+        _absorb_payload(bridge, dict(reply.payload));
+        _absorb_hook_results(bridge, out_list);
+        return {"results": out_list, "data": final_data};
+    }
+    # Fake host path: handlers receive the live dict; Python mutations are
+    # visible to later handlers directly (in-place chaining for free).
+    h = bridge.host;
+    if h is None or not h.alive {
+        return empty;
+    }
+    working = dict(data);
+    results: list = [];
+    for handler in h.listeners.get(event, []) {
+        notifications: list[str] = [];
+        try {
+            ui = FakeUi(notifications, []);
+            out = handler(working, {"ui": ui});
+            entry_r: dict = {
+                "ok": True,
+                "result": "" if out is None else str(out),
+                "verdict": out if isinstance(out, dict) else None,
+                "notifications": notifications,
+            };
+            if ui.ui_events {
+                entry_r["ui_events"] = list(ui.ui_events);
+            }
+            results.append(entry_r);
+        } except Exception as e {
+            results.append({
+                "ok": False,
+                "error": str(e),
+                "verdict": None,
+                "notifications": notifications,
+            });
+        }
+    }
+    _absorb_pending_fake(bridge, h);
+    _absorb_hook_results(bridge, results);
+    return {"results": results, "data": working};
+}
+
+
+"""Verdict dicts from successful listener results, in fire order."""
+def _ok_verdicts(results: list) -> list {
+    verdicts: list = [];
+    for r in results {
+        if isinstance(r, dict) and r.get("ok") and isinstance(r.get("verdict"), dict) {
+            verdicts.append(r["verdict"]);
+        }
+    }
+    return verdicts;
+}
+
+
+"""tool_call gate: fires the Pi `tool_call` hook and aggregates verdicts.
+
+Returns {blocked, reason, terminate, args} where args is the (possibly
+handler-mutated) tool input to actually execute with. First blocking handler
+wins. Never raises — default verdict lets the call through."""
+def tool_call_gate(bridge: PluginBridge | None, name: str, args: dict) -> dict {
+    out: dict = {"blocked": False, "reason": "", "terminate": False, "args": args};
+    if bridge is None {
+        return out;
+    }
+    data = {"toolName": str(name), "toolCallId": "", "input": args};
+    try {
+        fired = fire_hook_data(bridge, "tool_call", data);
+        results = fired["results"];
+        final = fired["data"];
+    } except Exception {
+        return out;
+    }
+    mutated: any = final.get("input") if isinstance(final, dict) else None;
+    if isinstance(mutated, dict) {
+        out["args"] = mutated;
+    }
+    for v in _ok_verdicts(results) {
+        if v.get("block") {
+            out["blocked"] = True;
+            out["reason"] = str(v.get("reason", ""));
+            out["terminate"] = bool(v.get("terminate", False));
+            break;
+        }
+    }
+    return out;
+}
+
+
+"""input gate: fires the Pi `input` hook over raw user text.
+
+Returns {action, text} — action is continue | transform | handled (first
+handled wins); transform rewrites text and keeps scanning so a later handled
+still applies."""
+def input_gate(bridge: PluginBridge | None, text: str) -> dict {
+    out: dict = {"action": "continue", "text": str(text)};
+    if bridge is None {
+        return out;
+    }
+    try {
+        fired = fire_hook_data(
+            bridge, "input", {"text": str(text), "source": "interactive"}
+        );
+        results = fired["results"];
+    } except Exception {
+        return out;
+    }
+    for v in _ok_verdicts(results) {
+        action = str(v.get("action", "continue"));
+        if action == "handled" {
+            return {"action": "handled", "text": out["text"]};
+        }
+        if action == "transform" and v.get("text") is not None {
+            out["action"] = "transform";
+            out["text"] = str(v.get("text"));
+        }
+    }
+    return out;
+}
+
+
+"""context gate: fires the Pi `context` hook before each LLM call.
+
+Handlers may edit the message copy in place (echoed back) or return
+{messages} (explicit replacement — last one wins). Returns the message list
+to stream with; the caller's history is never mutated."""
+def context_gate(bridge: PluginBridge | None, messages: list) -> list {
+    if bridge is None {
+        return messages;
+    }
+    try {
+        snapshot: any = json.loads(json.dumps(messages));
+    } except Exception {
+        return messages;
+    }
+    if not isinstance(snapshot, list) {
+        return messages;
+    }
+    try {
+        fired = fire_hook_data(bridge, "context", {"messages": snapshot});
+        results = fired["results"];
+        final = fired["data"];
+    } except Exception {
+        return messages;
+    }
+    replaced: any = None;
+    for v in _ok_verdicts(results) {
+        if isinstance(v.get("messages"), list) {
+            replaced = v["messages"];
+        }
+    }
+    if replaced is not None {
+        return replaced;
+    }
+    echoed: any = final.get("messages") if isinstance(final, dict) else None;
+    if isinstance(echoed, list) {
+        return echoed;
+    }
+    return messages;
+}
+
+
+"""before_agent_start gate: aggregate {message, systemPrompt} returns.
+
+systemPrompt composes last-wins across handlers (each handler built its
+string from the same base prompt in this single-round-trip design — full
+chaining would need per-handler round trips). Message injection keeps the
+last non-empty content."""
+def agent_start_gate(bridge: PluginBridge | None, prompt: str) -> dict {
+    out: dict = {"message": "", "systemPrompt": ""};
+    if bridge is None {
+        return out;
+    }
+    try {
+        fired = fire_hook_data(
+            bridge, "before_agent_start", {"prompt": str(prompt)}
+        );
+        results = fired["results"];
+    } except Exception {
+        return out;
+    }
+    for v in _ok_verdicts(results) {
+        sp = v.get("systemPrompt");
+        if isinstance(sp, str) and sp {
+            out["systemPrompt"] = sp;
+        }
+        m: any = v.get("message");
+        if isinstance(m, dict) and m.get("content") is not None {
+            out["message"] = str(m.get("content"));
+        } elif isinstance(m, str) and m {
+            out["message"] = m;
+        }
+    }
+    return out;
+}
+
 def _absorb_pending_fake(bridge: PluginBridge, h: FakePluginHost) {
     if h.pending_messages {
         msgs = h.pending_messages;
@@ -1389,7 +1638,9 @@ obj FakeUi {
 
 
 """Fire a lifecycle hook. Returns the per-listener results list from the
-hook_done payload: [{ok, extension_id, result|error, notifications?}].
+hook_done payload: [{ok, extension_id, result|error, verdict?,
+notifications?, ui_events?}] where verdict carries the handler's raw object
+return when it returned a dict ({block}, {action}, {systemPrompt}, ...).
 Returns [] when no host exists (hooks are best-effort, never fatal)."""
 def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.0) -> list {
     if bridge.host_kind == "node" and _node_alive(bridge) {
@@ -1430,6 +1681,7 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
             entry_r: dict = {
                 "ok": True,
                 "result": "" if out is None else str(out),
+                "verdict": out if isinstance(out, dict) else None,
                 "notifications": notifications,
             };
             if ui.ui_events {
@@ -1437,7 +1689,12 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
             }
             results.append(entry_r);
         } except Exception as e {
-            results.append({"ok": False, "error": str(e), "notifications": notifications});
+            results.append({
+                "ok": False,
+                "error": str(e),
+                "verdict": None,
+                "notifications": notifications,
+            });
         }
     }
     _absorb_pending_fake(bridge, h);

@@ -24,6 +24,8 @@ import from .plugin_bridge {
     fire_hook,
     transform_markdown,
     drain_extension_traffic,
+    agent_start_gate,
+    input_gate,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -391,6 +393,25 @@ def run_turn(message: str, on_event: any = render_event) -> str {
             },
         );
     }
+    bridge = plugins.bridge;
+    # Pi event order: input -> before_agent_start -> turn/agent start.
+    # `input` verdicts: handled skips the agent entirely (extension already
+    # gave feedback via ctx.ui) and leaves zero trace — evaluated BEFORE the
+    # system-prompt seed so a handled first turn does not grow history.
+    if bridge is not None {
+        try {
+            igate = input_gate(bridge as PluginBridge, message);
+        } except Exception {
+            igate = {"action": "continue", "text": message};
+        }
+        if igate.get("action") == "handled" {
+            _apply_extension_traffic(bridge as PluginBridge, on_event);
+            return "";
+        }
+        if igate.get("action") == "transform" {
+            message = str(igate.get("text", message));
+        }
+    }
     if not history {
         history.append({"role": "system", "content": SYSTEM_PROMPT});
     }
@@ -398,12 +419,34 @@ def run_turn(message: str, on_event: any = render_event) -> str {
     transport = make_transport(model);
     _t0 = time.time();
     _n_tools = 0;
-    bridge = plugins.bridge;
     # T2-partial lifecycle hooks — best-effort, never fatal.
-    # Pi event order: before_agent_start -> turn/agent start -> tools...
+    injected_system = "";
+    sys_idx = -1;
+    saved_sys = "";
     if bridge is not None {
         b = bridge as PluginBridge;
-        fire_hook(b, "before_agent_start", {"message": message});
+        # before_agent_start verdicts: systemPrompt replaces the system prompt
+        # for THIS turn (restored after), message joins session history.
+        try {
+            agate = agent_start_gate(b, message);
+        } except Exception {
+            agate = {"message": "", "systemPrompt": ""};
+        }
+        injected_system = str(agate.get("systemPrompt", ""));
+        if injected_system {
+            for i in range(len(history)) {
+                if str(history[i].get("role", "")) == "system" {
+                    sys_idx = i;
+                    saved_sys = str(history[i].get("content", ""));
+                    history[i]["content"] = injected_system;
+                    break;
+                }
+            }
+        }
+        inj_msg = str(agate.get("message", ""));
+        if inj_msg {
+            history.append({"role": "user", "content": inj_msg});
+        }
         fire_hook(b, "turn_start", {"message": message});
         fire_hook(b, "agent_start", {"message": message});
     }
@@ -415,6 +458,14 @@ def run_turn(message: str, on_event: any = render_event) -> str {
             reg=reg, bridge=bridge,
         );
     } finally {
+        if sys_idx >= 0 {
+            # Per-turn system prompt swap is undone — Pi semantics: the
+            # replacement lasts for this turn's LLM calls only.
+            try {
+                history[sys_idx]["content"] = saved_sys;
+            } except Exception {
+            }
+        }
         if on_event is render_event {
             sys.stdout.write("\n");
             if show_stats {

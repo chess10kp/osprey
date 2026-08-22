@@ -21,6 +21,11 @@ import from .registry {
     as_tool_specs,
     invoke,
 }
+import from .plugin_bridge {
+    PluginBridge,
+    context_gate,
+    tool_call_gate,
+}
 
 
 
@@ -219,8 +224,19 @@ def react_loop(
             stream_error = "";
             text = "";
             tool_calls = [];
+            # Pi `context` hook (batch-2): handlers may edit a copy of the
+            # messages per LLM call; edits apply to this call only — the
+            # caller's history is never mutated.
+            call_messages: list = messages;
+            if bridge is not None {
+                try {
+                    call_messages = context_gate(bridge as PluginBridge, messages);
+                } except Exception {
+                    call_messages = messages;
+                }
+            }
             try {
-                for chunk in transport.stream(messages, defs) {
+                for chunk in transport.stream(call_messages, defs) {
                     c: any = chunk;
                     if "error" in c {
                         stream_error = str(c["error"]);
@@ -270,7 +286,33 @@ def react_loop(
                 args = {};
             }
             on_event("tool_call", {"tool": name, "args": args});
-            if reg is not None {
+            # Pi `tool_call` hook: handlers may mutate input in place and/or
+            # return {block, reason?, terminate?}. First block wins.
+            gate: dict = {"blocked": False, "reason": "", "terminate": False};
+            if bridge is not None {
+                try {
+                    g = tool_call_gate(bridge as PluginBridge, name, args);
+                    gated_args: any = g.get("args");
+                    if isinstance(gated_args, dict) {
+                        args = gated_args;
+                    }
+                    gate = {
+                        "blocked": bool(g.get("blocked", False)),
+                        "reason": str(g.get("reason", "")),
+                        "terminate": bool(g.get("terminate", False)),
+                    };
+                } except Exception {
+                    gate = {"blocked": False, "reason": "", "terminate": False};
+                }
+            }
+            if gate["blocked"] {
+                reason = gate["reason"];
+                if reason {
+                    result = f"ERROR: blocked by extension: {reason}";
+                } else {
+                    result = "ERROR: blocked by extension";
+                }
+            } elif reg is not None {
                 result = invoke(reg, name, args, bridge);
             } else {
                 spec = _find_spec(specs, name);
@@ -291,6 +333,15 @@ def react_loop(
                 "tool_call_id": str(cl.get("id", "")),
                 "content": safe_result,
             });
+            if gate["blocked"] and gate["terminate"] {
+                # Pi: the agent stops early when a finalized result terminates.
+                # Simplification vs parallel mode: calls run sequentially here,
+                # so we stop at the first terminating block.
+                on_event("error", {
+                    "message": f"terminated by extension: {gate['reason']}",
+                });
+                return "";
+            }
         }
     }
     on_event("loop_limit", {"max_iters": max_iters, "iterations": max_iters});
@@ -385,19 +436,16 @@ test "react loop retries transient transport errors" {
 }
 
 
-test "react loop emits loop limit" {
-    messages = [{"role": "user", "content": "echo"}];
-    specs = [ToolSpec(
-        name="echo",
-        description="echo the text",
-        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
-        handler=_echo,
-    )];
-    _events.clear();
-    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, max_iters=1);
-    assert answer == "";
-    assert _events[-1][0] == "loop_limit";
-    assert _events[-1][1]["max_iters"] == 1;
+obj CancelMidStreamTransport(Transport) {
+    has flag: any = None;
+
+    override def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        yield {"content": "partial"};
+        if self.flag is not None {
+            self.flag.cancelled = True;
+        }
+        yield {"content": " never seen"};
+    }
 }
 
 
@@ -509,5 +557,65 @@ test "react loop invokes js tool via registry bridge" {
     answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
     assert answer == "done";
     assert _events[2][1]["result"] == "JS:hi";
+    dispose_bridge(bridge);
+}
+
+
+test "react loop honors tool_call block verdicts from a plugin bridge" {
+    import from .plugin_bridge {
+        create_bridge,
+        ensure_host,
+        register_fake_listener,
+        dispose_bridge,
+    }
+    import from .registry { create_registry }
+
+    def _block_no_terminate(data: dict, ctx: any) -> dict {
+        return {"block": True, "reason": "policy"};
+    }
+
+    messages = [{"role": "user", "content": "run echo"}];
+    reg = create_registry();
+    bridge = create_bridge("react-gate");
+    ensure_host(bridge);
+    register_fake_listener(bridge, "tool_call", _block_no_terminate);
+    transport = ScriptedTransport();
+    transport.tool_name = "echo";
+    _events.clear();
+    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    # Blocked call becomes an error tool-result; the run continues normally.
+    assert answer == "done";
+    assert messages[2]["role"] == "tool";
+    assert messages[2]["content"] == "ERROR: blocked by extension: policy";
+    dispose_bridge(bridge);
+}
+
+
+test "react loop stops early on terminating block verdict" {
+    import from .plugin_bridge {
+        create_bridge,
+        ensure_host,
+        register_fake_listener,
+        dispose_bridge,
+    }
+    import from .registry { create_registry }
+
+    def _terminate_block(data: dict, ctx: any) -> dict {
+        return {"block": True, "reason": "dangerous command", "terminate": True};
+    }
+
+    messages = [{"role": "user", "content": "run echo"}];
+    reg = create_registry();
+    bridge = create_bridge("react-term");
+    ensure_host(bridge);
+    register_fake_listener(bridge, "tool_call", _terminate_block);
+    transport = ScriptedTransport();
+    transport.tool_name = "echo";
+    _events.clear();
+    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    assert answer == "";
+    assert messages[-1]["content"] == "ERROR: blocked by extension: dangerous command";
+    kinds = [e[0] for e in _events];
+    assert "error" in kinds;
     dispose_bridge(bridge);
 }

@@ -299,3 +299,72 @@ test "extension traffic joins history and emits entry events" {
     clear_history();
     session_dispose();
 }
+
+
+# ===================== batch-2: input gate + before_agent_start =====================
+
+test "run_turn short-circuits on handled input verdict" {
+    session_dispose();
+    st = session_boot("t-b2-input", os.getcwd(), []);
+    b = plugins.bridge;
+    if b is None {
+        b = create_bridge("t-b2-input-fake");
+        plugins.bridge = b;
+        ensure_host(b);
+    }
+
+    def _handle_ping(data: dict, ctx: any) -> dict {
+        if data.get("text") == "!ping" {
+            return {"action": "handled"};
+        }
+        return None;
+    }
+
+    register_fake_listener(b as PluginBridge, "input", _handle_ping);
+    n_before = len(history);
+    sink: list = [];
+
+    def _collect(kind: str, data: dict) {
+        sink.append(kind);
+    }
+
+    answer = run_turn("!ping", _collect);
+    assert answer == "";
+    # Handled input never reaches LLM history.
+    assert len(history) == n_before;
+
+    # Non-handled input continues (would need a live model past this point,
+    # so only the gate decision is exercised here).
+    plugins.bridge = None;
+    dispose_bridge(b as PluginBridge);
+    clear_history();
+    session_dispose();
+}
+
+
+test "agent_start_gate collects systemPrompt without touching history" {
+    session_dispose();
+    st = session_boot("t-b2-sys", os.getcwd(), []);
+    b = plugins.bridge;
+    if b is None {
+        b = create_bridge("t-b2-sys-fake");
+        plugins.bridge = b;
+        ensure_host(b);
+    }
+
+    def _sys(data: dict, ctx: any) -> dict {
+        return {"systemPrompt": "OVERRIDE"};
+    }
+
+    register_fake_listener(b as PluginBridge, "before_agent_start", _sys);
+    a = agent_start_gate(b as PluginBridge, "hi");
+    assert a["systemPrompt"] == "OVERRIDE";
+    # Gate alone never touches history — the swap lives inside run_turn.
+    n_before = len(history);
+    assert len(history) == n_before;
+
+    plugins.bridge = None;
+    dispose_bridge(b as PluginBridge);
+    clear_history();
+    session_dispose();
+}

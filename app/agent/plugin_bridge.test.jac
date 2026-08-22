@@ -556,3 +556,184 @@ test "session name round-trips on the bridge" {
     assert ok is True;
     assert fake_session_name(bridge) == "my-session";
 }
+
+
+# ===================== batch-2 events + structured verdicts =====================
+
+test "fire_hook_data fake path captures verdicts and chains mutations" {
+    bridge = create_bridge("s-b2-data");
+    ensure_host(bridge);
+
+    def _mutator(data: dict, ctx: any) -> str {
+        data["input"]["text"] = data["input"]["text"].upper();
+        return "";
+    }
+
+    def _verdict(data: dict, ctx: any) -> dict {
+        # Sees the mutation made by _mutator (in-place chaining).
+        assert data["input"]["text"] == "HI";
+        return {"block": True, "reason": "nope"};
+    }
+
+    register_fake_listener(bridge, "tool_call", _mutator);
+    register_fake_listener(bridge, "tool_call", _verdict);
+
+    fired = fire_hook_data(
+        bridge, "tool_call", {"toolName": "echo_arg", "input": {"text": "hi"}}
+    );
+    results = fired["results"];
+    final = fired["data"];
+    assert len(results) == 2;
+    assert results[0]["ok"] is True and results[0]["verdict"] is None;
+    assert results[1]["verdict"] == {"block": True, "reason": "nope"};
+    assert final["input"]["text"] == "HI";
+    dispose_bridge(bridge);
+}
+
+
+test "tool_call_gate aggregates blocks and mutated args" {
+    bridge = create_bridge("s-b2-gate");
+    ensure_host(bridge);
+
+    def _gate(data: dict, ctx: any) -> any {
+        if str(data["input"].get("command", "")).find("rm") >= 0 {
+            return {"block": True, "reason": "danger", "terminate": True};
+        }
+        if data.get("toolName") == "echo_arg" {
+            data["input"]["text"] = "MUTATED";
+        }
+        return None;
+    }
+
+    register_fake_listener(bridge, "tool_call", _gate);
+
+    g1 = tool_call_gate(bridge, "bash", {"command": "rm -rf /"});
+    assert g1["blocked"] is True;
+    assert g1["reason"] == "danger";
+    assert g1["terminate"] is True;
+
+    g2 = tool_call_gate(bridge, "echo_arg", {"text": "orig"});
+    assert g2["blocked"] is False;
+    assert g2["args"]["text"] == "MUTATED";
+
+    # No bridge -> pass-through with original args.
+    g3 = tool_call_gate(None, "bash", {"command": "ls"});
+    assert g3["blocked"] is False and g3["args"] == {"command": "ls"};
+    dispose_bridge(bridge);
+}
+
+
+test "input_gate handles and transforms" {
+    bridge = create_bridge("s-b2-input");
+    ensure_host(bridge);
+
+    def _input(data: dict, ctx: any) -> any {
+        t = str(data.get("text", ""));
+        if t == "!gate" {
+            return {"action": "handled"};
+        }
+        if t.startswith("?up ") {
+            return {"action": "transform", "text": t[4:].upper()};
+        }
+        return None;
+    }
+
+    register_fake_listener(bridge, "input", _input);
+    r1 = input_gate(bridge, "!gate");
+    assert r1["action"] == "handled";
+    r2 = input_gate(bridge, "?up hello");
+    assert r2["action"] == "transform" and r2["text"] == "HELLO";
+    r3 = input_gate(bridge, "plain");
+    assert r3["action"] == "continue";
+    assert input_gate(None, "x")["action"] == "continue";
+    dispose_bridge(bridge);
+}
+
+
+test "context_gate applies in-place edits and replacements non-destructively" {
+    bridge = create_bridge("s-b2-ctx");
+    ensure_host(bridge);
+
+    def _ctx_edit(data: dict, ctx: any) -> any {
+        data["messages"].append({"role": "user", "content": "[inject]"});
+        return None;
+    }
+
+    def _ctx_replace(data: dict, ctx: any) -> dict {
+        return {"messages": [{"role": "user", "content": "replaced"}]};
+    }
+
+    history = [{"role": "user", "content": "hi"}];
+    register_fake_listener(bridge, "context", _ctx_edit);
+    out1 = context_gate(bridge, history);
+    assert len(out1) == 2;
+    assert out1[1]["content"] == "[inject]";
+    assert len(history) == 1;  # caller history untouched
+
+    h_reset = bridge.host;
+    if h_reset is not None {
+        h_reset.listeners["context"] = [];
+    }
+    register_fake_listener(bridge, "context", _ctx_replace);
+    out2 = context_gate(bridge, history);
+    assert out2 == [{"role": "user", "content": "replaced"}];
+
+    assert context_gate(None, history) is history;
+    dispose_bridge(bridge);
+}
+
+
+test "agent_start_gate collects systemPrompt and message" {
+    bridge = create_bridge("s-b2-agent");
+    ensure_host(bridge);
+
+    def _sys(data: dict, ctx: any) -> dict {
+        return {"systemPrompt": data["prompt"] + "+sys", "message": {"content": "extra ctx"}};
+    }
+
+    register_fake_listener(bridge, "before_agent_start", _sys);
+    a = agent_start_gate(bridge, "prompt");
+    assert a["systemPrompt"] == "prompt+sys";
+    assert a["message"] == "extra ctx";
+    assert agent_start_gate(None, "p") == {"message": "", "systemPrompt": ""};
+    dispose_bridge(bridge);
+}
+
+
+test "node host echoes structured verdicts and mutated working data" {
+    bridge = create_bridge("s-b2-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    gated = resolve_pi_gated();
+    names = load_extension_path(bridge, reg, "pi.gated", gated);
+    drain_inbox(bridge);
+
+    # tool_call block verdict + terminate flag.
+    g = tool_call_gate(bridge, "bash", {"command": "rm -rf /tmp/x"});
+    assert g["blocked"] is True;
+    assert g["reason"] == "dangerous command";
+    assert g["terminate"] is True;
+
+    # tool_call in-place input mutation echoed back through hook_done.data.
+    g2 = tool_call_gate(bridge, "echo_arg", {"text": "hi"});
+    assert g2["blocked"] is False;
+    assert g2["args"]["text"] == "HI";
+
+    # context in-place message edit echoed back.
+    msgs = [{"role": "user", "content": "q"}];
+    out = context_gate(bridge, msgs);
+    assert out[-1]["content"] == "[gated-context-injection]";
+    assert len(msgs) == 1;
+
+    # input verdicts.
+    i1 = input_gate(bridge, "!gate");
+    assert i1["action"] == "handled";
+    i2 = input_gate(bridge, "?upper shout");
+    assert i2["action"] == "transform" and i2["text"] == "SHOUT";
+
+    # before_agent_start systemPrompt verdict.
+    a = agent_start_gate(bridge, "hello");
+    assert a["systemPrompt"] == "\n[gated-system-append]";
+
+    dispose_bridge(bridge);
+}
