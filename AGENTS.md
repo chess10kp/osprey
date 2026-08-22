@@ -536,6 +536,7 @@ Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boo
 | `docs/NANOCODER-PARITY.md` | TUI parity gaps |
 | `ROADMAP.md` | Product direction |
 | `docs/decisions.org` | Architecture decision log (decision/context/options/tradeoff/reversal) |
+| [`docs/PLUGIN-HOST-PLAN.md`](docs/PLUGIN-HOST-PLAN.md) | Parallel Node sidecar; JS must not block first frame (D11/D13/D21); §14 lessons from P0–P5 |
 | `lib/jac/README.md` | lib/jac structure and conventions |
 | `reference/pi-lsp-extension/` | Legacy reference only |
 
@@ -575,6 +576,14 @@ Invoke via `agent` tool or orchestration APIs in `subagent-runner.ts`.
 ---
 
 ## Practical gotchas (lessons from working in this repo)
+
+### Plugin host (Jac harness)
+
+- Invariant: **JS does not block the first frame** (D21) — not “JS never starts at boot.”
+- Product seam: `session_boot` → `wait_extensions_ready` → `run_turn` with `bridge=`; smoke alone is not enough.
+- Decls: `.jackal/extensions.json` (JSON). Bridge: corr **before** write; inbox kept for observers.
+- Mutable plugin state: `SessionPlugins` object (avoid glob reassignment traps). `node` is a Jac keyword → `node_bin`.
+- Dual clocks in smoke; daemon (P7) deferred while extension-ready stays small. Lessons: `docs/PLUGIN-HOST-PLAN.md` §14.
 
 ### Bridge performance
 
