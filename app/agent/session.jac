@@ -10,7 +10,7 @@ import os;
 import json;
 import time;
 
-import from .llm { Transport, react_loop, make_transport, TurnCancel }
+import from .llm { Transport, react_loop, make_transport, make_ext_transport, TurnCancel }
 import from .tools { default_registry }
 import from .system { SYSTEM_PROMPT }
 import from .plugin_bridge {
@@ -417,7 +417,25 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         history.append({"role": "system", "content": SYSTEM_PROMPT});
     }
     history.append({"role": "user", "content": message});
-    transport = make_transport(model);
+    # P10: extension-declared models route through the provider seam;
+    # anything else uses the native provider table.
+    transport: any = None;
+    if model.startswith("ext/") {
+        try {
+            transport = make_ext_transport(bridge as PluginBridge, model);
+        } except Exception {
+            transport = None;
+        }
+        if transport is None {
+            if on_event is not None {
+                on_event("error", {"message": f"unknown extension model {model}"});
+            }
+            return "";
+        }
+    }
+    if transport is None {
+        transport = make_transport(model);
+    }
     _t0 = time.time();
     _n_tools = 0;
     # T2-partial lifecycle hooks — best-effort, never fatal.

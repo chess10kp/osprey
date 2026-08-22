@@ -39,6 +39,7 @@ obj FakePluginHost {
         pending_entries: list = [],
         active_tools: any = None,
         session_name: str = "",
+        providers: dict = {},
         extension_tools: dict[str, list[str]] = {},
         cancelled: set[str] = set(),
         node_version: str = "fake",
@@ -70,6 +71,7 @@ obj PluginBridge {
         hello_payload: dict = {},
         commands: dict = {},
         md_transformers: list = [],
+        providers: dict = {},
         traffic_messages: list = [],
         traffic_entries: list = [],
         session_name: str = "";
@@ -797,6 +799,8 @@ def load_extension(
         );
     }
     h.extension_tools[extension_id] = names;
+    # P10 fake parity: no activate-time hook exists on the fake host;
+    # tests declare providers via register_fake_provider.
     bridge.inbox.append(
         make_envelope(
             kind="ext_loaded",
@@ -945,6 +949,13 @@ def unload_extension(
         t for t in bridge.md_transformers
         if t.get("extension_id") != extension_id
     ];
+    # No tuple unpacking in comprehensions: the Jac parser rejects
+    # `for n, c in ...`, so mirror the dead-command loop above.
+    for pn in list(bridge.providers.keys()) {
+        if bridge.providers[pn].get("extension_id") == extension_id {
+            bridge.providers.pop(pn, None);
+        }
+    }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         req = make_envelope(
             kind="ext_unload",
@@ -980,6 +991,12 @@ def unload_extension(
             t for t in h.md_transformers
             if t.get("extension_id") != extension_id
         ];
+        # Jac parser rejects tuple unpacking in comprehensions.
+        for pn in list(h.providers.keys()) {
+            if h.providers[pn].get("owner") == extension_id {
+                h.providers.pop(pn, None);
+            }
+        }
     }
     bridge.outbox.append(
         make_envelope(
@@ -1333,6 +1350,17 @@ def _absorb_payload(bridge: PluginBridge, payload: dict) {
     if sn {
         bridge.session_name = str(sn);
     }
+    # P10: provider declarations ride ext_loaded payloads.
+    provs: any = payload.get("providers", []);
+    if isinstance(provs, list) {
+        for p in provs {
+            if isinstance(p, dict) and p.get("name") {
+                cfg = dict(p);
+                cfg["extension_id"] = str(payload.get("id", ""));
+                bridge.providers[str(p.get("name"))] = cfg;
+            }
+        }
+    }
 }
 
 
@@ -1401,6 +1429,15 @@ def fire_hook_data(
         try {
             ui = FakeUi(notifications, []);
             out = handler(working, {"ui": ui});
+            # Transform verdicts rewrite the working text so later handlers
+            # see the composed input (Pi input-transform chaining).
+            if (
+                isinstance(out, dict)
+                and str(out.get("action")) == "transform"
+                and out.get("text") is not None
+            ) {
+                working["text"] = str(out.get("text"));
+            }
             entry_r: dict = {
                 "ok": True,
                 "result": "" if out is None else str(out),
@@ -1475,8 +1512,9 @@ def tool_call_gate(bridge: PluginBridge | None, name: str, args: dict) -> dict {
 """input gate: fires the Pi `input` hook over raw user text.
 
 Returns {action, text} — action is continue | transform | handled (first
-handled wins); transform rewrites text and keeps scanning so a later handled
-still applies."""
+handled wins). Transforms CHAIN: hosts apply each transform verdict to the
+working copy between handlers, so later handlers and the echoed final text
+see the composed result — the echoed text is authoritative."""
 def input_gate(bridge: PluginBridge | None, text: str) -> dict {
     out: dict = {"action": "continue", "text": str(text)};
     if bridge is None {
@@ -1486,18 +1524,27 @@ def input_gate(bridge: PluginBridge | None, text: str) -> dict {
         fired = fire_hook_data(
             bridge, "input", {"text": str(text), "source": "interactive"}
         );
-        results = fired["results"];
+        results = fired.get("results", []);
+        final = fired.get("data", {});
     } except Exception {
         return out;
     }
     for v in _ok_verdicts(results) {
-        action = str(v.get("action", "continue"));
-        if action == "handled" {
-            return {"action": "handled", "text": out["text"]};
+        if str(v.get("action", "continue")) == "handled" {
+            t: any = final.get("text") if isinstance(final, dict) else None;
+            return {
+                "action": "handled",
+                "text": str(t) if isinstance(t, str) else out["text"],
+            };
         }
-        if action == "transform" and v.get("text") is not None {
+        if str(v.get("action", "continue")) == "transform" {
             out["action"] = "transform";
-            out["text"] = str(v.get("text"));
+        }
+    }
+    if out["action"] == "transform" and isinstance(final, dict) {
+        t2: any = final.get("text");
+        if isinstance(t2, str) {
+            out["text"] = t2;
         }
     }
     return out;
@@ -1872,4 +1919,108 @@ def set_fake_active_tools(bridge: PluginBridge, names: list | None) {
 
 def fake_session_name(bridge: PluginBridge) -> str {
     return str(bridge.session_name);
+}
+
+
+# ============================ P10: provider seam ============================
+
+"""Register a provider on the FAKE host (unit-test parity for registerProvider)."""
+def register_fake_provider(bridge: PluginBridge, cfg: dict, extension_id: str = "fake.provider") {
+    ensure_host(bridge);
+    name = str(cfg.get("name", ""));
+    if not name {
+        raise ValueError("provider config requires a name");
+    }
+    h = bridge.host;
+    entry = dict(cfg);
+    if h is not None {
+        h.providers[name] = {**entry, "owner": extension_id};
+    }
+    entry["extension_id"] = extension_id;
+    bridge.providers[name] = entry;
+}
+
+
+"""Resolve an `ext/<extension>/<model>` model id against declared providers.
+
+Returns {provider, model, base_url, streaming} or None when the id does not
+match the namespace or no extension declared it."""
+def resolve_ext_model(bridge: PluginBridge | None, model_id: str) -> dict | None {
+    parts = str(model_id).split("/");
+    if len(parts) != 3 or parts[0] != "ext" or not parts[1] or not parts[2] {
+        return None;
+    }
+    if bridge is None {
+        return None;
+    }
+    ext_id = parts[1];
+    model = parts[2];
+    # Jac parser rejects `for name, cfg in ...` tuple unpacking.
+    for name in bridge.providers {
+        cfg = bridge.providers[name];
+        if str(cfg.get("extension_id", "")) != ext_id {
+            continue;
+        }
+        for m in cfg.get("models", []) or [] {
+            mid = m.get("id", "") if isinstance(m, dict) else str(m);
+            if str(mid) == model {
+                return {
+                    "provider": str(name),
+                    "model": model,
+                    "base_url": str(cfg.get("base_url", "") or ""),
+                    "streaming": cfg.get("streaming", True) is not False,
+                    "extension_id": ext_id,
+                };
+            }
+        }
+    }
+    return None;
+}
+
+
+"""P10 request seam: fire Pi's `before_provider_request` hook.
+
+Handlers may edit {model, url, headers, body} in place (echoed back) and/or
+return replacements ({body}, {url}, {headers} — last one wins per field).
+Full request control is intentional: extensions are trusted in-process code.
+Never raises; on any failure the original request passes through."""
+def prepare_provider_request(
+    bridge: PluginBridge | None,
+    model: str,
+    url: str,
+    headers: dict,
+    body: dict,
+) -> dict {
+    out: dict = {"url": url, "headers": headers, "body": body};
+    if bridge is None {
+        return out;
+    }
+    data = {"model": str(model), "url": url, "headers": headers, "body": body};
+    try {
+        fired = fire_hook_data(bridge, "before_provider_request", data);
+    } except Exception {
+        return out;
+    }
+    final = fired.get("data", {}) if isinstance(fired, dict) else {};
+    results = fired.get("results", []) if isinstance(fired, dict) else [];
+    # In-place edits first (echoed working copy)...
+    for key in ("url", "headers", "body") {
+        v: any = final.get(key) if isinstance(final, dict) else None;
+        if v is not None {
+            out[key] = v;
+        }
+    }
+    # ...then explicit verdict replacements override.
+    for v in _ok_verdicts(results) {
+        u = v.get("url");
+        if isinstance(u, str) and u {
+            out["url"] = u;
+        }
+        for key in ("headers", "body") {
+            if isinstance(v.get(key), dict) {
+                out[key] = v[key];
+            }
+        }
+    }
+    return out;
 }
