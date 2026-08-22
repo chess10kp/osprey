@@ -26,6 +26,7 @@ import from .plugin_bridge {
     drain_extension_traffic,
     agent_start_gate,
     input_gate,
+    render_extension_block,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -36,6 +37,16 @@ import from .extensions {
     extensions_label,
     resolve_decl_path,
     decl_from_dict,
+}
+
+import from .sessions {
+    save_session,
+    list_sessions,
+    latest_session_id,
+    get_session_record,
+    export_session,
+    new_session_id,
+    is_valid_session_id,
 }
 
 
@@ -361,7 +372,20 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
             history.append({"role": str(m.get("role", "user")), "content": str(m.get("content", ""))});
         }
         for e in traffic["entries"] {
-            on_event("entry", dict(e));
+            entry = dict(e);
+            # P11: an entry renderer matching this type upgrades the entry
+            # with native content lines (app/ui paints them via
+            # set_node_content); unmatched entries pass through untouched.
+            try {
+                r: dict = render_extension_block(
+                    bridge as PluginBridge, "entry", str(entry.get("type", "")), entry.get("data")
+                );
+                if r.get("ok") and r.get("lines") {
+                    entry["lines"] = r["lines"];
+                }
+            } except Exception {
+            }
+            on_event("entry", entry);
         }
     } except Exception {
     }
@@ -511,6 +535,19 @@ def run_turn(message: str, on_event: any = render_event) -> str {
             fire_hook(b2, "agent_settled", {});
             _apply_extension_traffic(b2, on_event);
         }
+        # Best-effort transcript persistence after every turn. The boot-time
+        # id may be a placeholder ("session") — mint a real one on first save.
+        try {
+            if not is_valid_session_id(plugins.session_id) {
+                plugins.session_id = new_session_id();
+            }
+            save_session(
+                plugins.cwd if plugins.cwd else os.getcwd(),
+                history,
+                session_id=plugins.session_id,
+            );
+        } except Exception {
+        }
     }
     # T2b: display-only markdown transformer chain over the complete answer,
     # surfaced as a `message` event for JSON/UI clients (term mode ignores it
@@ -519,8 +556,51 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         xres = transform_markdown(bridge, answer);
         shown = str(xres.get("markdown", answer)) if xres.get("ok") else answer;
         on_event("message", {"role": "assistant", "content": shown});
+        # P11: extension message renderer produces native content lines for
+        # the finalized assistant message (surfaced as an entry event so
+        # line-based and native-screen clients share one protocol).
+        if bridge is not None {
+            try {
+                mr: dict = render_extension_block(
+                    bridge as PluginBridge,
+                    "message",
+                    "assistant",
+                    {"role": "assistant", "content": shown},
+                );
+                if mr.get("ok") and mr.get("lines") {
+                    on_event("entry", {
+                        "type": "extension_render",
+                        "render_type": "assistant",
+                        "lines": mr["lines"],
+                    });
+                }
+            } except Exception {
+            }
+        }
     }
     return answer;
+}
+
+
+"""Read-only view of session history for the shell (/export, /sessions)."""
+def get_history() -> list {
+    return list(history);
+}
+
+
+"""Replace in-memory history with a loaded transcript (restore flow)."""
+def restore_history(msgs: list) {
+    history.clear();
+    for m in msgs {
+        if isinstance(m, dict) {
+            history.append(dict(m));
+        }
+    }
+}
+
+
+def set_current_session_id(sid: str) {
+    plugins.session_id = sid if sid else new_session_id();
 }
 
 

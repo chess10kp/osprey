@@ -58,3 +58,66 @@ test "handle_command routes slash args into extension commands" {
         dispose_bridge(b);
     }
 }
+
+
+test "handle_command sessions resume export round-trip" {
+    import os;
+    import tempfile;
+    import shutil;
+    import from agent.sessions { save_session }
+
+    tmp = tempfile.mkdtemp(prefix="jackal-main-sess-");
+    old_cwd = os.getcwd();
+    os.chdir(tmp);
+    checks: list[str] = [];
+    try {
+        hist = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ];
+        meta = save_session(tmp, hist, name="round trip",
+                            model="test/model-x");
+        sid = str(meta["id"]);
+
+        listing = handle_command("/sessions");
+        checks.append("listing-has-sid=" + str(sid in listing));
+        checks.append("listing-has-name=" + str("round trip" in listing));
+
+        clear_history();
+        reply = handle_command("/resume");
+        checks.append("resume-reply=" + repr(reply)[:120]);
+        checks.append("reply-has-model=" + str("model -> test/model-x" in str(reply)));
+
+        r2 = handle_command("/resume " + sid);
+        checks.append("resume-by-id=" + str("resumed" in str(r2)));
+        r3 = handle_command("/resume sess_42");
+        checks.append("resume-unknown=" + repr(r3));
+
+        out = os.path.join(tmp, "out.md");
+        exp = handle_command("/export " + out);
+        checks.append("export-reply=" + repr(exp));
+        exists = os.path.exists(out);
+        checks.append("out-exists=" + str(exists));
+        body = "";
+        if exists {
+            fh = open(out, "r");
+            try {
+                body = fh.read();
+            } finally {
+                fh.close();
+            }
+            checks.append("body-has-user=" + str("hello" in body));
+        }
+
+        clear_history();
+        empty_reply = handle_command("/export");
+        checks.append("empty-export=" + repr(empty_reply));
+    } finally {
+        os.chdir(old_cwd);
+        shutil.rmtree(tmp, ignore_errors=True);
+    }
+    for c in checks {
+        assert not c.endswith("=False"), "failed check: " + c;
+    }
+}

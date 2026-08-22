@@ -18,6 +18,32 @@ import from agent.session {
     list_commands,
     run_command,
     cancel_active_turn,
+    get_history,
+    restore_history,
+    set_current_session_id,
+}
+import os;
+import from agent.session {
+    run_turn,
+    set_model,
+    clear_history,
+    model,
+    json_event,
+    list_commands,
+    run_command,
+    cancel_active_turn,
+    get_history,
+    restore_history,
+    set_current_session_id,
+    plugins,
+}
+import from agent.sessions {
+    list_sessions,
+    latest_session_id,
+    get_session_record,
+    export_session,
+    save_session,
+    is_valid_session_id,
 }
 
 
@@ -35,6 +61,9 @@ def print_help {
         "  /model NAME    switch model (e.g. openrouter/anthropic/claude-sonnet-5)\n"
         "  /clear         clear conversation history\n"
         "  /abort         cancel the active turn (streaming or tool)\n"
+        "  /sessions      list saved sessions\n"
+        "  /resume [ID]   load a session transcript (default: latest)\n"
+        "  /export [PATH] write the current transcript as markdown\n"
         "  /stats         toggle turn stats line (term mode)\n"
         "  /commands      list extension commands\n"
         "  /exit          quit"
@@ -49,6 +78,68 @@ def handle_command(line: str) -> str | None {
     if line == "/clear" { clear_history(); return "history cleared"; }
     if line == "/abort" {
         return "turn aborted" if cancel_active_turn() else "no active turn";
+    }
+    if line == "/sessions" {
+        rows = list_sessions(os.getcwd());
+        if not rows { return "no saved sessions"; }
+        lines: list[str] = ["saved sessions:"];
+        for row in rows[:20] {
+            lines.append(
+                "  " + str(row.get("id", "")) + "  "
+                + str(row.get("name", ""))
+            );
+        }
+        return "\n".join(lines);
+    }
+    if line.startswith("/resume") {
+        arg = line[len("/resume"):].strip();
+        sid: str = arg;
+        if not sid {
+            got = latest_session_id(os.getcwd());
+            if got is None { return "no saved sessions to resume"; }
+            sid = got;
+        }
+        rec: dict | None = get_session_record(os.getcwd(), sid);
+        if rec is None { return "unknown session: " + sid; }
+        msgs: any = rec.get("messages", []);
+        if not isinstance(msgs, list) or not msgs {
+            return "session has no transcript: " + sid;
+        }
+        restore_history(msgs as list);
+        rec_model: any = rec.get("model");
+        reply: str = "resumed " + sid + " (" + str(len(msgs)) + " messages)";
+        if isinstance(rec_model, str) and rec_model and rec_model != model {
+            reply += "\nmodel -> " + set_model(rec_model);
+        }
+        return reply;
+    }
+    if line.startswith("/export") {
+        arg = line[len("/export"):].strip();
+        path = arg if arg else "jackal-transcript.md";
+        hist = get_history();
+        has_content = False;
+        for m in hist {
+            if isinstance(m, dict) and str(m.get("role", "")) != "system" {
+                has_content = True;
+                break;
+            }
+        }
+        if not has_content { return "nothing to export yet"; }
+        # Export needs a saved record; persist the live transcript first.
+        if not is_valid_session_id(str(plugins.session_id)) {
+            set_current_session_id("");
+        }
+        try {
+            meta = save_session(
+                os.getcwd(), hist, session_id=plugins.session_id,
+            );
+        } except Exception as e {
+            return "ERROR: could not save transcript: " + str(e);
+        }
+        if export_session(os.getcwd(), str(meta["id"]), path) {
+            return "exported to " + path;
+        }
+        return "ERROR: could not write " + path;
     }
     if line == "/commands" {
         cmds = list_commands();
