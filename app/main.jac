@@ -17,6 +17,7 @@ import from agent.session {
     json_event,
     list_commands,
     run_command,
+    cancel_active_turn,
 }
 
 
@@ -33,6 +34,7 @@ def print_help {
         "  /help          this help\n"
         "  /model NAME    switch model (e.g. openrouter/anthropic/claude-sonnet-5)\n"
         "  /clear         clear conversation history\n"
+        "  /abort         cancel the active turn (streaming or tool)\n"
         "  /stats         toggle turn stats line (term mode)\n"
         "  /commands      list extension commands\n"
         "  /exit          quit"
@@ -45,6 +47,9 @@ def handle_command(line: str) -> str | None {
     if line in ("/exit", "/quit") { return None; }
     if line == "/help" { print_help(); return ""; }
     if line == "/clear" { clear_history(); return "history cleared"; }
+    if line == "/abort" {
+        return "turn aborted" if cancel_active_turn() else "no active turn";
+    }
     if line == "/commands" {
         cmds = list_commands();
         if not cmds { return "no extension commands loaded"; }

@@ -30,6 +30,8 @@ test "handle_command builtins" {
     assert handle_command("/model ") == "usage: /model NAME";
     assert handle_command("/help") == "";
     assert handle_command("/exit") is None;
+    # No turn in flight -> abort is a no-op with a clear reply.
+    assert handle_command("/abort") == "no active turn";
 }
 
 

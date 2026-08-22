@@ -10,7 +10,7 @@ import os;
 import json;
 import time;
 
-import from .llm { Transport, react_loop, make_transport }
+import from .llm { Transport, react_loop, make_transport, TurnCancel }
 import from .tools { default_registry }
 import from .system { SYSTEM_PROMPT }
 import from .plugin_bridge {
@@ -56,7 +56,8 @@ obj SessionPlugins {
         prompt_queue: list[str] = [],
         warm_future: any = None,
         wait_budget_s: float = 5.0,
-        commands: dict = {};
+        commands: dict = {},
+        active_cancel: any = None;
 }
 
 
@@ -451,13 +452,17 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         fire_hook(b, "agent_start", {"message": message});
     }
     answer = "";
+    # Cooperative abort handle for this turn (/abort flips it from the UI).
+    turn_cancel = TurnCancel();
+    plugins.active_cancel = turn_cancel;
     try {
         reg = plugins.reg if plugins.reg is not None else default_registry();
         answer = react_loop(
             history, [], transport, relay_tool_hooks(bridge, on_event),
-            reg=reg, bridge=bridge,
+            reg=reg, bridge=bridge, cancel=turn_cancel,
         );
     } finally {
+        plugins.active_cancel = None;
         if sys_idx >= 0 {
             # Per-turn system prompt swap is undone — Pi semantics: the
             # replacement lasts for this turn's LLM calls only.
@@ -498,6 +503,19 @@ def run_turn(message: str, on_event: any = render_event) -> str {
         on_event("message", {"role": "assistant", "content": shown});
     }
     return answer;
+}
+
+
+"""Request cooperative abort of the active turn (if any). Safe to call from
+the UI thread while run_turn is streaming. Returns True when a live turn was
+flagged; False when no turn is in flight or it was already cancelled."""
+def cancel_active_turn() -> bool {
+    c = plugins.active_cancel;
+    if c is not None and not c.cancelled {
+        c.cancelled = True;
+        return True;
+    }
+    return False;
 }
 
 

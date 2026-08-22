@@ -30,6 +30,16 @@ import from .plugin_bridge {
 
 
 
+"""Cooperative turn-abort flag. Session owns one per active turn; the UI
+thread flips `cancelled` and the ReAct loop checks it between stream chunks
+and before each tool call. Plain fields — safe to set from another thread."""
+obj TurnCancel {
+    has turn_id: str = "",
+        cancelled: bool = False,
+        reason: str = "user";
+}
+
+
 obj Transport {
     has base_url: str = "https://api.openai.com/v1",
         api_key: str = "",
@@ -200,7 +210,11 @@ on_event(kind, data) fires as things happen:
   tool_result {"tool", "result"}   - a call finished (capped)
   retry      {"attempt", "max_retries", "message"}
   loop_limit {"max_iters", "iterations"}
+  cancelled  {"phase", "text"}   - cooperative abort via TurnCancel
   error      {"message"}
+When `cancel` fires mid-stream the partial text is returned but NOT appended
+to history; when it fires before a tool runs, remaining calls get
+cancelled-error tool results so the message protocol stays valid.
 Returns the final assistant text.
 """
 def react_loop(
@@ -212,7 +226,11 @@ def react_loop(
     reg: ToolRegistry | None = None,
     bridge: any = None,
     max_retries: int = 2,
+    cancel: TurnCancel | None = None,
 ) -> str {
+    def _is_cancelled() -> bool {
+        return cancel is not None and cancel.cancelled;
+    }
     # Prefer registry when provided so js-origin tools share one invoke path.
     active_specs = as_tool_specs(reg) if reg is not None else specs;
     defs = _tool_defs(active_specs);
@@ -235,9 +253,12 @@ def react_loop(
                     call_messages = messages;
                 }
             }
+            gen: any = transport.stream(call_messages, defs);
+            aborted = False;
             try {
-                for chunk in transport.stream(call_messages, defs) {
-                    c: any = chunk;
+                for chunk_obj in gen {
+                    if _is_cancelled() { aborted = True; break; }
+                    c: any = chunk_obj;
                     if "error" in c {
                         stream_error = str(c["error"]);
                         break;
@@ -251,6 +272,12 @@ def react_loop(
                 }
             } except Exception as e {
                 stream_error = str(e);
+            } finally {
+                gen.close();
+            }
+            if aborted {
+                on_event("cancelled", {"phase": "streaming", "text": text});
+                return text;
             }
             if not stream_error { break; }
             if retries < max_retries and _is_transient_error(stream_error) {
@@ -280,6 +307,16 @@ def react_loop(
             fn: any = cl.get("function", {});
             name = str(fn.get("name", ""));
             raw: any = fn.get("arguments") or "{}";
+            if _is_cancelled() {
+                # Keep the message protocol valid: every pending tool_call id
+                # gets a terminal tool result.
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": str(cl.get("id", "")),
+                    "content": "ERROR: cancelled by user",
+                });
+                continue;
+            }
             try {
                 args = json.loads(raw);
             } except ValueError {
@@ -343,6 +380,10 @@ def react_loop(
                 return "";
             }
         }
+        if _is_cancelled() {
+            on_event("cancelled", {"phase": "tool", "text": text});
+            return text;
+        }
     }
     on_event("loop_limit", {"max_iters": max_iters, "iterations": max_iters});
     return "";
@@ -360,6 +401,34 @@ obj RetryTransport(Transport) {
             yield {"error": "HTTP 503: temporarily unavailable"};
         } else {
             yield {"content": "recovered"};
+        }
+    }
+}
+
+
+obj TwoCallTransport(Transport) {
+    override def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        saw = False;
+        for m in messages {
+            msg: any = m;
+            if msg.get("role") == "tool" { saw = True; }
+        }
+        if not saw {
+            yield {"content": "working"};
+            yield {"tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "echo", "arguments": "{\"text\": \"one\"}"},
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "echo", "arguments": "{\"text\": \"two\"}"},
+                },
+            ]};
+        } else {
+            yield {"content": "done"};
         }
     }
 }
@@ -446,6 +515,69 @@ obj CancelMidStreamTransport(Transport) {
         }
         yield {"content": " never seen"};
     }
+}
+
+
+test "react loop stops mid-stream on cancel without touching history" {
+    messages = [{"role": "user", "content": "hello"}];
+    _events.clear();
+    cancel = TurnCancel();
+    transport = CancelMidStreamTransport(flag=cancel);
+    answer = react_loop(messages, [], transport, _noop_event, cancel=cancel);
+    assert answer == "partial";
+    assert len(messages) == 1;
+    kinds = [e[0] for e in _events];
+    assert kinds == ["chunk", "cancelled"];
+    assert _events[1][1]["phase"] == "streaming";
+}
+
+
+test "cancel before tool calls fills cancelled tool results" {
+    messages = [{"role": "user", "content": "echo hi"}];
+    specs = [ToolSpec(
+        name="echo",
+        description="echo",
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+        handler=_echo,
+    )];
+    _events.clear();
+    cancel = TurnCancel();
+    transport = TwoCallTransport();
+
+    # Cooperative semantics: the in-flight call finishes; the NEXT pending
+    # call is skipped and filled with a terminal cancelled result.
+    def _cancelling_event(kind: str, data: dict) {
+        _events.append([kind, dict(data)]);
+        if kind == "tool_result" {
+            cancel.cancelled = True;
+        }
+    }
+
+    answer = react_loop(messages, specs, transport, _cancelling_event, cancel=cancel);
+    assert answer == "done" or answer == "working";
+    roles = [m["role"] for m in messages];
+    assert roles == ["user", "assistant", "tool", "tool"];
+    # First call ran; second was filled with the cancelled marker.
+    assert messages[2]["content"] == "ECHO:one";
+    assert messages[3]["content"] == "ERROR: cancelled by user";
+    assert _events[-1][0] == "cancelled";
+    assert _events[-1][1]["phase"] == "tool";
+}
+
+
+test "react loop emits loop limit" {
+    messages = [{"role": "user", "content": "echo"}];
+    specs = [ToolSpec(
+        name="echo",
+        description="echo the text",
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+        handler=_echo,
+    )];
+    _events.clear();
+    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, max_iters=1);
+    assert answer == "";
+    assert _events[-1][0] == "loop_limit";
+    assert _events[-1][1]["max_iters"] == 1;
 }
 
 
