@@ -5,13 +5,42 @@ import from jaclang.compiler.js2jac.graph { resolve_local_specifier }
 
 
 glob _JAC_IMPORT_FROM_RE = re.compile(
-    r"""import from "([^"]+)" """
+    r"""import from ("[^"]+"|\.[\w.]+) """
 ),
      _JAC_IMPORT_BRACE_RE = re.compile(r"""\{([^}]*)\}""");
 
 
 def _normalize_rel_path(path: str) -> str {
     return path.replace(os.sep, "/").lstrip("./");
+}
+
+
+# V2.11 emits relative imports as native unquoted dotted specifiers
+# (`.Button`, `..utils.helper`). Convert them to classic relative paths
+# (`./Button`, `../utils/helper`) so resolution logic is form-agnostic.
+def _import_specifier(raw: str) -> str {
+    spec = raw.strip("\"'");
+    # Only pure dotted forms (.x, ..a.b) are V2.11 normalized; quoted
+    # relative paths pass through unchanged.
+    import re as _re;
+
+    if not _re.fullmatch(r"\.[\w.]+", spec) {
+        return spec;
+    }
+    depth = 0;
+    while depth < len(spec) and spec[depth] == "." {
+        depth += 1;
+    }
+    rest = spec[depth:].strip(".");
+    parts = [".."] * (depth - 1);
+    if rest {
+        parts.extend(rest.split("."));
+    }
+    rel = "/".join(parts);
+    if not rel.startswith(".") {
+        rel = "./" + rel;
+    }
+    return rel;
 }
 
 
@@ -246,7 +275,7 @@ impl build_import_rewrites(
             out_lines.append(line);
             continue;
         }
-        specifier = m.group(1);
+        specifier = _import_specifier(m.group(1));
         if not specifier.startswith(".") {
             out_lines.append(line);
             continue;
@@ -310,9 +339,11 @@ impl build_import_rewrites(
                     }
                 );
             }
+            # Always re-emit the canonical quoted form, even when the input
+            # used the V2.11 dotted style.
             new_line = (
                 line[:m.start(1)]
-                + jac_specifier
+                + '"' + jac_specifier + '"'
                 + line[m.end(1):]
             );
         }
@@ -370,7 +401,7 @@ impl collect_dropped_import_locals(
         if m is None {
             continue;
         }
-        specifier = m.group(1);
+        specifier = _import_specifier(m.group(1));
         if not specifier.startswith(".") {
             continue;
         }

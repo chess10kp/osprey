@@ -4046,7 +4046,9 @@ function parseInteropHookDecl(stmt, path, diags, hookBindings, importState) {
   return {
     state: "interop",
     hook,
-    line: `${id.name} = ${initText};`,
+    // identText: reserved-name locals (e.g. `sorted`) must rename at the
+    // binding site exactly as every reference site already does.
+    line: `${identText(id.name)} = ${initText};`,
   };
 }
 

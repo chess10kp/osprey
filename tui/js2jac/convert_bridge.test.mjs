@@ -1161,3 +1161,20 @@ test("inline object-literal params lower member access to dict subscript", () =>
   assert.doesNotMatch(result.jac, /flags\.force/);
   assertJacChecks(result.jac);
 });
+
+test("interop hook binding renames reserved-name locals consistently", () => {
+  // `sorted` shadows a Python builtin, so the file-wide rename applies at the
+  // useMemo *binding* site as well as every reference (join rewrite included).
+  const result = convert(`
+    import { useMemo } from "react";
+    export function app(props: { items: string[] }): string {
+      const sorted = useMemo(() => [...props.items], [props.items]);
+      return sorted.join("-");
+    }
+  `, "fixture.tsx");
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+  assert.match(result.jac, /sorted_j = useMemo\(/);
+  assert.match(result.jac, /"-"\.join\(sorted_j\)/);
+  // Binding site renamed exactly like every reference site — no half-rename.
+  assert.doesNotMatch(result.jac, /(?<![\w_])sorted(?!_j)/);
+});

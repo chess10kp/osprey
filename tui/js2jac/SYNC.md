@@ -27,3 +27,11 @@ rsync -a --exclude __pycache__ --exclude SYNC.md \
 Fidelity gate (last verified 2026-08-18): floor conversion of
 `stdin-buffer.ts`, `terminal-colors.ts`, `components/loader.ts`, `index.ts`
 byte-identical to fork output.
+
+Fidelity gate (last verified 2026-08-22): **V2.11-V2.16 slices synced back
+to the fork and full suite green there (188/188)** — includes the
+ClassDeclaration -> obj lowering, module entry blocks, dotted relative
+import normalization, bounded pure factory-call globals, and the two fixes
+found during sync: interop-hook bindings now apply reserved-name renames
+(`identText` at binding sites), and `import_rewrite` resolves V2.11 dotted
+specifiers (`.Button`, `..utils.helper`) alongside quoted ones.
