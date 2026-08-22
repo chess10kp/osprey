@@ -682,3 +682,139 @@ def measure_and_arrange(
         _arrange_overlays(tables, layout_root, columns, rows);
     }
 }
+
+
+# ----------------------------------------------------------------------
+# Permanent constraint-layout interface (LAYOUT-ENGINE-PLAN §4, M4).
+#
+# These values coexist with the legacy contract tables above until the
+# M6 cutover deletes LayoutKind/LayoutContract/measure_and_arrange.
+# Registry lifecycle functions live in ui.layout_state because four of
+# the permanent names (set_content, clear_node, rect_of, set_scroll_
+# offset) collide with legacy helpers that renderer/gates still call.
+# ----------------------------------------------------------------------
+
+import from constraints.algebra {
+    StrengthTier,
+}
+
+
+enum Axis { HORIZONTAL = "horizontal", VERTICAL = "vertical" }
+enum SizeMode { FIXED = "fixed", INTRINSIC = "intrinsic", BOUNDED = "bounded", FILL = "fill", GROW = "grow" }
+enum Align { START = "start", CENTER = "center", END = "end", STRETCH = "stretch" }
+enum OverlayAnchor { CENTER = "center", TOP = "top", BOTTOM = "bottom", LEFT = "left", RIGHT = "right" }
+
+
+"""Per-axis sizing policy (plan §4.1)."""
+obj AxisSize {
+    has mode: SizeMode,
+        minimum: float = 0.0,
+        preferred: float | None = None,
+        maximum: float | None = None,
+        grow_weight: float = 0.0;
+}
+
+
+"""Permanent node layout spec (plan §4.1). Replaces LayoutContract.
+
+Field order puts the required axis sizes first because Jac objects follow
+dataclass default rules (a plan-sanctioned spelling change)."""
+obj LayoutSpec {
+    has width: AxisSize,
+        height: AxisSize,
+        flow_axis: Axis = Axis.VERTICAL,
+        cross_align: Align = Align.STRETCH,
+        scroll_vertical: bool = False,
+        overlay_anchor: OverlayAnchor | None = None;
+}
+
+
+enum LayoutSeverity { WARNING = "warning", ERROR = "error" }
+enum LayoutError {
+    INVALID_SPEC = "invalid_spec",
+    INVALID_RELATION = "invalid_relation",
+    STALE_NODE = "stale_node",
+    OUT_OF_SCOPE = "out_of_scope",
+    INVALID_TOPOLOGY = "invalid_topology",
+    UNSATISFIABLE = "unsatisfiable",
+    OVERFLOW = "overflow",
+    UNSUPPORTED_AXIS_COUPLING = "unsupported_axis_coupling",
+    INTERNAL_INVARIANT = "internal_invariant"
+}
+
+
+obj Viewport {
+    has columns: int,
+        rows: int;
+}
+
+
+obj RelationHandle {
+    has id: int;
+}
+
+
+obj LayoutDiagnostic {
+    has code: LayoutError,
+        severity: LayoutSeverity,
+        message: str,
+        node_ids: list[str] = [],
+        provenance: list[str] = [];
+}
+
+
+obj FrameEntry {
+    has measured: Size,
+        rect: Rect,
+        clip: Rect,
+        wrapped_lines: list[str],
+        requested_scroll_offset: int = 0,
+        scroll_offset: int = 0,
+        max_scroll_offset: int = 0;
+}
+
+
+obj LayoutFrame {
+    has generation: int,
+        viewport: Viewport,
+        entries: dict[str, FrameEntry],
+        overlay_ids: list[str];
+}
+
+
+obj MutationResult {
+    has ok: bool,
+        relation_handle: RelationHandle | None = None,
+        diagnostics: list[LayoutDiagnostic] = [];
+}
+
+
+obj LayoutResult {
+    has ok: bool,
+        frame: LayoutFrame | None = None,
+        diagnostics: list[LayoutDiagnostic] = [];
+}
+
+
+enum LayoutRelationKind {
+    LEFT_OF = "left_of", RIGHT_OF = "right_of",
+    ABOVE = "above", BELOW = "below",
+    ALIGN_START = "align_start", ALIGN_END = "align_end",
+    ALIGN_CENTER = "align_center", SAME_SIZE = "same_size"
+}
+
+
+"""Process-local spatial relation between two live nodes (plan §4.1).
+
+Not an OSP edge: relations are registry data keyed by stable node ids so
+a replaced node (new jid) never inherits geometry declarations."""
+obj LayoutRelation {
+    has owner_id: str,
+        source_id: str,
+        target_id: str,
+        kind: LayoutRelationKind,
+        axis: Axis,
+        provenance: str,
+        gap: float = 0.0,
+        strength: StrengthTier = StrengthTier.REQUIRED;
+}
