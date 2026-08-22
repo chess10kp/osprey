@@ -17,6 +17,8 @@
  */
 
 import { pathToFileURL } from "node:url";
+import { EventEmitter } from "node:events";
+import { exec as cpExec } from "node:child_process";
 
 /** Advertised capabilities — grow this list when real support lands. */
 export const HOST_CAPS = [
@@ -41,20 +43,77 @@ export function createHostState() {
     mdTransformers: [],
     extensions: new Map(),
     cancelled: new Set(),
+    /** Extension traffic drains, attached to the next outgoing reply. */
+    pendingMessages: [],
+    pendingEntries: [],
+    sessionName: "",
+    /** null = all tools active; array = exactly those. */
+    activeTools: null,
+    /** Stored registrations (honored surfaces report counts; caps stay honest). */
+    shortcuts: [],
+    flags: new Map(),
+    providers: new Set(),
+    messageRenderers: new Map(),
+    entryRenderers: new Map(),
+    labels: new Map(),
+    modelName: "",
+    thinkingLevel: "off",
+    /** Inter-extension event bus — local only, never crosses the wire. */
+    eventBus: new EventEmitter(),
   };
 }
 
-/** Minimal UI context handed to command/hook handlers. Notifications are
- * collected and shipped back over the wire — not silently dropped. */
+/** UI context handed to command/hook handlers.
+ * - notify(message, level) collects into `notifications`.
+ * - Display methods collect into `uiEvents` — shipped to the Jac side over
+ *   the wire, not rendered here.
+ * - Interactive methods CANNOT block over the wire — they resolve
+ *   immediately: select->undefined, confirm->false, input/editor->"".
+ */
 function makeUi(state, extensionId) {
   const bucket = [];
+  const uiEvents = [];
+  const record = (method, args) => {
+    uiEvents.push({ method, args });
+  };
   return {
     notifications: bucket,
+    uiEvents,
     notify(message, _level) {
       bucket.push(String(message ?? ""));
     },
-    setStatus(_owner, _text) {
-      /* status line is a native-UI surface — accepted, not rendered */
+    setStatus(_owner, text) {
+      record("setStatus", [text]);
+    },
+    setWidget(id, text) {
+      record("setWidget", [id, text]);
+    },
+    setFooter(text) {
+      record("setFooter", [text]);
+    },
+    setTitle(text) {
+      record("setTitle", [text]);
+    },
+    setWorkingMessage(text) {
+      record("setWorkingMessage", [text]);
+    },
+    setHeader(text) {
+      record("setHeader", [text]);
+    },
+    select(_title, _options) {
+      return Promise.resolve(undefined);
+    },
+    confirm(_message) {
+      return Promise.resolve(false);
+    },
+    input(_message, _default) {
+      return Promise.resolve("");
+    },
+    editor(_opts) {
+      return Promise.resolve("");
+    },
+    custom(_component) {
+      return Promise.resolve(undefined);
     },
   };
 }
@@ -219,21 +278,123 @@ function makePiApi(state, extensionId) {
       return api;
     },
 
-    // ---- stubs so real Pi extensions do not crash on load ----
-    // If declared in requires[], load fails before activate (see handleEnvelope).
-    registerMessageRenderer(_type, _renderer) {
-      /* no-op */
+    // ---- message push: real — drained onto the next outgoing reply ----
+    sendMessage(msg) {
+      if (msg == null) {
+        return;
+      }
+      if (typeof msg === "string") {
+        state.pendingMessages.push({ role: "user", content: msg });
+      } else {
+        state.pendingMessages.push({
+          role: String(msg.role ?? "user"),
+          content:
+            typeof msg.content === "string"
+              ? msg.content
+              : JSON.stringify(msg.content ?? ""),
+        });
+      }
     },
-    sendMessage(_msg) {
-      /* no-op */
+    sendUserMessage(text, _opts) {
+      api.sendMessage(text == null ? "" : String(text));
     },
-    appendEntry(_type, _data) {
-      /* no-op */
+    appendEntry(type, data) {
+      state.pendingEntries.push({ type: String(type ?? ""), data });
     },
-    setActiveTools(_names) {
-      /* no-op */
+
+    // ---- tool activity control: enforced at tool_invoke ----
+    setActiveTools(names) {
+      const list = Array.isArray(names) ? names.map(String) : [];
+      state.activeTools = list.length ? list : null;
+    },
+
+    getCommands() {
+      return [...state.commands.keys()];
+    },
+
+    exec(cmd, argsOrOpts, maybeOpts) {
+      let command = String(cmd ?? "");
+      let opts = {};
+      if (Array.isArray(argsOrOpts)) {
+        if (argsOrOpts.length) {
+          command += " " + argsOrOpts.map(String).join(" ");
+        }
+        opts = maybeOpts ?? {};
+      } else if (argsOrOpts && typeof argsOrOpts === "object") {
+        opts = argsOrOpts;
+      }
+      return new Promise((resolve) => {
+        cpExec(
+          command,
+          { cwd: process.cwd(), ...opts },
+          (err, stdout, stderr) => {
+            resolve({
+              stdout: String(stdout ?? ""),
+              stderr: String(stderr ?? ""),
+              code: err && typeof err.code === "number" ? err.code : 0,
+            });
+          },
+        );
+      });
+    },
+
+    setSessionName(name) {
+      state.sessionName = String(name ?? "");
+    },
+    getSessionName() {
+      return state.sessionName;
+    },
+
+    // ---- stored registrations / typed getters: degrade, never crash ----
+    registerShortcut(key, opts) {
+      state.shortcuts.push({ key: String(key ?? ""), opts });
+    },
+    registerFlag(name, opts) {
+      state.flags.set(String(name ?? ""), opts ?? {});
+    },
+    getFlag(name) {
+      const f = state.flags.get(String(name ?? ""));
+      return f ? f.default : undefined;
+    },
+    setLabel(id, label) {
+      state.labels.set(String(id ?? ""), String(label ?? ""));
+    },
+    setModel(m) {
+      state.modelName = String(m ?? "");
+    },
+    setThinkingLevel(level) {
+      state.thinkingLevel = String(level ?? "off");
+    },
+    getThinkingLevel() {
+      return state.thinkingLevel;
+    },
+    registerProvider(cfg) {
+      const name = String(cfg?.name ?? cfg ?? "");
+      if (name) {
+        state.providers.add(name);
+      }
+    },
+    unregisterProvider(name) {
+      state.providers.delete(String(name ?? ""));
+    },
+    /** Inter-extension event bus (real, local-only). */
+    events: {
+      on: (...a) => state.eventBus.on(...a),
+      off: (...a) => state.eventBus.off(...a),
+      emit: (...a) => state.eventBus.emit(...a),
+    },
+
+    // ---- renderers: stored so activate never crashes; rendering is T2c ----
+    registerMessageRenderer(type, _renderer) {
+      state.messageRenderers.set(String(type ?? ""), extensionId);
+    },
+    registerEntryRenderer(type, _renderer) {
+      state.entryRenderers.set(String(type ?? ""), extensionId);
     },
     getActiveTools() {
+      if (state.activeTools) {
+        return state.activeTools.filter((n) => state.tools.has(n));
+      }
       return [...state.tools.keys()];
     },
     getAllTools() {
@@ -283,7 +444,47 @@ function unsupportedRequires(requires) {
  * @param {object} env
  * @param {{ signal?: AbortSignal, onUpdate?: Function }} [ctx]
  */
+/** Drain extension traffic for attachment to the next outgoing reply. */
+function takeTraffic(state) {
+  const out = {};
+  if (state.pendingMessages.length) {
+    out.messages = state.pendingMessages.splice(0);
+  }
+  if (state.pendingEntries.length) {
+    out.entries = state.pendingEntries.splice(0);
+  }
+  return out;
+}
+
+/**
+ * Public envelope entry: applies inbound session_name, then decorates every
+ * reply with drained extension traffic so spontaneous pushes are never lost.
+ */
 export async function handleEnvelope(state, env, ctx = {}) {
+  const p0 = env?.payload;
+  if (p0 && typeof p0 === "object" && "session_name" in p0) {
+    state.sessionName = String(p0.session_name ?? "");
+  }
+  const replies = await handleEnvelopeInner(state, env, ctx);
+  const extra = takeTraffic(state);
+  for (const r of replies) {
+    if (!r || typeof r !== "object" || !r.payload || typeof r.payload !== "object") {
+      continue;
+    }
+    if (extra.messages && !r.payload.messages) {
+      r.payload.messages = extra.messages;
+    }
+    if (extra.entries && !r.payload.entries) {
+      r.payload.entries = extra.entries;
+    }
+    if (state.sessionName && r.payload.session_name === undefined) {
+      r.payload.session_name = state.sessionName;
+    }
+  }
+  return replies;
+}
+
+async function handleEnvelopeInner(state, env, ctx = {}) {
   const kind = env?.kind ?? "";
   const base = {
     version: env?.version ?? 1,
@@ -395,29 +596,25 @@ export async function handleEnvelope(state, env, ctx = {}) {
     const ui = makeUi(state, cmd.extensionId);
     try {
       const result = await cmd.handler(args, { ui });
-      return [
-        {
-          ...base,
-          kind: "cmd_result",
-          payload: {
-            ok: true,
-            result: result == null ? "" : String(result),
-            notifications: ui.notifications,
-          },
-        },
-      ];
+      const payload = {
+        ok: true,
+        result: result == null ? "" : String(result),
+        notifications: ui.notifications,
+      };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "cmd_result", payload }];
     } catch (err) {
-      return [
-        {
-          ...base,
-          kind: "cmd_result",
-          payload: {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-            notifications: ui.notifications,
-          },
-        },
-      ];
+      const payload = {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        notifications: ui.notifications,
+      };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "cmd_result", payload }];
     }
   }
 
@@ -449,22 +646,27 @@ export async function handleEnvelope(state, env, ctx = {}) {
     const results = [];
     for (const listener of listeners) {
       const ui = makeUi(state, listener.extensionId);
+      let entry = {};
       try {
         const out = await listener.handler(data, { ui });
-        results.push({
+        entry = {
           ok: true,
           extension_id: listener.extensionId,
           result: out == null ? "" : String(out),
           notifications: ui.notifications,
-        });
+        };
       } catch (err) {
-        results.push({
+        entry = {
           ok: false,
           extension_id: listener.extensionId,
           error: err instanceof Error ? err.message : String(err),
           notifications: ui.notifications,
-        });
+        };
       }
+      if (ui.uiEvents.length) {
+        entry.ui_events = ui.uiEvents;
+      }
+      results.push(entry);
     }
     return [{ ...base, kind: "hook_done", payload: { event, results } }];
   }
@@ -505,6 +707,16 @@ export async function handleEnvelope(state, env, ctx = {}) {
           kind: "tool_result",
           tool_id: name,
           payload: { ok: false, error: `unknown tool ${name}` },
+        },
+      ];
+    }
+    if (state.activeTools && !state.activeTools.includes(name)) {
+      return [
+        {
+          ...base,
+          kind: "tool_result",
+          tool_id: name,
+          payload: { ok: false, error: `tool ${name} is not active` },
         },
       ];
     }
