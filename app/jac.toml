@@ -45,6 +45,8 @@ default_codespace = "native"
 "agent.tool_spec" = "server"
 "agent.registry" = "server"
 "agent.plugin_bridge" = "server"
+"agent.extensions" = "server"
+"agent.session" = "server"
 
 [dependencies]
 httpx = "~=0.28"

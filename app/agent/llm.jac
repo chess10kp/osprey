@@ -13,9 +13,13 @@ dicts as they arrive:
 
 import os;
 import json;
-import httpx;
 import from typing { Callable, Generator }
 import from .tool_spec { ToolSpec }
+import from .registry {
+    ToolRegistry,
+    as_tool_specs,
+    invoke,
+}
 
 
 
@@ -26,6 +30,7 @@ obj Transport {
         model: str = "";
 
     def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+        import httpx;
         body = {
             "model": self.model,
             "messages": messages,
@@ -156,8 +161,12 @@ def react_loop(
     transport: Transport,
     on_event: any,
     max_iters: int = 30,
+    reg: ToolRegistry | None = None,
+    bridge: any = None,
 ) -> str {
-    defs = _tool_defs(specs);
+    # Prefer registry when provided so js-origin tools share one invoke path.
+    active_specs = as_tool_specs(reg) if reg is not None else specs;
+    defs = _tool_defs(active_specs);
     for _turn in range(max_iters) {
         text = "";
         tool_calls: list = [];
@@ -193,14 +202,18 @@ def react_loop(
                 args = {};
             }
             on_event("tool_call", {"tool": name, "args": args});
-            spec = _find_spec(specs, name);
-            if spec is None or spec.handler is None {
-                result = f"ERROR: unknown tool {name}";
+            if reg is not None {
+                result = invoke(reg, name, args, bridge);
             } else {
-                try {
-                    result = spec.handler(**args);
-                } except Exception as e {
-                    result = f"ERROR: {e}";
+                spec = _find_spec(specs, name);
+                if spec is None or spec.handler is None {
+                    result = f"ERROR: unknown tool {name}";
+                } else {
+                    try {
+                        result = spec.handler(**args);
+                    } except Exception as e {
+                        result = f"ERROR: {e}";
+                    }
                 }
             }
             on_event("tool_result", {"tool": name, "result": result});
@@ -293,4 +306,45 @@ test "unknown tool yields error result without crashing" {
     answer = react_loop(messages, [], spec, _noop_event);
     assert "unknown tool" in _events[2][1]["result"];
     assert messages[2]["content"].startswith("ERROR");
+}
+
+
+test "react loop invokes js tool via registry bridge" {
+    import from .registry { create_registry }
+    import from .plugin_bridge {
+        create_bridge,
+        load_extension,
+        dispose_bridge,
+    }
+
+    def _js_echo(text: str) -> str {
+        return "JS:" + text;
+    }
+
+    messages = [{"role": "user", "content": "echo hi"}];
+    reg = create_registry();
+    bridge = create_bridge("react-js");
+    load_extension(
+        bridge,
+        reg,
+        "stub.echo",
+        [{
+            "name": "echo",
+            "description": "echo via js",
+            "parameters": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        }],
+        {"echo": _js_echo},
+    );
+    transport = ScriptedTransport();
+    transport.tool_name = "echo";
+    transport.tool_args = "{\"text\": \"hi\"}";
+    _events.clear();
+    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    assert answer == "done";
+    assert _events[2][1]["result"] == "JS:hi";
+    dispose_bridge(bridge);
 }

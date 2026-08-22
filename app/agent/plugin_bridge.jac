@@ -1,14 +1,16 @@
-"""Plugin bridge — fake in-process host + lazy Node host (D11/D13).
+"""Plugin bridge — fake in-process host + Node sidecar (D11/D13/D21).
 
-Speaks the same Envelope types as agent.protocol. Default path stays fake (no
-Node). ensure_node_host spawns app/plugin_host/host.mjs over stdio JSONL once
-per bridge; load_extension_path / invoke_tool round-trip through that process.
+Speaks the same Envelope types as agent.protocol. Session may warm Node in
+parallel with the first frame; undeclared installs never start Node.
+Async stdout reader + correlation map multiplex replies (P3).
 """
 
 import json;
 import os;
-import select;
+import queue;
+import shutil;
 import subprocess;
+import threading;
 import time;
 
 import from .protocol {
@@ -21,6 +23,11 @@ import from .registry {
     register_js,
     unregister_extension,
 }
+
+# Host capability tiers advertised in host_hello (P4).
+glob HOST_CAPS_T0: list[str] = ["tools"],
+     HOST_CAPS_T1: list[str] = ["tools", "cancel", "updates"],
+     COMPAT_TIER: str = "T0";
 
 
 obj FakePluginHost {
@@ -41,7 +48,19 @@ obj PluginBridge {
         host_mjs: str = "",
         next_corr: int = 1,
         outbox: list[Envelope] = [],
-        inbox: list[Envelope] = [];
+        inbox: list[Envelope] = [],
+        last_active: float = 0.0,
+        status_phase: str = "idle",
+        idle_timeout_s: float = 300.0,
+        pending: dict = {},
+        reply_q: any = None,
+        reader_stop: any = None,
+        reader_thread: any = None,
+        write_lock: any = None,
+        restart_used: bool = False,
+        host_caps: list = [],
+        compat_tier: str = "T0",
+        hello_payload: dict = {};
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
     def invoke_js_tool(name: str, args: dict) -> str {
@@ -99,6 +118,60 @@ def resolve_stub_echo(explicit: str = "") -> str {
     }
     return path;
 }
+def resolve_pi_greet(explicit: str = "") -> str {
+    if explicit {
+        if os.path.isfile(explicit) {
+            return os.path.abspath(explicit);
+        }
+        raise FileNotFoundError(f"pi_greet not found: {explicit}");
+    }
+    host = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(host), "fixtures", "pi_greet.mjs");
+    if not os.path.isfile(path) {
+        raise FileNotFoundError(f"pi_greet fixture missing: {path}");
+    }
+    return path;
+}
+
+
+"""Resolve Node binary for the sidecar (P5 packaging).
+
+Order:
+1. explicit argument
+2. JACKAL_NODE_BIN env
+3. pinned sidecar under plugin_host/node/bin/node (or .node-bin)
+4. `node` on PATH
+"""
+def resolve_node_bin(explicit: str = "") -> str {
+    if explicit {
+        return explicit;
+    }
+    env = os.environ.get("JACKAL_NODE_BIN", "");
+    if env {
+        return env;
+    }
+    try {
+        host = resolve_host_mjs();
+        host_dir = os.path.dirname(host);
+        pinned = [
+            os.path.join(host_dir, "node", "bin", "node"),
+            os.path.join(host_dir, ".node-bin"),
+        ];
+        for p in pinned {
+            if os.path.isfile(p) {
+                return p;
+            }
+        }
+    } except FileNotFoundError {
+    }
+    which = shutil.which("node");
+    if which {
+        return which;
+    }
+    return "node";
+}
+
+
 
 
 def envelope_to_dict(env: Envelope) -> dict {
@@ -151,42 +224,255 @@ def _node_alive(bridge: PluginBridge) -> bool {
 }
 
 
+"""Mark bridge activity (resets idle reap clock)."""
+def _touch(bridge: PluginBridge) {
+    bridge.last_active = time.monotonic();
+    if bridge.status_phase in ("idle", "ready", "") {
+        bridge.status_phase = "ready";
+    }
+}
+
+
+"""Push host_status into inbox and record phase (D13 degraded visibility)."""
+def _emit_host_status(bridge: PluginBridge, phase: str, detail: str = "") {
+    bridge.status_phase = phase;
+    bridge.inbox.append(
+        make_envelope(
+            kind="host_status",
+            session_id=bridge.session_id,
+            payload={"phase": phase, "detail": detail},
+        )
+    );
+}
+
+
+"""Inspect host health. Dead Node → degraded status envelope; returns phase."""
+def host_status(bridge: PluginBridge) -> str {
+    if bridge.host_kind == "node" {
+        if bridge.proc is not None and not _node_alive(bridge) {
+            if bridge.status_phase != "dead" {
+                _emit_host_status(bridge, "degraded", "node host exited unexpectedly");
+                bridge.host_kind = "";
+                bridge.proc = None;
+            }
+        }
+    } elif bridge.host_kind == "fake" {
+        h = bridge.host;
+        if h is None or not h.alive {
+            if bridge.status_phase != "dead" {
+                _emit_host_status(bridge, "degraded", "fake host unavailable");
+            }
+        }
+    }
+    return bridge.status_phase if bridge.status_phase else "idle";
+}
+
+
+"""Reap Node host after idle_timeout_s with no activity. Returns True if reaped."""
+def maybe_reap_idle(
+    bridge: PluginBridge, idle_timeout_s: float = -1.0, now: float = -1.0
+) -> bool {
+    if bridge.host_kind != "node" or not _node_alive(bridge) {
+        # Still surface unexpected death.
+        host_status(bridge);
+        return False;
+    }
+    timeout = idle_timeout_s if idle_timeout_s >= 0.0 else bridge.idle_timeout_s;
+    if timeout <= 0.0 {
+        return False;
+    }
+    ts = now if now >= 0.0 else time.monotonic();
+    last = bridge.last_active;
+    if last <= 0.0 {
+        last = ts;
+        bridge.last_active = ts;
+    }
+    if (ts - last) < timeout {
+        return False;
+    }
+    _emit_host_status(bridge, "dead", f"idle reap after {timeout}s");
+    dispose_bridge(bridge);
+    bridge.status_phase = "dead";
+    return True;
+}
+
+
 def _write_node(bridge: PluginBridge, env: Envelope) {
     if not _node_alive(bridge) {
         raise RuntimeError("plugin node host not running");
     }
     line = json.dumps(envelope_to_dict(env)) + "\n";
-    bridge.proc.stdin.write(line);
-    bridge.proc.stdin.flush();
+    lock: any = bridge.write_lock;
+    if lock is not None {
+        lock.acquire();
+        try {
+            bridge.proc.stdin.write(line);
+            bridge.proc.stdin.flush();
+        } finally {
+            lock.release();
+        }
+    } else {
+        bridge.proc.stdin.write(line);
+        bridge.proc.stdin.flush();
+    }
     bridge.outbox.append(env);
 }
 
 
-def _read_node(bridge: PluginBridge, timeout: float = 5.0) -> Envelope {
-    if not _node_alive(bridge) {
-        raise RuntimeError("plugin node host not running");
+"""Route an inbound envelope to a pending waiter; always keep a copy in inbox."""
+def _dispatch_inbound(bridge: PluginBridge, env: Envelope) {
+    bridge.inbox.append(env);
+    corr = env.correlation_id;
+    pending = bridge.pending;
+    if corr and corr in pending {
+        waiter: any = pending[corr];
+        waiter["env"] = env;
+        ev: any = waiter.get("event");
+        if ev is not None {
+            ev.set();
+        }
     }
-    deadline = time.monotonic() + timeout;
-    while time.monotonic() < deadline {
-        remaining = deadline - time.monotonic();
-        (ready, _w, _x) = select.select([bridge.proc.stdout], [], [], remaining);
-        if not ready {
+}
+
+
+"""Background stdout reader — multiplexes replies by correlation_id (P3)."""
+def _reader_loop(bridge: PluginBridge) {
+    stop = bridge.reader_stop;
+    proc = bridge.proc;
+    if proc is None {
+        return;
+    }
+    stdout = proc.stdout;
+    while stop is None or not stop.is_set() {
+        try {
+            line_raw: any = stdout.readline();
+        } except Exception {
             break;
         }
-        line_raw: any = bridge.proc.stdout.readline();
         if not line_raw {
-            raise RuntimeError("plugin node host closed stdout");
+            break;
         }
-        line_s: str = str(line_raw);
-        parsed: any = json.loads(line_s);
+        line_s: str = str(line_raw).strip();
+        if not line_s {
+            continue;
+        }
+        try {
+            parsed: any = json.loads(line_s);
+        } except Exception {
+            bridge.inbox.append(
+                make_envelope(
+                    kind="host_status",
+                    session_id=bridge.session_id,
+                    payload={"phase": "degraded", "detail": "bad json from host"},
+                )
+            );
+            continue;
+        }
         if not isinstance(parsed, dict) {
-            raise RuntimeError("plugin host sent non-object JSON");
+            continue;
         }
         env = envelope_from_dict(parsed);
-        bridge.inbox.append(env);
-        return env;
+        _dispatch_inbound(bridge, env);
     }
-    raise TimeoutError("timed out waiting for plugin host reply");
+}
+
+
+def _ensure_io(bridge: PluginBridge) {
+    if bridge.reply_q is None {
+        bridge.reply_q = queue.Queue();
+    }
+    if bridge.write_lock is None {
+        bridge.write_lock = threading.Lock();
+    }
+    if bridge.reader_stop is None {
+        bridge.reader_stop = threading.Event();
+    }
+    if bridge.pending is None {
+        bridge.pending = {};
+    }
+}
+
+
+def _start_reader(bridge: PluginBridge) {
+    _ensure_io(bridge);
+    if bridge.reader_thread is not None and bridge.reader_thread.is_alive() {
+        return;
+    }
+    bridge.reader_stop.clear();
+    t = threading.Thread(
+        target=_reader_loop, args=(bridge,), daemon=True, name="plugin-host-reader"
+    );
+    bridge.reader_thread = t;
+    t.start();
+}
+
+
+def _stop_reader(bridge: PluginBridge) {
+    if bridge.reader_stop is not None {
+        bridge.reader_stop.set();
+    }
+    bridge.reader_thread = None;
+}
+
+
+"""Wait for a correlated reply (or any matching kind if corr empty).
+
+Callers that write a request MUST register `correlation_id` in
+`bridge.pending` *before* `_write_node` (or call `_prepare_corr`) so the
+reader cannot win the race.
+"""
+def _prepare_corr(bridge: PluginBridge, correlation_id: str) {
+    _ensure_io(bridge);
+    if correlation_id and correlation_id not in bridge.pending {
+        bridge.pending[correlation_id] = {
+            "event": threading.Event(),
+            "env": None,
+        };
+    }
+}
+
+
+def _wait_corr(
+    bridge: PluginBridge,
+    kind: str,
+    correlation_id: str = "",
+    timeout: float = 5.0,
+) -> Envelope {
+    deadline = time.monotonic() + timeout;
+    if correlation_id {
+        _prepare_corr(bridge, correlation_id);
+        waiter: any = bridge.pending[correlation_id];
+        if waiter.get("env") is not None {
+            bridge.pending.pop(correlation_id, None);
+            got: any = waiter["env"];
+            return got as Envelope;
+        }
+        remaining = max(0.01, deadline - time.monotonic());
+        ok = waiter["event"].wait(timeout=remaining);
+        done = bridge.pending.pop(correlation_id, None);
+        if not ok or done is None or done.get("env") is None {
+            raise TimeoutError(f"timed out waiting for {kind}");
+        }
+        got2: any = done["env"];
+        return got2 as Envelope;
+    }
+    # No corr: poll inbox for kind (do not remove — drain_inbox owns removal).
+    while time.monotonic() < deadline {
+        host_status(bridge);
+        for i in range(len(bridge.inbox)) {
+            env = bridge.inbox[i];
+            if not kind or env.kind == kind {
+                return env;
+            }
+        }
+        time.sleep(0.02);
+    }
+    raise TimeoutError(f"timed out waiting for {kind}");
+}
+
+
+def _read_node(bridge: PluginBridge, timeout: float = 5.0) -> Envelope {
+    return _wait_corr(bridge, "", "", timeout=timeout);
 }
 
 
@@ -194,16 +480,25 @@ def _read_node(bridge: PluginBridge, timeout: float = 5.0) -> Envelope {
 def _read_node_until(
     bridge: PluginBridge, kind: str, correlation_id: str = "", timeout: float = 5.0
 ) -> Envelope {
+    if correlation_id {
+        env = _wait_corr(bridge, kind, correlation_id, timeout=timeout);
+        if env.kind != kind {
+            raise TimeoutError(f"timed out waiting for {kind}");
+        }
+        return env;
+    }
     deadline = time.monotonic() + timeout;
     while time.monotonic() < deadline {
         remaining = max(0.05, deadline - time.monotonic());
-        env = _read_node(bridge, timeout=remaining);
-        if env.kind == kind {
-            if not correlation_id or env.correlation_id == correlation_id {
+        try {
+            env = _wait_corr(bridge, kind, "", timeout=remaining);
+            if env.kind == kind {
                 return env;
             }
+            bridge.inbox.append(env);
+        } except TimeoutError {
+            break;
         }
-        # Non-matching plugin traffic stays in inbox for drain_inbox.
     }
     raise TimeoutError(f"timed out waiting for {kind}");
 }
@@ -221,26 +516,56 @@ def ensure_host(bridge: PluginBridge, host: FakePluginHost | None = None) -> str
     bridge.host = h;
     bridge.host_kind = "fake";
     h.alive = True;
+    caps = list(HOST_CAPS_T0);
+    bridge.host_caps = caps;
+    bridge.compat_tier = "T0";
+    bridge.hello_payload = {
+        "protocol": 1,
+        "node": h.node_version,
+        "caps": caps,
+        "compat": "T0",
+        "compat_label": "Pi tool-extension compatibility",
+    };
     bridge.inbox.append(
         make_envelope(
             kind="host_hello",
             session_id=bridge.session_id,
-            payload={
-                "protocol": 1,
-                "node": h.node_version,
-                "caps": ["tools"],
-            },
+            payload=bridge.hello_payload,
         )
     );
+    _touch(bridge);
+    bridge.status_phase = "ready";
     return "ready";
 }
 
 
-"""Spawn the Node plugin host (lazy). Emits host_hello from the child."""
+"""Apply host_hello payload onto bridge capability fields (P4)."""
+def _apply_hello(bridge: PluginBridge, hello: Envelope) {
+    payload = hello.payload if hello.payload is not None else {};
+    bridge.hello_payload = dict(payload);
+    raw_caps: any = payload.get("caps", []);
+    caps: list = [];
+    if isinstance(raw_caps, list) {
+        caps = [str(c) for c in raw_caps];
+    }
+    bridge.host_caps = caps;
+    tier = str(payload.get("compat", "") or "");
+    if not tier {
+        if "cancel" in caps or "updates" in caps {
+            tier = "T1";
+        } else {
+            tier = "T0";
+        }
+    }
+    bridge.compat_tier = tier;
+}
+
+
+"""Spawn the Node plugin host. Emits host_hello from the child."""
 def ensure_node_host(
     bridge: PluginBridge,
     host_mjs: str = "",
-    node_bin: str = "node",
+    node_bin: str = "",
     timeout: float = 5.0,
 ) -> str {
     if _node_alive(bridge) {
@@ -252,9 +577,12 @@ def ensure_node_host(
     }
     path = resolve_host_mjs(host_mjs);
     bridge.host_mjs = path;
-    bridge.node_bin = node_bin;
+    bin_path = node_bin if node_bin else resolve_node_bin();
+    bridge.node_bin = bin_path;
+    _emit_host_status(bridge, "starting", "spawning node sidecar");
+    _ensure_io(bridge);
     bridge.proc = subprocess.Popen(
-        [node_bin, path],
+        [bin_path, path],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -262,12 +590,53 @@ def ensure_node_host(
         bufsize=1,
     );
     bridge.host_kind = "node";
-    hello = _read_node(bridge, timeout=timeout);
+    _start_reader(bridge);
+    hello = _read_node_until(bridge, "host_hello", timeout=timeout);
     if hello.kind != "host_hello" {
+        _emit_host_status(bridge, "degraded", f"expected host_hello, got {hello.kind}");
         dispose_bridge(bridge);
         raise RuntimeError(f"expected host_hello, got {hello.kind}");
     }
+    _apply_hello(bridge, hello);
+    _touch(bridge);
+    bridge.status_phase = "ready";
     return "ready";
+}
+
+
+"""One controlled restart after unexpected host death (P3). Returns phase."""
+def maybe_restart_host(bridge: PluginBridge, timeout: float = 5.0) -> str {
+    if _node_alive(bridge) {
+        return "ready";
+    }
+    if bridge.restart_used {
+        host_status(bridge);
+        if bridge.status_phase != "degraded" {
+            _emit_host_status(bridge, "degraded", "restart already used");
+        }
+        return "degraded";
+    }
+    bridge.restart_used = True;
+    old_mjs = bridge.host_mjs;
+    old_bin = bridge.node_bin;
+    _stop_reader(bridge);
+    if bridge.proc is not None {
+        try {
+            bridge.proc.kill();
+        } except Exception {
+        }
+        bridge.proc = None;
+    }
+    bridge.host_kind = "";
+    bridge.pending = {};
+    try {
+        return ensure_node_host(
+            bridge, host_mjs=old_mjs, node_bin=old_bin, timeout=timeout
+        );
+    } except Exception as e {
+        _emit_host_status(bridge, "degraded", f"restart failed: {e}");
+        return "degraded";
+    }
 }
 
 
@@ -295,8 +664,10 @@ def dispose_bridge(bridge: PluginBridge) {
             }
         } except Exception {
         }
+        _stop_reader(bridge);
         bridge.proc = None;
         bridge.host_kind = "";
+        bridge.pending = {};
         bridge.inbox.append(
             make_envelope(
                 kind="host_goodbye",
@@ -394,29 +765,67 @@ def load_extension(
     if bridge.outbox {
         bridge.outbox.pop(0);
     }
+    _touch(bridge);
     return names;
 }
 
 
-"""Load a real JS module into the Node host and register its tools."""
+"""Return (ok, missing) for required capabilities vs host_caps (P4)."""
+def caps_satisfied(bridge: PluginBridge, requires: list) -> list {
+    missing: list[str] = [];
+    for r in requires {
+        need = str(r);
+        if need and need not in bridge.host_caps {
+            missing.append(need);
+        }
+    }
+    return [len(missing) == 0, missing];
+}
+
+
+"""Load a real JS module into the Node host and register its tools.
+
+`requires` lists capability names the extension needs (e.g. commands). Missing
+caps fail loud — never silent success with dead stubs (P4).
+"""
 def load_extension_path(
     bridge: PluginBridge,
     reg: ToolRegistry,
     extension_id: str,
     path: str,
     timeout: float = 5.0,
+    requires: list = [],
 ) -> list[str] {
     ensure_node_host(bridge);
+    cap_check = caps_satisfied(bridge, requires);
+    ok_caps: bool = bool(cap_check[0]);
+    missing: list = [];
+    if len(cap_check) > 1 {
+        raw_m: any = cap_check[1];
+        if isinstance(raw_m, list) {
+            missing = [str(x) for x in raw_m];
+        }
+    }
+    if not ok_caps {
+        detail = f"unsupported requirements for {extension_id}: {', '.join(missing)}";
+        _emit_host_status(bridge, "degraded", detail);
+        raise RuntimeError(detail);
+    }
     abs_path = os.path.abspath(path);
     if not os.path.isfile(abs_path) {
         raise FileNotFoundError(f"extension module not found: {abs_path}");
     }
     corr = _alloc_corr(bridge);
+    _prepare_corr(bridge, corr);
     req = make_envelope(
         kind="ext_load",
         session_id=bridge.session_id,
         correlation_id=corr,
-        payload={"id": extension_id, "path": abs_path},
+        payload={
+            "id": extension_id,
+            "path": abs_path,
+            "requires": [str(x) for x in requires],
+        },
     );
     _write_node(bridge, req);
     if bridge.outbox {
@@ -426,6 +835,12 @@ def load_extension_path(
     err = reply.payload.get("error", "");
     if err {
         raise RuntimeError(f"ext_load failed: {err}");
+    }
+    unsup: any = reply.payload.get("unsupported", []);
+    if isinstance(unsup, list) and unsup {
+        detail = f"host rejected requirements: {', '.join([str(x) for x in unsup])}";
+        _emit_host_status(bridge, "degraded", detail);
+        raise RuntimeError(detail);
     }
     tools = reply.payload.get("tools", []);
     names: list[str] = [];
@@ -449,6 +864,7 @@ def load_extension_path(
             extension_id=extension_id,
         );
     }
+    _touch(bridge);
     return names;
 }
 
@@ -498,10 +914,22 @@ def unload_extension(
 
 """Invoke a js tool via tool_invoke / tool_result (fake or Node)."""
 def invoke_tool(bridge: PluginBridge, name: str, args: dict) -> str {
-    if bridge.host_kind == "node" {
-        return _invoke_tool_node(bridge, name, args);
+    # Surface dead Node before attempting RPC (D13 degraded, never crash).
+    if bridge.host_kind == "node" and not _node_alive(bridge) {
+        host_status(bridge);
+        return "ERROR: plugin host unavailable";
     }
-    return _invoke_tool_fake(bridge, name, args);
+    if bridge.host_kind == "node" {
+        result = _invoke_tool_node(bridge, name, args);
+    } else {
+        result = _invoke_tool_fake(bridge, name, args);
+    }
+    if not str(result).startswith("ERROR: plugin host unavailable") {
+        _touch(bridge);
+    } elif bridge.host_kind == "node" {
+        host_status(bridge);
+    }
+    return result;
 }
 
 
@@ -582,9 +1010,13 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
 
 def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
     if not _node_alive(bridge) {
-        return "ERROR: plugin host unavailable";
+        phase = maybe_restart_host(bridge);
+        if phase != "ready" or not _node_alive(bridge) {
+            return "ERROR: plugin host unavailable";
+        }
     }
     corr = _alloc_corr(bridge);
+    _prepare_corr(bridge, corr);
     req = make_envelope(
         kind="tool_invoke",
         session_id=bridge.session_id,

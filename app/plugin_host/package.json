@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Lazy Pi-compatible JS host for Jackal (D11/D13). Not on default startup path.",
+  "description": "Pi-compatible JS sidecar for Jackal (D11/D13/D21). Concurrent with session boot; does not block first frame.",
   "main": "host.mjs",
   "engines": {
     "node": ">=18"
