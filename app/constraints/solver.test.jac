@@ -633,3 +633,349 @@ test "soft inequality minimizes only its violating side" {
     assert s.add_constraint(soft).ok;
     assert s.snapshot().values[x.id] == 3.0;
 }
+
+
+# ----------------------------------------------------------------------
+# M3 incrementality: removal, edit variables, dual optimization.
+# ----------------------------------------------------------------------
+
+def _must_handle(r: SolveResult) -> ConstraintHandle {
+    assert r.ok;
+    h = r.handle;
+    if h is None {
+        raise ValueError("successful add returned no handle");
+    }
+    return h;
+}
+
+
+test "removal frees a variable for re-constraining" {
+    s = Solver();
+    a = s.new_variable();
+    b = s.new_variable();
+
+    r1 = s.add_constraint(eq(_vt(a)));
+    r2 = s.add_constraint(eq(_sum([
+        _vt(b), _vt(a, -1.0), Expression(constant=-10.0),
+    ])));
+    assert r1.ok and r2.ok;
+    snap = s.snapshot();
+    assert snap.values[a.id] == 0.0 and snap.values[b.id] == 10.0;
+
+    # Remove a == 0: `a` becomes free, the chain still holds.
+    assert s.remove_constraint(_must_handle(r1)).ok;
+    assert s.add_constraint(eq(_sum([_vt(a), Expression(constant=-5.0)]))).ok;
+    snap = s.snapshot();
+    assert snap.values[a.id] == 5.0 and snap.values[b.id] == 15.0;
+
+    # Removing an unknown handle fails cleanly.
+    ghost = ConstraintHandle(id=99999);
+    res = s.remove_constraint(ghost);
+    assert not res.ok;
+    assert res.error == SolveError.UNKNOWN_CONSTRAINT;
+}
+
+
+test "removing a soft constraint releases its objective weight" {
+    s = Solver();
+    x = s.new_variable();
+    strong = s.add_constraint(Constraint(
+        expression=_sum([_vt(x), Expression(constant=-10.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.STRONG,
+    ));
+    weak = s.add_constraint(Constraint(
+        expression=_sum([_vt(x), Expression(constant=-2.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.WEAK,
+    ));
+    assert strong.ok and weak.ok;
+    assert s.snapshot().values[x.id] == 10.0;
+
+    # Without the STRONG fact the WEAK preference is achievable.
+    assert s.remove_constraint(_must_handle(strong)).ok;
+    assert s.snapshot().values[x.id] == 2.0;
+
+    # And without either, x sits at its default bound.
+    assert s.remove_constraint(_must_handle(weak)).ok;
+    assert s.snapshot().values[x.id] == 0.0;
+}
+
+
+test "removal of required inequality drops only its slack row" {
+    s = Solver();
+    x = s.new_variable();
+    y = s.new_variable();
+    r_le = s.add_constraint(Constraint(
+        expression=_sum([_vt(x), Expression(constant=-5.0)]),
+        relation=Relation.LEQ,
+        strength=StrengthTier.REQUIRED,
+    ));
+    r_ge = s.add_constraint(Constraint(
+        expression=_sum([_vt(y), _vt(x, -1.0)]),
+        relation=Relation.GEQ,
+        strength=StrengthTier.REQUIRED,
+    ));
+    assert r_le.ok and r_ge.ok;
+    rows_before = len(s.rows);
+    assert s.remove_constraint(_must_handle(r_le)).ok;
+    assert len(s.rows) == rows_before - 1;
+    # y >= x survives; x itself is now unconstrained, so pin both and
+    # confirm the remaining system still solves coherently.
+    assert s.add_constraint(eq(_sum([_vt(y), Expression(constant=-9.0)]))).ok;
+    assert s.add_constraint(eq(_vt(x))).ok;
+    snap = s.snapshot();
+    assert snap.values[x.id] == 0.0 and snap.values[y.id] == 9.0;
+    # The surviving GEQ is respected by construction (0 <= 9).
+    assert snap.values[y.id] >= snap.values[x.id];
+}
+
+
+test "add/remove cycles return state to baseline" {
+    s = Solver();
+    a = s.new_variable();
+    b = s.new_variable();
+    c = s.new_variable();
+    base_rows = len(s.rows);
+    base_kinds = len(s.kinds);
+    base_cns = len(s.cns);
+    base_objective_cells = len(s.objective.cells);
+    base_values = s.snapshot();
+
+    handles: list[ConstraintHandle] = [];
+    for i in range(1, 11) {
+        # A fresh variable per constraint keeps every REQUIRED fact
+        # satisfiable while still exercising slack-row churn.
+        vi = s.new_variable();
+        r = s.add_constraint(eq(_sum([
+            _vt(vi), Expression(constant=-float(i)),
+        ])));
+        assert r.ok;
+        handles.append(_must_handle(r));
+    }
+    for h in handles {
+        r = s.remove_constraint(h);
+        assert r.ok;
+    }
+
+    # Live state returns exactly to baseline: no residual rows,
+    # constraint registrations, objective terms, or value drift.
+    assert len(s.rows) == base_rows;
+    assert len(s.cns) == base_cns;
+    assert len(s.handle_keys) == 0;
+    assert len(s.provenance) == 0;
+    assert len(s.objective.cells) == base_objective_cells;
+    after = s.snapshot();
+    # Every variable touched by the cycle sits back at its default bound.
+    for vid in sorted(after.values.keys()) {
+        assert after.values[vid] == 0.0;
+    }
+    assert after.generation > base_values.generation;
+    # Symbol allocations are deliberately never released on success
+    # (kiwi semantics); they grow monotonically instead of leaking
+    # per-cycle state.
+    assert len(s.kinds) >= base_kinds;
+
+    # The recycled solver still solves identically to a fresh one.
+    assert s.add_constraint(eq(_vt(a))).ok;
+    assert s.add_constraint(eq(_sum([
+        _vt(b), _vt(a, -1.0), Expression(constant=-7.0),
+    ]))).ok;
+    snap = s.snapshot();
+    assert snap.values[a.id] == 0.0 and snap.values[b.id] == 7.0;
+}
+
+
+test "edit variables track suggestions under hard constraints" {
+    s = Solver();
+    width = s.new_variable();
+    child = s.new_variable();
+
+    # Child fills half of a resizable container; both stay non-negative.
+    assert s.add_constraint(Constraint(
+        expression=_vt(width), relation=Relation.GEQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+    assert s.add_constraint(Constraint(
+        expression=_vt(child), relation=Relation.GEQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+    assert s.add_constraint(Constraint(
+        expression=_sum([_vt(child), _vt(width, -0.5)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+
+    assert s.add_edit_variable(width, StrengthTier.STRONG).ok;
+    import from sys { stderr }
+    stderr.write("rows=" + str(len(s.rows)) + "\n");
+    for suggested in [40.0, 80.0, 20.0, 0.0] {
+        r = s.suggest_value(width, suggested);
+        if not r.ok {
+            stderr.write("SUGGEST FAILED " + r.error.value + " " + r.message + "\n");
+        }
+        assert r.ok;
+        snap = s.snapshot();
+        stderr.write("suggested=" + str(suggested) + " width=" + str(snap.values[width.id]) + " child=" + str(snap.values[child.id]) + "\n");
+        assert snap.values[width.id] == suggested;
+        assert abs(snap.values[child.id] - suggested / 2.0) < 1e-9;
+    }
+}
+
+
+test "edit variable API rejects misuse with typed errors" {
+    s = Solver();
+    x = s.new_variable();
+    y = s.new_variable();
+
+    res = s.suggest_value(x, 1.0);
+    assert not res.ok;
+    assert res.error == SolveError.UNKNOWN_EDIT_VARIABLE;
+
+    res = s.add_edit_variable(x, StrengthTier.REQUIRED);
+    assert not res.ok;
+    assert res.error == SolveError.REQUIRED_EDIT_VARIABLE;
+
+    assert s.add_edit_variable(x, StrengthTier.WEAK).ok;
+    res = s.add_edit_variable(x, StrengthTier.WEAK);
+    assert not res.ok;
+    assert res.error == SolveError.DUPLICATE_EDIT_VARIABLE;
+
+    # A second variable can be edited independently.
+    assert s.add_edit_variable(y, StrengthTier.MEDIUM).ok;
+    assert s.has_edit_variable(x) and s.has_edit_variable(y);
+
+    # Removal drops exactly one registration.
+    assert s.remove_edit_variable(x).ok;
+    assert not s.has_edit_variable(x);
+    res = s.remove_edit_variable(x);
+    assert not res.ok;
+    assert res.error == SolveError.UNKNOWN_EDIT_VARIABLE;
+    assert s.has_edit_variable(y);
+}
+
+
+test "suggestion yields to stronger constraints via dual optimize" {
+    s = Solver();
+    x = s.new_variable();
+    # Hard bound: x <= 5.
+    assert s.add_constraint(Constraint(
+        expression=_sum([_vt(x), Expression(constant=-5.0)]),
+        relation=Relation.LEQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+    # Weak preference x == 3 is satisfiable at the default suggestion.
+    assert s.add_edit_variable(x, StrengthTier.WEAK).ok;
+    assert s.suggest_value(x, 3.0).ok;
+    assert s.snapshot().values[x.id] == 3.0;
+
+    # Suggesting past the hard bound must clamp to it, not violate it.
+    assert s.suggest_value(x, 100.0).ok;
+    assert s.snapshot().values[x.id] == 5.0;
+    # And back below: feasibility restores along the way.
+    assert s.suggest_value(x, 1.0).ok;
+    assert s.snapshot().values[x.id] == 1.0;
+}
+
+
+test "incremental suggestion matches a from-scratch solve" {
+    # The edit mechanism is a soft equality whose constant moves; a
+    # sequence of suggestions must land where a fresh solver given the
+    # final value directly would land (kiwi semantics).
+    inc = Solver();
+    width_i = inc.new_variable();
+    top_i = inc.new_variable();
+    height_i = inc.new_variable();
+    assert inc.add_constraint(Constraint(
+        expression=_sum([_vt(height_i), _vt(top_i, -1.0), _vt(width_i, -1.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+    assert inc.add_edit_variable(width_i, StrengthTier.STRONG).ok;
+    assert inc.add_edit_variable(top_i, StrengthTier.STRONG).ok;
+    assert inc.suggest_value(width_i, 40.0).ok;
+    assert inc.suggest_value(top_i, 10.0).ok;
+    assert inc.suggest_value(width_i, 60.0).ok;
+    assert inc.suggest_value(top_i, 2.0).ok;
+
+    fresh = Solver();
+    width_f = fresh.new_variable();
+    top_f = fresh.new_variable();
+    height_f = fresh.new_variable();
+    assert fresh.add_constraint(Constraint(
+        expression=_sum([_vt(height_f), _vt(top_f, -1.0), _vt(width_f, -1.0)]),
+        relation=Relation.EQ,
+        strength=StrengthTier.REQUIRED,
+    )).ok;
+    assert fresh.add_constraint(eq(_sum([
+        _vt(width_f), Expression(constant=-60.0),
+    ]))).ok;
+    assert fresh.add_constraint(eq(_sum([
+        _vt(top_f), Expression(constant=-2.0),
+    ]))).ok;
+
+    si = inc.snapshot().values;
+    sf = fresh.snapshot().values;
+    assert si[width_i.id] == sf[width_f.id];
+    assert si[top_i.id] == sf[top_f.id];
+    assert si[height_i.id] == sf[height_f.id];
+    # h == w + t under the required equality; verified against upstream
+    # kiwisolver 1.5.0 for this exact scenario.
+    assert si[height_i.id] == 62.0;
+}
+
+
+test "edit removal releases its constraint from the system" {
+    s = Solver();
+    x = s.new_variable();
+    assert s.add_edit_variable(x, StrengthTier.STRONG).ok;
+    assert s.suggest_value(x, 12.0).ok;
+    assert s.snapshot().values[x.id] == 12.0;
+
+    handles_before = len(s.handle_keys);
+    assert s.remove_edit_variable(x).ok;
+    assert len(s.handle_keys) == handles_before - 1;
+    # Free again: defaults hold and re-editing is possible.
+    assert s.snapshot().values[x.id] == 0.0;
+    assert s.add_edit_variable(x, StrengthTier.MEDIUM).ok;
+    assert s.suggest_value(x, 4.0).ok;
+    assert s.snapshot().values[x.id] == 4.0;
+}
+
+
+test "rebuild adoption swaps the full mutable state including worklist" {
+    # Regression: add_constraint's UNSAT-rebuild path adopted rows/kinds/
+    # var_symbols/objective/id_tick/cns but NOT infeasible_rows, leaving
+    # a stale worklist whose symbol ids denote different rows in the
+    # adopted tableau (latent suggest_value corruption).
+    s = Solver();
+    x = s.new_variable();
+    y = s.new_variable();
+    # Soft constraints populate the objective; the equality pins x and
+    # keeps the tableau non-trivial for replay.
+    assert s.add_constraint(eq(_vt(x, 1.0))).ok;
+    assert s.add_constraint(
+        Constraint(expression=_vt(y, 1.0), relation=Relation.EQ,
+                   strength=StrengthTier.WEAK)
+    ).ok;
+
+    bundle = s._replay_all(s.history);
+    assert bundle is not None;
+
+    # Plant a stale entry the way a pre-adoption live solver could carry:
+    # an id beyond anything the bundle allocated.
+    stale = bundle.id_tick + 999;
+    s.infeasible_rows.append(stale);
+
+    s._adopt(bundle);
+    # Worklist must come from the bundle, stale entry gone.
+    assert s.infeasible_rows == bundle.infeasible_rows;
+    assert stale not in s.infeasible_rows;
+    # The rest of the mutable state matches the bundle wholesale, and
+    # rebuild-invariant bookkeeping is preserved.
+    assert sorted(s.rows.keys()) == sorted(bundle.rows.keys());
+    assert sorted(s.var_symbols.keys()) == sorted(bundle.var_symbols.keys());
+    assert s.id_tick == bundle.id_tick;
+    assert len(s.cns) == len(bundle.cns);
+    assert len(s.handle_keys) == 2;
+}

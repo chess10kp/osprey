@@ -12,11 +12,12 @@ Faithful adaptation of `nucleic/kiwi` `solverimpl.h` / `row.h` / `symbol.h`
   is the deliberate D20 divergence: one STRONG error dominates any finite
   number of MEDIUM/WEAK errors.
 
-Not yet present (later milestones): constraint removal with marker pivoting
-(M3), edit variables / suggestValue / dualOptimize (M3). M1 required
-normalization, slack/dummy handling, deterministic pivoting, provenance,
-and exact rollback are complete. M2 adds non-required error symbols and the
-lexicographic objective cost row.
+Not yet present (later milestones): permanent UI layout types (M4). M3
+incrementality — constraint removal with marker pivoting, edit variables /
+suggestValue / dualOptimize over an infeasible-row worklist — is complete.
+M1 required normalization, slack/dummy handling, deterministic pivoting,
+provenance, and exact rollback are complete. M2 adds non-required error
+symbols and the lexicographic objective cost row.
 
 Row invariant (as in kiwi/row.h): each row expresses
     constant + sum(cells[sym] * sym) == 0
@@ -30,17 +31,21 @@ import from constraints.algebra {
     LexWeight,
     Relation,
     StrengthTier,
+    Term,
     Variable,
     constraint_key,
     is_finite,
     lex_add,
+    lex_compare,
     lex_is_negative,
     lex_is_zero,
+    lex_neg,
     lex_scale,
     lex_zero,
     near_zero,
     normalize_expression,
     strength_weight,
+    term,
 }
 import from constraints.results {
     ConstraintHandle,
@@ -75,7 +80,9 @@ obj MutationJournal {
         # Pre-mutation deep copies of pre-existing touched rows.
         row_snapshots: dict[int, Row] = {},
         # Pre-mutation copy of the lexicographic objective, when touched.
-        objective_snapshot: CostRow | None = None;
+        objective_snapshot: CostRow | None = None,
+        # Length of the infeasible-row worklist before this operation.
+        infeasible_start: int = 0;
 }
 
 
@@ -141,6 +148,13 @@ obj Row {
 
     def coefficient_for(symbol: int) -> float {
         return self.cells.get(symbol, 0.0);
+    }
+
+    # Shift the row constant; returns the new constant so callers can
+    # detect infeasibility (kiwi Row::add).
+    def add(delta: float) -> float {
+        self.constant += delta;
+        return self.constant;
     }
 
     # Deep copy used by the rollback journal.
@@ -228,11 +242,25 @@ obj CostRow {
 
 # One accepted constraint's normalized content, kept so the tableau can
 # be rebuilt under an alternate elimination order (see Solver._replay).
+# content_key is stamped once at construction so removal can drop the
+# entry without renormalizing every survivor.
 obj StoredConstraint {
     has expression: Expression,
         relation: Relation,
         strength: StrengthTier = StrengthTier.REQUIRED,
-        provenance: str = "";
+        provenance: str = "",
+        content_key: str = "";
+}
+
+
+# Bookkeeping for one edit variable (kiwi EditInfo). The tag belongs to
+# the underlying soft equality constraint; constant is the last accepted
+# suggestion.
+obj EditInfo {
+    has var_id: int,
+        key: str,
+        handle: ConstraintHandle,
+        constant: float = 0.0;
 }
 
 
@@ -253,6 +281,11 @@ obj Solver {
         next_var_id: int = 1,
         # Accepted constraints in insertion order (rebuild input).
         history: list[StoredConstraint] = [],
+        # var id -> edit bookkeeping (kiwi m_edits).
+        edits: dict[int, EditInfo] = {},
+        # LIFO worklist of possibly-infeasible row symbols (kiwi
+        # m_infeasible_rows); drained by dualOptimize after suggestions.
+        infeasible_rows: list[int] = [],
         # Monotonic; increments only on successful mutation (plan §5.4).
         generation: int = 0;
 
@@ -317,12 +350,7 @@ obj Solver {
                     witness_provenance=self._witness_extra(provenance),
                 );
             }
-            self.rows = rebuilt.rows;
-            self.kinds = rebuilt.kinds;
-            self.var_symbols = rebuilt.var_symbols;
-            self.objective = rebuilt.objective;
-            self.id_tick = rebuilt.id_tick;
-            self.cns = rebuilt.cns;
+            self._adopt(rebuilt);
         }
 
         # Commit: register handle + provenance, bump generation. On the
@@ -340,6 +368,7 @@ obj Solver {
             relation=c.relation,
             strength=c.strength,
             provenance=provenance,
+            content_key=key,
         ));
         self.generation += 1;
         return SolveResult(ok=True, handle=handle);
@@ -403,6 +432,7 @@ obj Solver {
             expression=candidate.expression,
             relation=candidate.relation,
             strength=candidate.strength,
+            content_key=constraint_key(candidate),
         ));
 
         orders: list[list[StoredConstraint]] = [
@@ -434,6 +464,7 @@ obj Solver {
             relation=st.relation,
             strength=st.strength,
             provenance=st.provenance,
+            content_key=st.content_key,
         );
     }
 
@@ -475,6 +506,126 @@ obj Solver {
         return self.provenance.get(handle.id, "");
     }
 
+    # ------------------------------------------------------------------
+    # M3 — removal, edit variables, dual optimization
+    # ------------------------------------------------------------------
+
+    def remove_constraint(handle: ConstraintHandle) -> SolveResult {
+        if handle.id not in self.handle_keys {
+            return SolveResult(ok=False, error=SolveError.UNKNOWN_CONSTRAINT);
+        }
+        key = self.handle_keys[handle.id];
+        if key not in self.cns {
+            return SolveResult(ok=False, error=SolveError.UNKNOWN_CONSTRAINT);
+        }
+        tag = Tag(marker=self.cns[key].marker, other=self.cns[key].other);
+        strength = self._strength_for_key(key);
+        jnl = self._begin();
+        res = self._remove_core(tag, strength, jnl);
+        if not res.ok {
+            self._rollback(jnl);
+            return res;
+        }
+        self.cns.pop(key);
+        self.handle_keys.pop(handle.id);
+        self.provenance.pop(handle.id);
+        self.history = [
+            st for st in self.history if st.content_key != key
+        ];
+        # An edit variable's underlying constraint was removed underneath
+        # it; drop the registration so it cannot suggest again.
+        for vid in sorted(self.edits.keys()) {
+            if self.edits[vid].key == key {
+                self.edits.pop(vid);
+            }
+        }
+        self.generation += 1;
+        return res;
+    }
+
+    def add_edit_variable(v: Variable, strength: StrengthTier) -> SolveResult {
+        if v.id in self.edits {
+            return SolveResult(
+                ok=False,
+                error=SolveError.DUPLICATE_EDIT_VARIABLE,
+            );
+        }
+        if strength == StrengthTier.REQUIRED {
+            return SolveResult(
+                ok=False,
+                error=SolveError.REQUIRED_EDIT_VARIABLE,
+                message="edit variables cannot be required",
+            );
+        }
+        # The edit variable is exactly a soft equality v == 0 (kiwi
+        # addEditVariable); suggestions move its constant incrementally.
+        c = Constraint(
+            expression=normalize_expression(term(v)),
+            relation=Relation.EQ,
+            strength=strength,
+        );
+        res = self.add_constraint(c);
+        if not res.ok {
+            return res;
+        }
+        handle = res.handle;
+        if handle is None {
+            return SolveResult(
+                ok=False,
+                error=SolveError.INTERNAL_INVARIANT,
+                message="accepted add returned no handle",
+            );
+        }
+        self.edits[v.id] = EditInfo(
+            var_id=v.id,
+            key=self.handle_keys[handle.id],
+            handle=handle,
+        );
+        return res;
+    }
+
+    def remove_edit_variable(v: Variable) -> SolveResult {
+        if v.id not in self.edits {
+            return SolveResult(ok=False, error=SolveError.UNKNOWN_EDIT_VARIABLE);
+        }
+        info = self.edits[v.id];
+        res = self.remove_constraint(info.handle);
+        # remove_constraint already dropped the edits entry for the
+        # underlying constraint; nothing further to clean up.
+        return res;
+    }
+
+    def has_edit_variable(v: Variable) -> bool {
+        return v.id in self.edits;
+    }
+
+    """Move an edit variable to a suggested value, then restore
+    feasibility by dual optimization (kiwi suggestValue under a
+    DualOptimizeGuard)."""
+    def suggest_value(v: Variable, value: float) -> SolveResult {
+        if not is_finite(value) {
+            return SolveResult(ok=False, error=SolveError.NON_FINITE_VALUE);
+        }
+        if v.id not in self.edits {
+            return SolveResult(ok=False, error=SolveError.UNKNOWN_EDIT_VARIABLE);
+        }
+        info = self.edits[v.id];
+        if info.key not in self.cns {
+            return SolveResult(ok=False, error=SolveError.UNKNOWN_EDIT_VARIABLE);
+        }
+        delta = value - info.constant;
+        jnl = self._begin();
+        self._apply_suggestion(info, delta, jnl);
+        res = self._dual_optimize(jnl);
+        if not res.ok {
+            self._rollback(jnl);
+            return res;
+        }
+        info.constant = value;
+        self.generation += 1;
+        return SolveResult(ok=True);
+    }
+
     # Snapshot of external values plus generation (plan §5.4).
     def snapshot() -> SolverSnapshot {
         vals: dict[int, float] = {};
@@ -501,7 +652,20 @@ obj Solver {
         self.id_tick = 1;
         self.next_var_id = 1;
         self.history = [];
+        self.edits = {};
+        self.infeasible_rows = [];
         self.generation = 0;
+    }
+
+    # Strength of a stored constraint by content key; REQUIRED fallback
+    # means "no error effects" for removal.
+    def _strength_for_key(key: str) -> StrengthTier {
+        for st in self.history {
+            if st.content_key == key {
+                return st.strength;
+            }
+        }
+        return StrengthTier.REQUIRED;
     }
 
     # ------------------------------------------------------------------
@@ -532,7 +696,10 @@ obj Solver {
     # ------------------------------------------------------------------
 
     def _begin() -> MutationJournal {
-        return MutationJournal(id_tick_start=self.id_tick);
+        return MutationJournal(
+            id_tick_start=self.id_tick,
+            infeasible_start=len(self.infeasible_rows),
+        );
     }
 
     # Witness provenance for a duplicate-content rejection.
@@ -638,6 +805,255 @@ obj Solver {
             self.kinds.pop(symbol);
         }
         self.id_tick = jnl.id_tick_start;
+        # 6. Drop worklist entries recorded during the failed operation.
+        del self.infeasible_rows[jnl.infeasible_start:];
+    }
+
+    # Canonical pivot (kiwi optimize/dualOptimize body): `leaving` leaves
+    # the basis, `entering` replaces it. The row is popped, re-expressed,
+    # substituted everywhere (tracking newly infeasible rows), and
+    # re-inserted under its entering symbol. `_remove_core` passes
+    # reinsert=False: a removed constraint's row leaves the tableau for
+    # good (kiwi removeConstraint does not reinsert).
+    def _pivot(
+        entering: int,
+        leaving: int,
+        jnl: MutationJournal,
+        extra: Row | None = None,
+        reinsert: bool = True,
+    ) -> None {
+        row = self._pop_row(leaving, jnl);
+        row.solve_for_symbols(leaving, entering);
+        self._substitute(entering, row, jnl, extra);
+        if reinsert {
+            self._insert_row(entering, row, jnl);
+        }
+    }
+
+    # Adopt a replayed state bundle wholesale. Every mutable field the
+    # rebuild may have changed is swapped here — nothing else in
+    # add_constraint touches these — so adoption is all-or-nothing by
+    # construction (plan §5.4). handle_keys/provenance/next_handle_id/
+    # next_var_id/edits/history are deliberately NOT adopted: content-key
+    # identity makes them rebuild-invariant across table rebuilds.
+    def _adopt(bundle: Solver) -> None {
+        self.rows = bundle.rows;
+        self.kinds = bundle.kinds;
+        self.var_symbols = bundle.var_symbols;
+        self.objective = bundle.objective;
+        self.id_tick = bundle.id_tick;
+        self.cns = bundle.cns;
+        # Stale worklist entries would reference old-symbol ids that now
+        # denote different rows in the adopted tableau.
+        self.infeasible_rows = bundle.infeasible_rows;
+    }
+
+    # ------------------------------------------------------------------
+    # M3 internals — removal pivoting and dual simplex
+    # ------------------------------------------------------------------
+
+    # One removal against the live tableau (kiwi removeConstraint body).
+    def _remove_core(tag: Tag, strength: StrengthTier, jnl: MutationJournal) -> SolveResult {
+        # Remove the error effects from the objective BEFORE pivoting, or
+        # substitutions into the objective would double-count them.
+        self._remove_constraint_effects(tag, strength, jnl);
+        marker = tag.marker;
+        if marker in self.rows {
+            # Marker is basic: simply drop the row.
+            self._pop_row(marker, jnl);
+        } else {
+            leaving = self._get_marker_leaving_row(marker);
+            if leaving == 0 {
+                return SolveResult(
+                    ok=False,
+                    error=SolveError.INTERNAL_INVARIANT,
+                    message="failed to find leaving row",
+                );
+            }
+            self._pivot(marker, leaving, jnl, reinsert=False);
+        }
+        # Optimize so the solver stays consistent after removal.
+        return self._optimize_cost(jnl);
+    }
+
+    def _remove_constraint_effects(
+        tag: Tag,
+        strength: StrengthTier,
+        jnl: MutationJournal,
+    ) -> None {
+        weight = strength_weight(strength);
+        if lex_is_zero(weight) {
+            return;
+        }
+        if self._kind_of(tag.marker) == SymbolKind.ERROR {
+            self._remove_marker_effects(tag.marker, weight, jnl);
+        }
+        if self._kind_of(tag.other) == SymbolKind.ERROR {
+            self._remove_marker_effects(tag.other, weight, jnl);
+        }
+    }
+
+    def _remove_marker_effects(
+        marker: int,
+        weight: LexWeight,
+        jnl: MutationJournal,
+    ) -> None {
+        self._touch_objective(jnl);
+        row = self.rows.get(marker);
+        if row is not None {
+            self.objective.insert_row(row, lex_neg(weight));
+        } else {
+            self.objective.insert_symbol(marker, lex_neg(weight));
+        }
+    }
+
+    # Leaving-row choice for a marker (kiwi getMarkerLeavingRow):
+    # 1) restricted row with negative marker coefficient and minimal
+    #    -constant/coefficient;
+    # 2) restricted row with minimal constant/coefficient;
+    # 3) last unrestricted (external-basic) row containing the marker.
+    # Sorted-id iteration makes ties resolve deterministically.
+    def _get_marker_leaving_row(marker: int) -> int {
+        ratio1 = 1e308;
+        ratio2 = 1e308;
+        first = 0;
+        second = 0;
+        third = 0;
+        for symbol in sorted(self.rows.keys()) {
+            coeff = self.rows[symbol].coefficient_for(marker);
+            if near_zero(coeff) {
+                continue;
+            }
+            if self._kind_of(symbol) == SymbolKind.EXTERNAL {
+                third = symbol;
+            } elif coeff < 0.0 {
+                r = -self.rows[symbol].constant / coeff;
+                if r < ratio1 {
+                    ratio1 = r;
+                    first = symbol;
+                }
+            } else {
+                r = self.rows[symbol].constant / coeff;
+                if r < ratio2 {
+                    ratio2 = r;
+                    second = symbol;
+                }
+            }
+        }
+        if first != 0 {
+            return first;
+        }
+        if second != 0 {
+            return second;
+        }
+        return third;
+    }
+
+    # Dual simplex over the infeasible-row worklist (kiwi dualOptimize).
+    # Precondition: the objective is optimal but some basic rows have
+    # negative constants (after a suggestion moved an edit constant).
+    def _dual_optimize(jnl: MutationJournal) -> SolveResult {
+        while len(self.infeasible_rows) > 0 {
+            leaving = self.infeasible_rows.pop();
+            row = self.rows.get(leaving);
+            if (
+                row is None
+                or near_zero(row.constant)
+                or row.constant >= 0.0
+            ) {
+                continue;
+            }
+            entering = self._get_dual_entering_symbol(row);
+            if entering == 0 {
+                return SolveResult(
+                    ok=False,
+                    error=SolveError.INTERNAL_INVARIANT,
+                    message="dual optimize failed",
+                );
+            }
+            self._pivot(entering, leaving, jnl);
+        }
+        return SolveResult(ok=True);
+    }
+
+    # Entering symbol for a dual pivot: among the row's cells with
+    # positive coefficient, minimize objective-coefficient/cell-coefficient
+    # lexicographically (kiwi getDualEnteringSymbol). Ties keep the
+    # smallest symbol id via sorted iteration and strict comparison.
+    def _get_dual_entering_symbol(row: Row) -> int {
+        entering = 0;
+        best_coeff = 0.0;
+        for symbol in sorted(row.cells.keys()) {
+            cell = row.cells[symbol];
+            if cell <= 0.0 or self._kind_of(symbol) == SymbolKind.DUMMY {
+                continue;
+            }
+            if entering == 0 or self._dual_ratio_less(
+                self._objective_weight(symbol),
+                cell,
+                self._objective_weight(entering),
+                best_coeff,
+            ) {
+                entering = symbol;
+                best_coeff = cell;
+            }
+        }
+        return entering;
+    }
+
+    def _objective_weight(symbol: int) -> LexWeight {
+        return self.objective.cells.get(symbol, lex_zero());
+    }
+
+    # w1/c1 <lex w2/c2 with positive c1, c2, compared cross-multiplied so
+    # no division ever happens: w1*c2 <lex w2*c1.
+    def _dual_ratio_less(
+        w1: LexWeight,
+        c1: float,
+        w2: LexWeight,
+        c2: float,
+    ) -> bool {
+        return lex_compare(lex_scale(w1, c2), lex_scale(w2, c1)) < 0;
+    }
+
+    # Shift every basic occurrence of an edit pair by delta and queue
+    # rows left infeasible (kiwi suggestValue body).
+    def _apply_suggestion(
+        info: EditInfo,
+        delta: float,
+        jnl: MutationJournal,
+    ) -> None {
+        marker = self.cns[info.key].marker;
+        other = self.cns[info.key].other;
+        row = self.rows.get(marker);
+        if row is not None {
+            self._touch_row(marker, jnl);
+            if row.add(-delta) < 0.0 {
+                self.infeasible_rows.append(marker);
+            }
+            return;
+        }
+        row = self.rows.get(other);
+        if row is not None {
+            self._touch_row(other, jnl);
+            if row.add(delta) < 0.0 {
+                self.infeasible_rows.append(other);
+            }
+            return;
+        }
+        for symbol in sorted(self.rows.keys()) {
+            r = self.rows[symbol];
+            coeff = r.coefficient_for(marker);
+            if near_zero(coeff) {
+                continue;
+            }
+            self._touch_row(symbol, jnl);
+            if r.add(delta * coeff) < 0.0 {
+                if self._kind_of(symbol) != SymbolKind.EXTERNAL {
+                    self.infeasible_rows.append(symbol);
+                }
+            }
+        }
     }
 
     def _create_row(c: Constraint, tag: Tag, jnl: MutationJournal) -> Row {
@@ -677,14 +1093,17 @@ obj Solver {
                 tag.marker = dummy;
                 row.insert_symbol(dummy);
             } else {
-                # A soft equality needs two non-negative error directions.
-                # The marker/other pair is retained for future M3 removal.
+                # A soft equality needs two non-negative error
+                # directions: v == eplus - eminus, i.e. v - eplus +
+                # eminus = 0 (kiwi OP_EQ soft case). The marker keeps a
+                # NEGATIVE coefficient so chooseSubject can pick it as
+                # pivot subject when no external symbol is available.
                 plus = self._new_symbol_journaled(SymbolKind.ERROR, jnl);
                 minus = self._new_symbol_journaled(SymbolKind.ERROR, jnl);
                 tag.marker = plus;
                 tag.other = minus;
-                row.insert_symbol(plus, 1.0);
-                row.insert_symbol(minus, -1.0);
+                row.insert_symbol(plus, -1.0);
+                row.insert_symbol(minus, 1.0);
                 weight = strength_weight(c.strength);
                 self._add_objective(plus, weight, jnl);
                 self._add_objective(minus, weight, jnl);
@@ -794,6 +1213,17 @@ obj Solver {
         if extra is not None {
             extra.substitute(symbol, row);
         }
+        # Track rows driven out of feasibility so a later suggestion's
+        # dualOptimize can repair them (kiwi m_infeasible_rows).
+        for s in sorted(self.rows.keys()) {
+            if (
+                self._kind_of(s) != SymbolKind.EXTERNAL
+                and self.rows[s].constant < 0.0
+                and s not in self.infeasible_rows
+            ) {
+                self.infeasible_rows.append(s);
+            }
+        }
     }
 
     # Add one error symbol to the symbolic objective. If the error is
@@ -831,10 +1261,7 @@ obj Solver {
                     message="lexicographic objective unbounded",
                 );
             }
-            row = self._pop_row(leaving, jnl);
-            row.solve_for_symbols(leaving, entering);
-            self._substitute(entering, row, jnl);
-            self._insert_row(entering, row, jnl);
+            self._pivot(entering, leaving, jnl);
         }
     }
 
@@ -858,10 +1285,7 @@ obj Solver {
                     message="objective unbounded",
                 );
             }
-            row = self._pop_row(leaving, jnl);
-            row.solve_for_symbols(leaving, entering);
-            self._substitute(entering, row, jnl, extra);
-            self._insert_row(entering, row, jnl);
+            self._pivot(entering, leaving, jnl, extra);
         }
     }
 
