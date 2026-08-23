@@ -230,7 +230,7 @@ def quantize_partition(req: PartitionRequest) -> QuantizeResult {
             flexible.append(i);
         }
     }
-    if len(flexible) < 3 {
+    if 0 < len(flexible) < 3 {
         # Plan §8.3 approved-correction scope: largest remainder applies
         # only to partitions with three or more fractional grow targets.
         # Below that, legacy parity rules — every leftover cell goes to

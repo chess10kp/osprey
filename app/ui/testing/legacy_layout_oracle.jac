@@ -20,6 +20,7 @@ import from ui.layout {
     Size,
 }
 import from ui.model {
+    Layer,
     Overlay,
     Screen,
     UiContainer,

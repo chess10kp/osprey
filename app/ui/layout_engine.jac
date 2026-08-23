@@ -27,6 +27,8 @@ to (0, 0) keeping their requested size, clipped to the viewport
 """
 
 import from ui.layout {
+    Axis,
+    SizeMode,
     FrameEntry,
     LayoutDiagnostic,
     LayoutError,
@@ -56,6 +58,9 @@ import from ui.layout_quantize {
 }
 import from ui.layout_state {
     LayoutState,
+}
+import from ui.width {
+    wrap_text,
 }
 import from ui.model {
     UiNode,
@@ -191,6 +196,99 @@ def _place_axis(
 }
 
 
+"""Structural naturals, mirroring legacy _measure_node semantics:
+leaf size from wrapped content at the hint width; containers sum along
+their flow axis and take the max across it; FIXED uses preferred;
+FILL/GROW contribute their content natural (legacy grow measured value).
+Computed bottom-up over reversed BFS order."""
+def _structural_naturals(
+    order: list[_ScopedNode],
+    state: LayoutState,
+    wrap_widths: dict[str, int],
+) -> dict[str, Size] {
+    out: dict[str, Size] = {};
+    scoped_by_id: dict[str, _ScopedNode] = {};
+    for scoped in order {
+        scoped_by_id[scoped.id_str] = scoped;
+    }
+    rev: list[_ScopedNode] = [];
+    for i in range(len(order)) {
+        rev.insert(0, order[i]);
+    }
+    for scoped in rev {
+        id_str = scoped.id_str;
+        spec = state.specs.get(id_str);
+        lines: list[str] = [];
+        entry = state.content.get(id_str);
+        if entry is not None {
+            lines = entry.lines;
+        }
+        w_cols = wrap_widths.get(id_str, 80);
+        if w_cols < 1 {
+            w_cols = 1;
+        }
+        leaf_h = 0;
+        for line in lines {
+            leaf_h += len(wrap_text(line, w_cols));
+        }
+
+        kids = _child_ids(order, id_str);
+        if spec is None or len(kids) == 0 {
+            out[id_str] = Size(
+                width=natural_width(lines),
+                height=leaf_h,
+            );
+            continue;
+        }
+        flow_horiz = False;
+        if spec.flow_axis == Axis.HORIZONTAL {
+            flow_horiz = True;
+        }
+        sum_flow = 0.0;
+        max_cross = 0.0;
+        for kid_id in kids {
+            nat = out[kid_id];
+            kid_w: float = float(nat.width);
+            kid_h: float = float(nat.height);
+            kspec = state.specs.get(kid_id);
+            if kspec is not None {
+                if kspec.width.mode == SizeMode.FIXED
+                    and kspec.width.preferred is not None {
+                    kid_w = kspec.width.preferred;
+                }
+                if kspec.height.mode == SizeMode.FIXED
+                    and kspec.height.preferred is not None {
+                    kid_h = kspec.height.preferred;
+                }
+            }
+            if flow_horiz {
+                sum_flow += kid_w;
+                if kid_h > max_cross {
+                    max_cross = kid_h;
+                }
+            } else {
+                sum_flow += kid_h;
+                if kid_w > max_cross {
+                    max_cross = kid_w;
+                }
+            }
+        }
+        if flow_horiz {
+            out[id_str] = Size(
+                width=int(sum_flow),
+                height=int(max_cross),
+            );
+        } else {
+            out[id_str] = Size(
+                width=int(max_cross),
+                height=int(sum_flow),
+            );
+        }
+    }
+    return out;
+}
+
+
 """Full pipeline: registry + topology -> published LayoutFrame."""
 def compute_layout(
     state: LayoutState,
@@ -205,16 +303,13 @@ def compute_layout(
     root_id = node_id(layout_root);
 
     # ---- Phase H ----------------------------------------------------
-    naturals_w: dict[str, Size] = {};
+    # Legacy measures leaves at the available width (full viewport here);
+    # containers get structural sum/max naturals.
+    hint_all: dict[str, int] = {};
     for scoped in order {
-        id_str = scoped.id_str;
-        lines: list[str] = [];
-        content = state.content.get(id_str);
-        if content is not None {
-            lines = content.lines;
-        }
-        naturals_w[id_str] = Size(width=natural_width(lines), height=0);
+        hint_all[scoped.id_str] = viewport.columns;
     }
+    naturals_w = _structural_naturals(order, state, hint_all);
 
     ch = compile_layout(state, layout_root, viewport, naturals_w, "h");
     if not ch.ok or ch.solver is None {
@@ -268,14 +363,9 @@ def compute_layout(
     }
 
     # ---- Phase V -----------------------------------------------------
-    naturals_h: dict[str, Size] = {};
-    for scoped in order {
-        id_str = scoped.id_str;
-        naturals_h[id_str] = Size(
-            width=widths[id_str],
-            height=len(wrapped_by_node[id_str]),
-        );
-    }
+    # Leaves rewrap at their quantized integer widths; containers use
+    # structural sum/max over those measured children.
+    naturals_h = _structural_naturals(order, state, widths);
 
     cv = compile_layout(state, layout_root, viewport, naturals_h, "v");
     if not cv.ok or cv.solver is None {
@@ -352,6 +442,8 @@ def compute_layout(
             if pclip.width <= 0 or pclip.height <= 0 or w <= 0 or h <= 0 {
                 clip = Rect(x=0, y=0, width=0, height=0);
             } else {
+                # Mirror oracle _clip_intersect exactly: a non-positive
+                # intersection yields the empty sentinel at origin 0,0.
                 x0 = pclip.x if pclip.x > l else l;
                 y0 = pclip.y if pclip.y > t else t;
                 pr_end = pclip.x + pclip.width;
@@ -360,13 +452,11 @@ def compute_layout(
                 y1 = pb_end if pb_end < b else b;
                 cw = x1 - x0;
                 chh = y1 - y0;
-                if cw < 0 {
-                    cw = 0;
+                if cw <= 0 or chh <= 0 {
+                    clip = Rect(x=0, y=0, width=0, height=0);
+                } else {
+                    clip = Rect(x=x0, y=y0, width=cw, height=chh);
                 }
-                if chh < 0 {
-                    chh = 0;
-                }
-                clip = Rect(x=x0, y=y0, width=cw, height=chh);
             }
         }
         clips[id_str] = clip;
