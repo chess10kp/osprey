@@ -492,20 +492,51 @@ def _wait_corr(
     deadline = time.monotonic() + timeout;
     if correlation_id {
         _prepare_corr(bridge, correlation_id, expect_kind=kind);
-        waiter: any = bridge.pending[correlation_id];
-        if waiter.get("env") is not None {
+        # UI lease (P12): while a correlated ui_request sits open for this
+        # parent, the fixed handler budget is PAUSED — bounded by a
+        # cumulative 600s lease measured from first grant. User think-time
+        # must not kill the command/hook that asked the question.
+        while True {
+            pending: any = bridge.pending.get(correlation_id);
+            if pending is None {
+                break;  # dispatcher consumed it without storing env
+            }
+            if pending.get("env") is not None {
+                bridge.pending.pop(correlation_id, None);
+                got: any = pending["env"];
+                return got as Envelope;
+            }
+            lease_start: any = pending.get("ui_lease_start");
+            if lease_start is not None {
+                # Lease active: short polls only (honors the 600s cap and
+                # keeps wakeups bounded to the interaction window).
+                if time.monotonic() >= float(lease_start) + 600.0 {
+                    bridge.pending.pop(correlation_id, None);
+                    raise TimeoutError(f"timed out waiting for {kind}");
+                }
+                pending["event"].wait(timeout=0.05);
+                continue;
+            }
+            remaining = max(0.01, deadline - time.monotonic());
+            ok = pending["event"].wait(timeout=remaining);
+            if ok {
+                continue;  # dispatcher stored env; re-check at loop top
+            }
+            # Budget exhausted — grant a UI lease iff a correlated request
+            # is still open (user think-time pauses the handler budget).
+            q: any = bridge.ui_q;
+            has_pending_ui = False;
+            if q is not None {
+                has_pending_ui = (q as UiInteraction).has_open(correlation_id);
+            }
+            if has_pending_ui {
+                pending["ui_lease_start"] = time.monotonic();
+                continue;
+            }
             bridge.pending.pop(correlation_id, None);
-            got: any = waiter["env"];
-            return got as Envelope;
-        }
-        remaining = max(0.01, deadline - time.monotonic());
-        ok = waiter["event"].wait(timeout=remaining);
-        done = bridge.pending.pop(correlation_id, None);
-        if not ok or done is None or done.get("env") is None {
             raise TimeoutError(f"timed out waiting for {kind}");
         }
-        got2: any = done["env"];
-        return got2 as Envelope;
+        raise TimeoutError(f"timed out waiting for {kind}");
     }
     # No corr: poll inbox for kind (do not remove — drain_inbox owns removal).
     while time.monotonic() < deadline {
@@ -778,6 +809,7 @@ def load_extension_path(
     path: str,
     timeout: float = 5.0,
     requires: list = [],
+    has_ui: bool = False,
 ) -> list[str] {
     ensure_node_host(bridge);
     cap_check = caps_satisfied(bridge, requires);
@@ -808,6 +840,7 @@ def load_extension_path(
             "id": extension_id,
             "path": abs_path,
             "requires": [str(x) for x in requires],
+            "has_ui": bool(has_ui),
         },
     );
     _write_node(bridge, req);

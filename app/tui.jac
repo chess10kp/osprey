@@ -28,6 +28,11 @@ import from agent.session {
     new_session_id,
 }
 import from agent.modes { requires_approval }
+import from agent.plugin_bridge {
+    poll_ui_request,
+    respond_ui,
+    cancel_ui,
+}
 import from agent.sessions {
     list_sessions,
     latest_session_id,
@@ -146,7 +151,9 @@ obj LiveShell {
         tool_msg_id: str = "",
         appr_event: any = None,
         appr_approved: bool = False,
-        appr_tool: str = "";
+        appr_tool: str = "",
+        ui_modal: any = None,
+        cmd_q: any = None;
 }
 
 
@@ -343,6 +350,54 @@ def _approval_lines(app: LiveShell) -> list[str] {
 }
 
 
+"""Foreground extension-ui modal content — painted into the shared
+overlay node while app.ui_modal is set."""
+def _ui_modal_lines(app: LiveShell) -> list[str] {
+    m: any = app.ui_modal;
+    inner = 46;
+    method = str(m.get("method", ""));
+    head = "? [ui] " + method.upper();
+    body: list[str] = [];
+    title = str(m.get("title", ""));
+    message = str(m.get("message", ""));
+    placeholder = str(m.get("placeholder", ""));
+    if title {
+        body.append(title[:inner - 4]);
+    }
+    if message {
+        body.append(message[:inner - 4]);
+    }
+    body.append("");
+    if method == "select" {
+        options: list = list(m.get("options", []));
+        sel = int(m.get("selected", 0));
+        i = 0;
+        for opt in options[:8] {
+            mark = ">" if i == sel else " ";
+            body.append(mark + " " + str(opt)[:inner - 6]);
+            i += 1;
+        }
+        body.append("");
+        body.append("  [\u2191\u2193] move   [enter] choose   [esc] cancel");
+    } elif method == "confirm" {
+        body.append("  [y] yes    [n/Esc] no");
+    } else {
+        draft = str(m.get("draft", ""));
+        shown = draft if draft else placeholder;
+        body.append("  > " + shown[:inner - 6] + "\u258c");
+        body.append("");
+        body.append("  [enter] submit (empty allowed)   [esc] cancel");
+    }
+    lines: list[str] = ["\u256d" + _rule(inner, "\u2500") + "\u256e"];
+    lines.append("\u2502" + _pad_to("  " + head, inner) + "\u2502");
+    for ln in body {
+        lines.append("\u2502" + _pad_to("  " + ln, inner) + "\u2502");
+    }
+    lines.append("\u2570" + _rule(inner, "\u2500") + "\u256f");
+    return lines;
+}
+
+
 def _transcript_lines(app: LiveShell) -> list[str] {
     win = materialize_visible(app.proj);
     if win.lines {
@@ -366,7 +421,22 @@ def _paint(app: LiveShell) {
     status = _status_line(app);
     prompt_lines = _prompt_lines(app);
 
-    if app.shell.approval is not None {
+    if app.ui_modal is not None {
+        # Extension modal owns the shared overlay node while open.
+        overlay2 = _ui_modal_lines(app);
+        set_node_contract(
+            app.renderer,
+            app.shell.approval,
+            LayoutSpec(
+                width=fixed_axis(48),
+                height=fixed_axis(len(overlay2)),
+                overlay_anchor=OverlayAnchor.CENTER,
+            ),
+        );
+        set_node_content(app.renderer, app.shell.approval, overlay2);
+        mark_semantic_dirty(app.renderer, app.shell.approval);
+        mark_layout_dirty(app.renderer, app.shell.approval);
+    } elif app.shell.approval is not None {
         overlay = _approval_lines(app);
         set_node_contract(
             app.renderer,
@@ -773,11 +843,215 @@ def _run_slash(app: LiveShell, line: str) -> str {
         cargs = parts[1].strip() if len(parts) > 1 else "";
         cmds = list_commands();
         if cname and cname in cmds {
+            # Extension commands run OFF the TUI thread (P12): a handler
+            # blocking on ui.select must not freeze the mainloop.
+            if cname in plugins.commands {
+                return _run_ext_command_async(app, cname, cargs);
+            }
             return run_command(cname, cargs);
         }
         return "unknown command: " + line + " (/help for list)";
     }
     return "";
+}
+
+
+# ==================== P12: extension ui modal ====================
+
+"""Open the foreground extension-UI modal (one at a time; approval owns the
+overlay node while it is up, so UI requests queue behind it)."""
+def _ui_open_modal(app: LiveShell, rec: dict) -> bool {
+    if app.ui_modal is not None or app.shell.approval is not None {
+        return False;
+    }
+    m: dict = dict(rec);
+    m["selected"] = 0;
+    m["draft"] = "";
+    m["prev_hint"] = app.status_hint;
+    app.ui_modal = m;
+    shell_open_approval(app.session, app.shell);
+    method = str(rec.get("method", ""));
+    label = str(rec.get("title", "")) or str(rec.get("message", ""));
+    _push_turn(app, "tool", "? [ui] " + method + ": " + label[:80]);
+    if method == "select" {
+        app.status_hint = "\u2191\u2193 move \u00b7 enter choose \u00b7 esc cancel";
+    } elif method == "confirm" {
+        app.status_hint = "y confirm \u00b7 n/esc cancel";
+    } else {
+        app.status_hint = "type \u00b7 enter submit \u00b7 esc cancel";
+    }
+    app.dirty = True;
+    return True;
+}
+
+
+"""Settle the modal: answer via the bridge and restore the prompt state."""
+def _ui_settle(app: LiveShell, value: any, use_cancel: bool = False) {
+    m: any = app.ui_modal;
+    if m is None {
+        return;
+    }
+    app.ui_modal = None;
+    shell_close_approval(app.session, app.shell);
+    b = plugins.bridge;
+    delivered = False;
+    if b is not None {
+        bb: any = b;
+        if use_cancel {
+            delivered = cancel_ui(bb, str(m.get("corr", "")), "escape");
+        } else {
+            delivered = respond_ui(bb, str(m.get("corr", "")), value);
+        }
+    }
+    if not delivered {
+        _push_turn(app, "tool", "[ui] request expired");
+    } elif not use_cancel {
+        _push_turn(app, "tool", "\u2713 answered");
+    }
+    app.status_hint = str(m.get("prev_hint", app.status_hint));
+    app.dirty = True;
+}
+
+
+"""Run an extension command on a daemon worker; completion arrives via
+app.cmd_q and is rendered by _tick_cmd. Returns "" (output is async)."""
+def _run_ext_command_async(app: LiveShell, name: str, args: str) -> str {
+    if app.cmd_q is None {
+        app.cmd_q = queue.Queue();
+    }
+    q = app.cmd_q;
+
+    def worker_main {
+        try {
+            out = run_command(name, args);
+            q.put(("__cmd_done__", {"name": name, "ok": True, "output": str(out)}));
+        } except Exception as e {
+            q.put(("__cmd_done__", {"name": name, "ok": False, "output": str(e)}));
+        }
+    }
+
+    threading.Thread(target=worker_main, daemon=True).start();
+    _push_turn(app, "tool", "[ext] /" + name + " running\u2026");
+    app.dirty = True;
+    return "";
+}
+
+
+def _handle_ui_modal_key(app: LiveShell, key: str) {
+    m: any = app.ui_modal;
+    if m is None {
+        return;
+    }
+    method = str(m.get("method", ""));
+    if key == "escape" {
+        _ui_settle(app, None, use_cancel=True);
+        return;
+    }
+    if method == "select" {
+        options: list = list(m.get("options", []));
+        sel = int(m.get("selected", 0));
+        moved = False;
+        if (key == "up" or key == "k") and len(options) > 0 {
+            m["selected"] = (sel - 1) % len(options);
+            moved = True;
+        } elif (key == "down" or key == "j") and len(options) > 0 {
+            m["selected"] = (sel + 1) % len(options);
+            moved = True;
+        } elif key == "enter" and len(options) > 0 {
+            _ui_settle(app, options[min(sel, len(options) - 1)]);
+            return;
+        }
+        if moved {
+            app.dirty = True;
+        }
+        return;
+    }
+    if method == "confirm" {
+        if key == "y" or key == "enter" {
+            _ui_settle(app, True);
+        } elif key == "n" {
+            _ui_settle(app, False);
+        }
+        return;
+    }
+    if method == "input" {
+        draft = str(m.get("draft", ""));
+        if key == "enter" {
+            # Empty string stays distinct from Esc-cancel.
+            _ui_settle(app, draft);
+        } elif key == "backspace" or key == "\x7f" {
+            if draft {
+                m["draft"] = draft[:-1];
+                app.dirty = True;
+            }
+        } elif len(key) == 1 and key >= " " {
+            m["draft"] = draft + key;
+            app.dirty = True;
+        }
+    }
+}
+
+
+"""Poll the bridge interaction queue; open the oldest request as a modal."""
+def _tick_ui_modal(app: LiveShell) {
+    if app.ui_modal is not None or app.shell.approval is not None {
+        return;
+    }
+    b = plugins.bridge;
+    if b is None {
+        return;
+    }
+    polled: any = poll_ui_request(b);
+    if polled is not None {
+        _ui_open_modal(app, polled);
+    }
+}
+
+
+"""Drain extension-command worker completions."""
+def _tick_cmd(app: LiveShell) {
+    if app.cmd_q is None {
+        return;
+    }
+    drained = False;
+    while True {
+        try {
+            item: any = app.cmd_q.get_nowait();
+        } except queue.Empty {
+            break;
+        }
+        drained = True;
+        name = str(item[1].get("name", "?"));
+        out = str(item[1].get("output", ""));
+        ok = item[1].get("ok") is True;
+        tag = "[ext] /" + name + " -> ";
+        for ln in out.split("\n")[:8] {
+            _push_turn(app, "tool", tag + ln[:160]);
+            tag = "      ";
+        }
+        if not ok {
+            _push_turn(app, "tool", "! [ext] /" + name + " failed");
+        }
+    }
+    if drained {
+        app.dirty = True;
+    }
+}
+
+
+"""Unified per-frame tick: UI modals + command workers + stream events."""
+def _tick_app(app: LiveShell) {
+    _tick_cmd(app);
+    _tick_ui_modal(app);
+    if app.phase == "streaming" {
+        _tick_stream(app);
+    } elif app.phase == "approval" {
+        # Keep the status meter alive while the modal sits.
+        app.spin_i += 1;
+        if app.spin_i % 4 == 0 {
+            app.dirty = True;
+        }
+    }
 }
 
 
@@ -788,6 +1062,12 @@ def _handle_key(app: LiveShell, key: str) {
     }
     if key == "ctrl+l" {
         app.dirty = True;
+        return;
+    }
+    # Extension-UI modal first: it shares the overlay node with approvals,
+    # so the generic approval branch would otherwise swallow every key.
+    if app.ui_modal is not None {
+        _handle_ui_modal_key(app, key);
         return;
     }
     if app.shell.approval is not None {
@@ -943,10 +1223,11 @@ def create_live_shell() -> LiveShell {
 def run_tui() {
     # Extensions load per .jackal/extensions.json (parallel sidecar when declared).
     try {
-        session_boot();
+        session_boot(interactive_ui=True);
     } except Exception {
     }
     app = create_live_shell();
+    app.cmd_q = queue.Queue();
     app.term.start();
     app.term.set_title("Jackal — " + model);
     try {
@@ -969,15 +1250,7 @@ def run_tui() {
                 events = app.normalizer.flush_buffer();
                 _handle_host_events(app, events);
             }
-            if app.phase == "streaming" {
-                _tick_stream(app);
-            } elif app.phase == "approval" {
-                # Keep the status meter alive while the modal sits.
-                app.spin_i += 1;
-                if app.spin_i % 4 == 0 {
-                    app.dirty = True;
-                }
-            }
+            _tick_app(app);
             _render(app);
         }
     } except KeyboardInterrupt {

@@ -68,6 +68,7 @@ obj SessionPlugins {
         warm_future: any = None,
         wait_budget_s: float = 5.0,
         commands: dict = {},
+        interactive_ui: bool = False,
         active_cancel: any = None;
 }
 
@@ -165,6 +166,7 @@ def _warm_sidecar(decls: list[ExtensionDecl], base_cwd: str) {
                 d.id,
                 path,
                 requires=d.requires,
+                has_ui=plugins.interactive_ui,
             );
             plugins.loaded += 1;
             plugins.phase = "loading";
@@ -201,9 +203,11 @@ def session_boot(
     cwd: str = "",
     decls: list | None = None,
     wait_budget_s: float = 5.0,
+    interactive_ui: bool = False,
 ) -> ExtensionStatus {
     plugins.session_id = sid if sid else "session";
     plugins.cwd = cwd if cwd else os.getcwd();
+    plugins.interactive_ui = interactive_ui;
     plugins.wait_budget_s = wait_budget_s;
     plugins.t_interactive = time.time();
     plugins.t_ext_ready = 0.0;
