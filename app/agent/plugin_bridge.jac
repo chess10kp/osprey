@@ -1740,7 +1740,7 @@ Returns [] when no host exists (hooks are best-effort, never fatal)."""
 def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.0) -> list {
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr, expect_kind="md_transformed");
+        _prepare_corr(bridge, corr, expect_kind="hook_done");
         req = make_envelope(
             kind="hook_fire",
             session_id=bridge.session_id,
@@ -2220,6 +2220,12 @@ def cancel_all_ui(bridge: PluginBridge, reason: str = "cancelled") -> int {
         for r in recs {
             _ui_send_response(bridge, r.corr, "cancelled", None, reason);
             n += 1;
+        }
+        # poll() is a peek: only expired records are detached automatically.
+        # Detach the live record explicitly or this loop spins until its
+        # deadline lapses.
+        if live is not None {
+            q.take(live.corr);
         }
     }
     return n;
