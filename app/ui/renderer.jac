@@ -108,7 +108,11 @@ obj Renderer {
         content_revisions: dict[str, int] = {},
         # Node ids marked dirty before the next frame clears the flags.
         pending_semantic: set[str] = set(),
-        pending_layout: set[str] = set();
+        pending_layout: set[str] = set(),
+        # Viewport of the last emitted frame; a change between frames is
+        # resize damage for the full new viewport (host marks additive).
+        last_frame_columns: int = 0,
+        last_frame_rows: int = 0;
 }
 
 
@@ -389,18 +393,40 @@ def compute_damage(renderer: Renderer, layout_root: UiNode) -> list[DamageRect] 
 }
 
 
+"""Merge overlapping damage into disjoint patches (fixpoint on pairs).
+
+Far-apart damage stays separate so patch scope reflects where cells
+actually changed instead of one screen-spanning bounding box.
+"""
 def _merge_damage(damage: list[DamageRect]) -> list[Rect] {
-    if not damage {
-        return [];
+    rects: list[Rect] = [];
+    for d in damage {
+        if not d.rect.is_empty() {
+            rects.append(d.rect.copy());
+        }
     }
-    merged = damage[0].rect.copy();
-    for d in damage[1:] {
-        merged = rect_union(merged, d.rect);
+    changed = True;
+    while changed {
+        changed = False;
+        out: list[Rect] = [];
+        for r in rects {
+            hit = -1;
+            for i in range(len(out)) {
+                if out[i].intersects(r) {
+                    hit = i;
+                    break;
+                }
+            }
+            if hit >= 0 {
+                out[hit] = rect_union(out[hit], r);
+                changed = True;
+            } else {
+                out.append(r);
+            }
+        }
+        rects = out;
     }
-    if merged.is_empty() {
-        return [];
-    }
-    return [merged];
+    return rects;
 }
 
 
@@ -490,6 +516,29 @@ def render_frame(
     state.viewport.columns = cols;
     state.viewport.rows = rows_n;
 
+    # A viewport change between emitted frames invalidates every cell:
+    # exposed rows/columns were never painted by us, surviving cells may
+    # have been reflowed/truncated by the terminal, so the retained
+    # previous buffer no longer describes the screen. Drop it (full
+    # repaint of non-blank cells) plus full-frame *damage* — never a
+    # clear escape, so patch scope stays assertable.
+    resized = (
+        renderer.previous is not None
+        and (
+            cols != renderer.last_frame_columns
+            or rows_n != renderer.last_frame_rows
+        )
+    );
+    if resized {
+        renderer.damage.append(
+            DamageRect(
+                rect=Rect(x=0, y=0, width=cols, height=rows_n),
+                reason="resize",
+            )
+        );
+        renderer.previous = None;
+    }
+
     _run_layout(renderer, layout_root);
     damage = compute_damage(renderer, layout_root);
     desired = _paint_frame_buffer(renderer, layout_root);
@@ -509,6 +558,9 @@ def render_frame(
         }
     }
     synchronized_write(term, ansi);
+    used_full_clear = "\x1b[2J" in ansi or "\x1b[3J" in ansi;
+    renderer.last_frame_columns = cols;
+    renderer.last_frame_rows = rows_n;
     renderer.previous = desired;
     renderer.damage = [];
     renderer.pending_semantic = set();
@@ -520,7 +572,7 @@ def render_frame(
     return FrameResult(
         damage=damage,
         cells_written=diff.cells_written,
-        used_full_clear=False,
+        used_full_clear=used_full_clear,
         patch_rects=patch_rects,
         cursor_row=cursor.row,
         cursor_col=cursor.col,

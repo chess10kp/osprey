@@ -257,6 +257,59 @@ def _parse_sgr_mouse(seq: str) -> MouseEvent | None {
 }
 
 
+glob MODIFIER_NAMES: dict[int, str] = {
+    2: "shift",
+    3: "alt",
+    4: "alt+shift",
+    5: "ctrl",
+    6: "ctrl+shift",
+};
+
+
+def _modified_key(modifier: int, base: str) -> str | None {
+    prefix = MODIFIER_NAMES.get(modifier);
+    if prefix is None {
+        return None;
+    }
+    return prefix + "+" + base;
+}
+
+
+glob CSI_LETTER_KEYS: dict[str, str] = {
+    "A": "up",
+    "B": "down",
+    "C": "right",
+    "D": "left",
+    "H": "home",
+    "F": "end",
+};
+
+
+"""Decode modified CSI keys: ESC [ 1 ; <mod> <ABCDHF> and ESC [ <n> ; <mod> ~."""
+def _parse_modified_csi(seq: str) -> KeyEvent | None {
+    m = re.match(r"^\x1b\[1?;(\d+)([ABCDHF])$", seq);
+    if m is not None {
+        base = CSI_LETTER_KEYS[m.group(2)];
+        key_name = _modified_key(int(m.group(1)), base);
+        if key_name is not None {
+            return KeyEvent(key=key_name);
+        }
+        return None;
+    }
+    t = re.match(r"^\x1b\[(\d+);(\d+)~$", seq);
+    if t is not None {
+        plain = "\x1b[" + t.group(1) + "~";
+        if plain in LEGACY_KEYS {
+            key_name = _modified_key(int(t.group(2)), LEGACY_KEYS[plain]);
+            if key_name is not None {
+                return KeyEvent(key=key_name);
+            }
+        }
+    }
+    return None;
+}
+
+
 def decode_sequence(seq: str) -> HostEvent {
     if not seq {
         return TextEvent(text="");
@@ -268,11 +321,18 @@ def decode_sequence(seq: str) -> HostEvent {
     if mouse is not None {
         return mouse;
     }
+    modified = _parse_modified_csi(seq);
+    if modified is not None {
+        return modified;
+    }
     if seq == "\r" or seq == "\n" {
         return KeyEvent(key="enter");
     }
     if seq == "\t" {
         return KeyEvent(key="tab");
+    }
+    if seq == "\x1b[Z" {
+        return KeyEvent(key="shift+tab");
     }
     if seq == "\x7f" or seq == "\b" {
         return KeyEvent(key="backspace");

@@ -200,6 +200,48 @@ test "unicode text survives normalization as TextEvent" {
 }
 
 
+test "shift tab decodes from csi z" {
+    norm = InputNormalizer();
+    events = norm.feed("\x1b[Z");
+    assert len(events) == 1;
+    k = events[0] as KeyEvent;
+    assert k.key == "shift+tab";
+}
+
+
+test "modified arrows decode with modifier prefixes" {
+    norm = InputNormalizer();
+    k1 = norm.feed("\x1b[1;5C")[0] as KeyEvent;
+    assert k1.key == "ctrl+right";
+    k2 = norm.feed("\x1b[1;2A")[0] as KeyEvent;
+    assert k2.key == "shift+up";
+    k3 = norm.feed("\x1b[1;3D")[0] as KeyEvent;
+    assert k3.key == "alt+left";
+    k4 = norm.feed("\x1b[1;6B")[0] as KeyEvent;
+    assert k4.key == "ctrl+shift+down";
+}
+
+
+test "modified home end and tilde keys decode" {
+    norm = InputNormalizer();
+    k1 = norm.feed("\x1b[1;5H")[0] as KeyEvent;
+    assert k1.key == "ctrl+home";
+    k2 = norm.feed("\x1b[1;2F")[0] as KeyEvent;
+    assert k2.key == "shift+end";
+    k3 = norm.feed("\x1b[3;5~")[0] as KeyEvent;
+    assert k3.key == "ctrl+delete";
+}
+
+
+test "unmapped modifier falls back to unknown key event" {
+    norm = InputNormalizer();
+    events = norm.feed("\x1b[1;9C");
+    assert len(events) == 1;
+    k = events[0] as KeyEvent;
+    assert k.key.startswith("unknown:");
+}
+
+
 test "esc timeout emits escape after armed delay" {
     norm = InputNormalizer();
     norm.esc_timeout_ms = 40;

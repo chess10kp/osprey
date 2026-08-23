@@ -109,6 +109,20 @@ test "write updates cell capture for printable text" {
 }
 
 
+test "SGR sequences consumed without polluting cells" {
+    term = VirtualTerminal(columns=10, rows=3);
+    term.start();
+    term.clear_writes();
+    term.move_cursor(1, 1);
+    term.write("\x1b[1;32mAB\x1b[0m");
+    term.write("CD");
+    rows = term.capture_cells();
+    assert rows[0].startswith("ABCD");
+    assert len(rows[0].rstrip()) == 4;
+    term.stop();
+}
+
+
 test "synchronized_write emits begin and end markers" {
     term = VirtualTerminal();
     term.start();

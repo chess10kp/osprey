@@ -438,6 +438,230 @@ test "desired_cells matches painted virtual terminal snapshot" {
 }
 
 
+test "viewport change between frames adds full-frame resize damage" {
+    shell = _shell_renderer(30, 8);
+    renderer = shell.renderer;
+    screen = shell.screen;
+    term = VirtualTerminal(columns=30, rows=8);
+    term.start();
+    first = render_frame(renderer, screen, term);
+    first_has_resize = False;
+    for d in first.damage {
+        if d.reason == "resize" {
+            first_has_resize = True;
+        }
+    }
+    assert not first_has_resize;
+
+    term.inject_resize(30, 10);
+    renderer.layout.viewport.columns = 30;
+    renderer.layout.viewport.rows = 10;
+    second = render_frame(renderer, screen, term);
+    second_has_resize = False;
+    for d in second.damage {
+        if d.reason == "resize" {
+            second_has_resize = True;
+        }
+    }
+    assert second_has_resize;
+    assert second.used_full_clear == False;
+
+    # Same-size frame afterwards carries no resize damage.
+    third = render_frame(renderer, screen, term);
+    third_has_resize = False;
+    for d in third.damage {
+        if d.reason == "resize" {
+            third_has_resize = True;
+        }
+    }
+    assert not third_has_resize;
+    term.stop();
+}
+
+
+test "resize shrink repaints wrapped rows matching desired snapshot" {
+    renderer = create_renderer(40, 6);
+    screen = MainScreen(key="main");
+    body = TextRegion(key="body");
+    append_child(screen, body);
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, body, _intrinsic_spec());
+    set_node_content(renderer, body, ["abcdefghijklmnopqrstuvwxyz0123456789"]);
+
+    term = VirtualTerminal(columns=40, rows=6);
+    term.start();
+    render_frame(renderer, screen, term);
+    before = _rect_of(renderer.layout, body);
+
+    term.inject_resize(20, 6);
+    renderer.layout.viewport.columns = 20;
+    renderer.layout.viewport.rows = 6;
+    mark_layout_dirty(renderer, body);
+    result = render_frame(renderer, screen, term);
+
+    after = _rect_of(renderer.layout, body);
+    assert after.height > before.height;
+    assert result.used_full_clear == False;
+    assert frame_used_full_clear(term.writes) == False;
+    # Every visible cell must match the desired buffer: stale pixels from
+    # the wide layout are a resize bug even when no clear was emitted.
+    painted = term.capture_cells();
+    desired = desired_cells(renderer, screen);
+    assert len(painted) == len(desired);
+    for i in range(len(desired)) {
+        # capture_cells rstrips; a stale cell in the trailing span would
+        # survive the strip and break this equality.
+        assert painted[i] == desired[i].rstrip();
+    }
+    term.stop();
+}
+
+
+test "resize grow paints newly exposed rows incrementally" {
+    renderer = create_renderer(20, 8);
+    screen = MainScreen(key="main");
+    top = TextRegion(key="top", label="top");
+    body = TextRegion(key="body");
+    bot = TextRegion(key="bot", label="bot");
+    append_child(screen, top);
+    append_child(screen, body);
+    append_child(screen, bot);
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, top, _fixed_height(1.0));
+    set_node_contract(renderer, body, _grow_region());
+    set_node_contract(renderer, bot, _fixed_height(1.0));
+    set_node_content(renderer, top, ["TOP"]);
+    set_node_content(
+        renderer,
+        body,
+        ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"],
+    );
+    set_node_content(renderer, bot, ["BOT"]);
+
+    term = VirtualTerminal(columns=20, rows=8);
+    term.start();
+    render_frame(renderer, screen, term);
+    assert not _rows_contain(term.capture_cells(), "r7");
+
+    term.inject_resize(20, 11);
+    renderer.layout.viewport.columns = 20;
+    renderer.layout.viewport.rows = 11;
+    result = render_frame(renderer, screen, term);
+
+    cells_big = term.capture_cells();
+    assert _rows_contain(cells_big, "r7");
+    assert _rows_contain(cells_big, "r8");
+    assert result.used_full_clear == False;
+    assert frame_used_full_clear(term.writes) == False;
+    term.stop();
+}
+
+
+test "overlapping overlays stack by z_index and closing top reveals lower" {
+    renderer = create_renderer(40, 10);
+    screen = MainScreen(key="main");
+    body = TextRegion(key="body");
+    lower = ApprovalOverlay(key="lower");
+    higher = ApprovalOverlay(key="higher");
+    append_child(screen, body);
+    screen +>:Layer(z_index=5, modal=False):+> lower;
+    screen +>:Layer(z_index=20, modal=True):+> higher;
+
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, body, _grow_region());
+    set_node_content(renderer, body, ["UNDERLAY"]);
+    set_node_contract(renderer, lower, _box(40.0, 2.0));
+    set_node_content(renderer, lower, ["ALPHA"]);
+    set_node_contract(renderer, higher, _box(40.0, 10.0));
+    set_node_content(renderer, higher, ["BRAVO"]);
+
+    term = VirtualTerminal(columns=40, rows=10);
+    term.start();
+    render_frame(renderer, screen, term);
+    cells = term.capture_cells();
+    # Higher z paints over lower wherever the layers overlap.
+    assert _rows_contain(cells, "BRAVO");
+    assert not _rows_contain(cells, "ALPHA");
+
+    detach_node(renderer, higher);
+    for e in [edge screen ->:Layer:-> higher] {
+        del e;
+    }
+    detach(higher);
+    result = render_frame(renderer, screen, term);
+
+    cells_after = term.capture_cells();
+    assert _rows_contain(cells_after, "ALPHA");
+    assert not _rows_contain(cells_after, "BRAVO");
+    assert result.used_full_clear == False;
+    assert frame_used_full_clear(term.writes) == False;
+    term.stop();
+}
+
+
+test "cursor relocation emits terminal position update at new cell" {
+    shell = _shell_renderer(30, 8);
+    renderer = shell.renderer;
+    screen = shell.screen;
+    top = shell.top;
+    bot = shell.bot;
+    request_cursor(renderer, bot, row_offset=0, col_offset=1);
+    term = VirtualTerminal(columns=30, rows=8);
+    term.start();
+    render_frame(renderer, screen, term);
+    bot_rect = _rect_of(renderer.layout, bot);
+    assert term.cursor_row == bot_rect.y;
+    assert term.cursor_col == bot_rect.x + 1;
+    assert term.cursor_visible;
+
+    term.clear_writes();
+    request_cursor(renderer, top, row_offset=0, col_offset=2);
+    mark_semantic_dirty(renderer, top);
+    render_frame(renderer, screen, term);
+    top_rect = _rect_of(renderer.layout, top);
+
+    assert term.cursor_row == top_rect.y;
+    assert term.cursor_col == top_rect.x + 2;
+    assert term.cursor_visible;
+    term.stop();
+}
+
+
+test "disjoint edits yield separate small patch rects" {
+    shell = _shell_renderer(40, 12);
+    renderer = shell.renderer;
+    screen = shell.screen;
+    top = shell.top;
+    bot = shell.bot;
+    term = VirtualTerminal(columns=40, rows=12);
+    term.start();
+    render_frame(renderer, screen, term);
+    term.clear_writes();
+
+    set_node_content(renderer, top, ["HEAD"]);
+    set_node_content(renderer, bot, ["FOOT"]);
+    mark_semantic_dirty(renderer, top);
+    mark_semantic_dirty(renderer, bot);
+    result = render_frame(renderer, screen, term);
+
+    # Far-apart single-row edits must not coalesce into one screen-spanning
+    # patch: disjoint damage stays disjoint.
+    assert len(result.patch_rects) == 2;
+    total_area = 0;
+    for r in result.patch_rects {
+        assert r.height <= 2;
+        total_area += r.width * r.height;
+    }
+    assert total_area < 40 * 12 / 2;
+    cells = term.capture_cells();
+    assert cells[0].startswith("HEAD");
+    assert cells[_rect_of(renderer.layout, bot).y].startswith("FOOT");
+    # Undamaged middle keeps its content.
+    assert "mid" in cells[1];
+    term.stop();
+}
+
+
 test "compute_damage unions prev and current rects after growth" {
     shell = _shell_renderer(30, 10);
     renderer = shell.renderer;
