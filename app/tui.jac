@@ -816,6 +816,30 @@ def _run_slash(app: LiveShell, line: str) -> str {
         }
         return "ERROR: could not write " + path;
     }
+    if line == "/shortcuts" {
+        scs = list_extension_shortcuts();
+        if not scs {
+            return "no extension shortcuts registered";
+        }
+        lines: list[str] = ["extension shortcuts:"];
+        for key in scs {
+            meta: dict = scs[key] if isinstance(scs[key], dict) else {};
+            lines.append("  " + str(key) + " — " + str(meta.get("description", "") or "") + " (" + str(meta.get("extension_id", "") or "") + ")");
+        }
+        return "\n".join(lines);
+    }
+    if line == "/commands" {
+        cmds = list_commands();
+        if not cmds {
+            return "no extension commands";
+        }
+        lines: list[str] = ["extension commands:"];
+        for cname in cmds {
+            meta: dict = cmds[cname] if isinstance(cmds[cname], dict) else {};
+            lines.append("  /" + str(cname) + " — " + str(meta.get("description", "") or ""));
+        }
+        return "\n".join(lines);
+    }
     if line.startswith("/model ") {
         name = line[len("/model "):].strip();
         if name {
@@ -836,7 +860,7 @@ def _run_slash(app: LiveShell, line: str) -> str {
             }
             return run_command(cname, cargs);
         }
-        return "unknown command: " + line + " (/help for list)";
+        return "unknown command: " + line + " (/commands /shortcuts for lists)";
     }
     return "";
 }
