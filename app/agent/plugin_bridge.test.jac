@@ -252,15 +252,23 @@ test "load_extension_path rejects unsupported requires" {
     reg = create_registry();
     ensure_node_host(bridge);
     stub = resolve_stub_echo();
+    # "events" is still a stubbed surface (P11 promoted renderers+providers
+    # to real caps; events remains local-only by design).
     raised = False;
     try {
         load_extension_path(
-            bridge, reg, "stub.echo", stub, requires=["renderers"]
+            bridge, reg, "stub.echo", stub, requires=["events"]
         );
     } except RuntimeError {
         raised = True;
     }
     assert raised;
+
+    # "renderers" is now a REAL cap — must load cleanly.
+    names = load_extension_path(
+        bridge, reg, "stub.echo", stub, requires=["renderers"]
+    );
+    assert "echo" in names;
     dispose_bridge(bridge);
 }
 
@@ -855,5 +863,74 @@ test "node host ext_loaded carries providers and unload drops them" {
     unload_extension(bridge, reg as ToolRegistry, "pi.provider");
     assert "acme" not in bridge.providers;
     assert resolve_ext_model(bridge, "ext/pi.provider/sonnet-x") is None;
+    dispose_bridge(bridge);
+}
+
+
+# ============================ P11: renderers ============================
+
+test "fake-host renderer normalizes to native content lines" {
+    bridge = create_bridge("s-p11-fake");
+    ensure_host(bridge);
+
+    def _msg_renderer(message: any) -> any {
+        return ["[acme] " + str(message)];
+    }
+
+    def _bad_renderer(payload: any) -> any {
+        raise ValueError("boom");
+    }
+
+    def _usage_renderer(data: any) -> any {
+        return {"lines": ["t:1"]};
+    }
+
+    register_fake_renderer(bridge, "message", "assistant", _msg_renderer);
+    register_fake_renderer(bridge, "entry", "usage", _usage_renderer);
+    register_fake_renderer(bridge, "entry", "broken", _bad_renderer);
+
+    r1 = render_extension_block(bridge, "message", "assistant", "hello");
+    assert r1["ok"] is True and r1["lines"] == ["[acme] hello"];
+
+    r2 = render_extension_block(bridge, "entry", "usage", {});
+    assert r2["ok"] is True and r2["lines"] == ["t:1"];
+
+    # Renderer error degrades to unstyled fallback, never fails the turn.
+    r3 = render_extension_block(bridge, "entry", "broken", "fallback");
+    assert r3["ok"] is False;
+    assert r3["lines"] == ["fallback"];
+
+    # No renderer / no bridge.
+    assert render_extension_block(bridge, "entry", "ghost", {})["ok"] is False;
+    assert render_extension_block(None, "message", "assistant", "x")["ok"] is False;
+    dispose_bridge(bridge);
+}
+
+
+test "node host renders message and entry blocks over the wire" {
+    bridge = create_bridge("s-p11-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    prov = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(prov), "fixtures", "pi_renderer.mjs");
+    load_extension_path(bridge, reg, "pi.renderer", path);
+    drain_inbox(bridge);
+
+    r1 = render_extension_block(bridge, "message", "assistant", {"content": "hi"});
+    assert r1["ok"] is True;
+    assert r1["lines"] == ["[acme] hi"];
+
+    r2 = render_extension_block(bridge, "entry", "usage", {"tokens": 5, "cost": "0.01"});
+    assert r2["ok"] is True;
+    assert r2["lines"][0] == "tokens: 5";
+
+    # Unknown type on the wire path also degrades cleanly.
+    r3 = render_extension_block(bridge, "message", "ghost", "x");
+    assert r3["ok"] is False;
+
+    # Unload drops owned renderers.
+    unload_extension(bridge, reg as ToolRegistry, "pi.renderer");
+    r4 = render_extension_block(bridge, "message", "assistant", {"content": "hi"});
+    assert r4["ok"] is False;
     dispose_bridge(bridge);
 }

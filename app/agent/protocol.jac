@@ -330,6 +330,8 @@ glob PLUGIN_KINDS: set[str] = {
     "hook_done",
     "md_transform",
     "md_transformed",
+    "render_message",
+    "rendered",
 };
 
 

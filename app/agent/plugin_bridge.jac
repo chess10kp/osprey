@@ -40,6 +40,8 @@ obj FakePluginHost {
         active_tools: any = None,
         session_name: str = "",
         providers: dict = {},
+        message_renderers: dict = {},
+        entry_renderers: dict = {},
         extension_tools: dict[str, list[str]] = {},
         cancelled: set[str] = set(),
         node_version: str = "fake",
@@ -995,6 +997,14 @@ def unload_extension(
         for pn in list(h.providers.keys()) {
             if h.providers[pn].get("owner") == extension_id {
                 h.providers.pop(pn, None);
+            }
+        }
+        for table in (h.message_renderers, h.entry_renderers) {
+            for rn in list(table.keys()) {
+                r: any = table[rn];
+                if isinstance(r, dict) and r.get("owner") == extension_id {
+                    table.pop(rn, None);
+                }
             }
         }
     }
@@ -2023,4 +2033,93 @@ def prepare_provider_request(
         }
     }
     return out;
+}
+
+
+"""Register a renderer on the FAKE host (unit-test parity)."""
+def register_fake_renderer(
+    bridge: PluginBridge,
+    kind: str,
+    type: str,
+    fn: any,
+    extension_id: str = "fake.renderer",
+) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is None {
+        raise RuntimeError("plugin host unavailable");
+    }
+    table = h.message_renderers if kind != "entry" else h.entry_renderers;
+    table[str(type)] = {"fn": fn, "owner": extension_id};
+}
+
+
+"""Mirror the shim's toContentLines normalization."""
+def _fake_content_lines(out: any) -> list {
+    if out is None {
+        return [];
+    }
+    if isinstance(out, list) {
+        return [str(x) for x in out];
+    }
+    if isinstance(out, dict) and isinstance(out.get("lines"), list) {
+        return [str(x) for x in out["lines"]];
+    }
+    return [x for x in str(out).split("\n")];
+}
+
+
+"""P11: run an extension message/entry renderer; returns native content
+lines ({ok, lines}). Renderer errors degrade to unstyled fallback lines.
+No bridge/host/renderer -> {ok: False, lines: []} (caller uses defaults)."""
+def render_extension_block(
+    bridge: PluginBridge | None, kind: str, type: str, payload: any
+) -> dict {
+    none_out: dict = {"ok": False, "lines": []};
+    if bridge is None {
+        return none_out;
+    }
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr);
+        req = make_envelope(
+            kind="render_message",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"kind": kind, "type": type, "payload": payload},
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "rendered", correlation_id=corr, timeout=10.0
+            );
+        } except Exception {
+            return none_out;
+        }
+        _touch(bridge);
+        ok = bool(reply.payload.get("ok", False));
+        raw: any = reply.payload.get("lines", []);
+        lines: list = [str(x) for x in raw] if isinstance(raw, list) else [];
+        return {"ok": ok, "lines": lines};
+    }
+    h = bridge.host;
+    if h is None or not h.alive {
+        return none_out;
+    }
+    table = h.message_renderers if kind != "entry" else h.entry_renderers;
+    entry: any = table.get(str(type));
+    if entry is None or not isinstance(entry, dict) {
+        return none_out;
+    }
+    try {
+        out: any = entry["fn"](payload);
+        return {"ok": True, "lines": _fake_content_lines(out)};
+    } except Exception as e {
+        text = "" if payload is None else str(payload);
+        return {
+            "ok": False,
+            "error": str(e),
+            "lines": [x for x in text.split("\n")],
+        };
+    }
 }

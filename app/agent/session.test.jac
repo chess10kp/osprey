@@ -77,13 +77,14 @@ test "unsupported requires fail loud at load" {
             "id": "stub.echo",
             "path": stub,
             "runtime": "node",
-            "requires": ["renderers"],
+            "requires": ["events"],
         }],
         wait_budget_s=10.0,
     );
     ready = wait_extensions_ready(10.0);
+    # "events" is still a stubbed surface; renderers became real in P11.
     assert ready.phase == "degraded";
-    assert "unsupported" in ready.detail or "renderers" in ready.detail;
+    assert "unsupported" in ready.detail or "events" in ready.detail;
     session_dispose();
 }
 

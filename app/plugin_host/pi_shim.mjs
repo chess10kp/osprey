@@ -29,11 +29,12 @@ export const HOST_CAPS = [
   "session_hooks",
   "transformers",
   "providers",
+  "renderers",
 ];
 export const COMPAT_TIER = "T2-partial";
 
 /** Surfaces that remain stubs today (not in HOST_CAPS). */
-const STUB_CAPS = new Set(["events", "renderers"]);
+const STUB_CAPS = new Set(["events"]);
 
 export function createHostState() {
   return {
@@ -55,6 +56,8 @@ export function createHostState() {
     flags: new Map(),
     /** Provider configs by name; each carries ownerExtensionId. */
     providers: new Map(),
+    /** P11: real renderers. fn(payload) returns plain data normalized to
+     * native content lines (string | {lines: []} | anything stringifiable). */
     messageRenderers: new Map(),
     entryRenderers: new Map(),
     labels: new Map(),
@@ -188,7 +191,31 @@ function dropExtension(state, extensionId) {
       state.providers.delete(name);
     }
   }
+  for (const [name, r] of state.messageRenderers) {
+    if (r.ownerExtensionId === extensionId) {
+      state.messageRenderers.delete(name);
+    }
+  }
+  for (const [name, r] of state.entryRenderers) {
+    if (r.ownerExtensionId === extensionId) {
+      state.entryRenderers.delete(name);
+    }
+  }
   state.extensions.delete(extensionId);
+}
+
+/** Normalize a renderer return value to native content lines. */
+function toContentLines(out) {
+  if (out == null) {
+    return [];
+  }
+  if (Array.isArray(out)) {
+    return out.map((l) => String(l ?? ""));
+  }
+  if (typeof out === "object" && Array.isArray(out.lines)) {
+    return out.lines.map((l) => String(l ?? ""));
+  }
+  return String(out).split("\n");
 }
 
 function makePiApi(state, extensionId) {
@@ -406,12 +433,26 @@ function makePiApi(state, extensionId) {
       emit: (...a) => state.eventBus.emit(...a),
     },
 
-    // ---- renderers: stored so activate never crashes; rendering is T2c ----
-    registerMessageRenderer(type, _renderer) {
-      state.messageRenderers.set(String(type ?? ""), extensionId);
+    // ---- P11 renderers: real — fn returns plain data, normalized to the
+    // native content-line currency app/ui paints into semantic regions.
+    // Ink components cannot cross the JSONL bridge by design.
+    registerMessageRenderer(type, renderer) {
+      if (typeof renderer !== "function") {
+        throw new Error("registerMessageRenderer requires a function");
+      }
+      state.messageRenderers.set(String(type ?? ""), {
+        fn: renderer,
+        ownerExtensionId: extensionId,
+      });
     },
-    registerEntryRenderer(type, _renderer) {
-      state.entryRenderers.set(String(type ?? ""), extensionId);
+    registerEntryRenderer(type, renderer) {
+      if (typeof renderer !== "function") {
+        throw new Error("registerEntryRenderer requires a function");
+      }
+      state.entryRenderers.set(String(type ?? ""), {
+        fn: renderer,
+        ownerExtensionId: extensionId,
+      });
     },
     getActiveTools() {
       if (state.activeTools) {
@@ -830,6 +871,44 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
       state.cancelled.add(corr);
     }
     return [];
+  }
+
+  if (kind === "render_message") {
+    const table =
+      String(env.payload?.kind ?? "message") === "entry"
+        ? state.entryRenderers
+        : state.messageRenderers;
+    const type = String(env.payload?.type ?? "");
+    const payload = env.payload?.payload;
+    const r = table.get(type);
+    if (!r) {
+      return [{ ...base, kind: "rendered", payload: { ok: false, error: `no renderer for ${type}` } }];
+    }
+    try {
+      const out = await r.fn(payload);
+      return [
+        {
+          ...base,
+          kind: "rendered",
+          payload: { ok: true, lines: toContentLines(out), type },
+        },
+      ];
+    } catch (err) {
+      // Renderer errors degrade to unstyled fallback lines, never fail the turn.
+      const text = payload == null ? "" : String(payload);
+      return [
+        {
+          ...base,
+          kind: "rendered",
+          payload: {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+            type,
+            lines: text.split("\n"),
+          },
+        },
+      ];
+    }
   }
 
   if (kind === "host_goodbye") {
