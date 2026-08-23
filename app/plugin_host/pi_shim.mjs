@@ -70,6 +70,11 @@ export function createHostState() {
     labels: new Map(),
     modelName: "",
     thinkingLevel: "off",
+    /** Extension-issued setModel/setThinkingLevel requests ride the next
+     * outgoing reply (model_select / thinking_level_select) so the Jac side
+     * can actually switch the session. Cleared on drain. */
+    pendingModel: "",
+    pendingThinkingLevel: "",
     /** Inter-extension event bus — local only, never crosses the wire. */
     eventBus: new EventEmitter(),
   };
@@ -264,6 +269,14 @@ function dropExtension(state, extensionId) {
       state.entryRenderers.delete(name);
     }
   }
+  state.shortcuts = state.shortcuts.filter(
+    (s) => s.extensionId !== extensionId,
+  );
+  for (const [id, l] of state.labels) {
+    if (l.extensionId === extensionId) {
+      state.labels.delete(id);
+    }
+  }
   state.extensions.delete(extensionId);
 }
 
@@ -444,7 +457,9 @@ function makePiApi(state, extensionId) {
 
     // ---- stored registrations / typed getters: degrade, never crash ----
     registerShortcut(key, opts) {
-      state.shortcuts.push({ key: String(key ?? ""), opts });
+      // Listed via the ext_loaded payload; full key-binding wiring into the
+      // native shell input loop is a follow-up (no binding layer exists yet).
+      state.shortcuts.push({ key: String(key ?? ""), opts, extensionId });
     },
     registerFlag(name, opts) {
       state.flags.set(String(name ?? ""), opts ?? {});
@@ -454,13 +469,18 @@ function makePiApi(state, extensionId) {
       return f ? f.default : undefined;
     },
     setLabel(id, label) {
-      state.labels.set(String(id ?? ""), String(label ?? ""));
+      state.labels.set(String(id ?? ""), {
+        label: String(label ?? ""),
+        extensionId,
+      });
     },
     setModel(m) {
       state.modelName = String(m ?? "");
+      state.pendingModel = String(m ?? "");
     },
     setThinkingLevel(level) {
       state.thinkingLevel = String(level ?? "off");
+      state.pendingThinkingLevel = String(level ?? "off");
     },
     getThinkingLevel() {
       return state.thinkingLevel;
@@ -553,6 +573,28 @@ function commandsFor(state, extensionId) {
   });
 }
 
+/** Shortcut bindings registered by one extension (listed, not yet bound —
+ * the native shell has no key-binding layer; surfaced so hosts can show them). */
+function shortcutsFor(state, extensionId) {
+  return state.shortcuts
+    .filter((s) => s.extensionId === extensionId)
+    .map((s) => ({
+      key: s.key,
+      description: String(s.opts?.description ?? s.opts?.help ?? ""),
+    }));
+}
+
+/** Labels set by one extension ({id, label} entries). */
+function labelsFor(state, extensionId) {
+  const out = [];
+  for (const [id, l] of state.labels) {
+    if (l.extensionId === extensionId) {
+      out.push({ id, label: l.label });
+    }
+  }
+  return out;
+}
+
 function providersFor(state, extensionId) {
   const out = [];
   for (const p of state.providers.values()) {
@@ -594,6 +636,14 @@ function takeTraffic(state) {
   if (state.pendingEntries.length) {
     out.entries = state.pendingEntries.splice(0);
   }
+  if (state.pendingModel) {
+    out.model_select = state.pendingModel;
+    state.pendingModel = "";
+  }
+  if (state.pendingThinkingLevel) {
+    out.thinking_level_select = state.pendingThinkingLevel;
+    state.pendingThinkingLevel = "";
+  }
   return out;
 }
 
@@ -617,6 +667,15 @@ export async function handleEnvelope(state, env, ctx = {}) {
     }
     if (extra.entries && !r.payload.entries) {
       r.payload.entries = extra.entries;
+    }
+    if (extra.model_select && r.payload.model_select === undefined) {
+      r.payload.model_select = extra.model_select;
+    }
+    if (
+      extra.thinking_level_select &&
+      r.payload.thinking_level_select === undefined
+    ) {
+      r.payload.thinking_level_select = extra.thinking_level_select;
     }
     if (state.sessionName && r.payload.session_name === undefined) {
       r.payload.session_name = state.sessionName;
@@ -699,6 +758,8 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
             transformers:
               state.extensions.get(id)?.transformers ?? 0,
             providers: providersFor(state, id),
+            shortcuts: shortcutsFor(state, id),
+            labels: labelsFor(state, id),
             compat: COMPAT_TIER,
             caps: HOST_CAPS,
           },

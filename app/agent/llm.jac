@@ -24,6 +24,7 @@ import from .registry {
 import from .plugin_bridge {
     PluginBridge,
     context_gate,
+    fire_hook,
     prepare_provider_request,
     resolve_ext_model,
     tool_call_gate,
@@ -269,6 +270,19 @@ def _cap_tool_result(result: any) -> str {
 }
 
 
+"""Best-effort Pi message_end relay for one finalized assistant message.
+Never raises — hook transport failures must not break the turn."""
+def _notify_message_end(bridge: any, message: dict) {
+    if bridge is None {
+        return;
+    }
+    try {
+        fire_hook(bridge as PluginBridge, "message_end", {"message": message});
+    } except Exception {
+    }
+}
+
+
 """Drive the ReAct loop over `messages` IN PLACE (caller owns the history).
 
 on_event(kind, data) fires as things happen:
@@ -382,14 +396,18 @@ def react_loop(
             return text;
         }
         if not tool_calls {
-            messages.append({"role": "assistant", "content": text});
+            final_msg: dict = {"role": "assistant", "content": text};
+            messages.append(final_msg);
+            _notify_message_end(bridge, final_msg);
             return text;
         }
-        messages.append({
+        tc_msg: dict = {
             "role": "assistant",
             "content": text,
             "tool_calls": tool_calls,
-        });
+        };
+        messages.append(tc_msg);
+        _notify_message_end(bridge, tc_msg);
         for call in tool_calls {
             cl: any = call;
             fn: any = cl.get("function", {});

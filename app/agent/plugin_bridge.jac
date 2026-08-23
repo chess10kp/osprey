@@ -67,7 +67,11 @@ obj PluginBridge {
         interactive_ui: bool = False,
         traffic_messages: list = [],
         traffic_entries: list = [],
-        session_name: str = "";
+        session_name: str = "",
+        shortcuts: dict = {},
+        labels: dict = {},
+        pending_model: str = "",
+        pending_thinking_level: str = "";
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
     def invoke_js_tool(name: str, args: dict) -> str {
@@ -941,6 +945,16 @@ def unload_extension(
             bridge.providers.pop(pn, None);
         }
     }
+    for sk in list(bridge.shortcuts.keys()) {
+        if bridge.shortcuts[sk].get("extension_id") == extension_id {
+            bridge.shortcuts.pop(sk, None);
+        }
+    }
+    for lid in list(bridge.labels.keys()) {
+        if bridge.labels[lid].get("extension_id") == extension_id {
+            bridge.labels.pop(lid, None);
+        }
+    }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         req = make_envelope(
             kind="ext_unload",
@@ -1187,6 +1201,9 @@ def invoke_command(
             return {"ok": False, "error": str(e)};
         }
         touch_bridge(bridge);
+        # Absorb reply-attached extension traffic and model/thinking requests
+        # issued inside command handlers.
+        _absorb_payload(bridge, dict(reply.payload));
         return dict(reply.payload);
     }
     # Fake host path.
@@ -1279,6 +1296,75 @@ def _absorb_payload(bridge: PluginBridge, payload: dict) {
             }
         }
     }
+    # Shortcut/label registrations ride ext_loaded payloads (listed only —
+    # no native key-binding layer yet).
+    scs: any = payload.get("shortcuts", []);
+    if isinstance(scs, list) {
+        for sc in scs {
+            if isinstance(sc, dict) and sc.get("key") {
+                meta = dict(sc);
+                meta["extension_id"] = str(payload.get("id", ""));
+                bridge.shortcuts[str(sc.get("key"))] = meta;
+            }
+        }
+    }
+    lbs: any = payload.get("labels", []);
+    if isinstance(lbs, list) {
+        for lb in lbs {
+            if isinstance(lb, dict) and lb.get("id") {
+                lmeta = dict(lb);
+                lmeta["extension_id"] = str(payload.get("id", ""));
+                bridge.labels[str(lb.get("id"))] = lmeta;
+            }
+        }
+    }
+    # Extension-issued pi.setModel / pi.setThinkingLevel requests ride any
+    # outgoing reply; the session layer drains + applies them (firing
+    # model_select / thinking_level_select exactly once per change).
+    msel = payload.get("model_select", "");
+    if msel {
+        bridge.pending_model = str(msel);
+    }
+    tlsel = payload.get("thinking_level_select", "");
+    if tlsel {
+        bridge.pending_thinking_level = str(tlsel);
+    }
+}
+
+
+"""Shortcut bindings registered by loaded extensions (key -> meta dict with
+description + extension_id). Listed for host UIs; not yet bound to keys."""
+def list_shortcuts(bridge: PluginBridge | None) -> dict {
+    if bridge is None {
+        return {};
+    }
+    return dict(bridge.shortcuts);
+}
+
+
+"""Labels set by loaded extensions via pi.setLabel (id -> meta dict)."""
+def list_labels(bridge: PluginBridge | None) -> dict {
+    if bridge is None {
+        return {};
+    }
+    return dict(bridge.labels);
+}
+
+
+"""Drain pending extension setModel/setThinkingLevel requests.
+
+Returns {"model": str, "thinking_level": str} and clears both pendings so
+each request applies exactly once. Empty strings mean no request."""
+def drain_model_requests(bridge: PluginBridge | None) -> dict {
+    out: dict = {"model": "", "thinking_level": ""};
+    if bridge is None {
+        return out;
+    }
+    out["model"] = bridge.pending_model;
+    out["thinking_level"] = bridge.pending_thinking_level;
+    bridge.pending_model = "";
+    bridge.pending_thinking_level = "";
+    return out;
 }
 
 

@@ -27,6 +27,9 @@ import from .plugin_bridge {
     agent_start_gate,
     input_gate,
     render_extension_block,
+    list_shortcuts,
+    list_labels,
+    drain_model_requests,
 }
 import from .registry { ToolRegistry }
 import from .extensions {
@@ -76,15 +79,42 @@ obj SessionPlugins {
 glob history: list = [],
      show_stats: bool = True,
      model: str = os.environ.get("JACKAL_MODEL", "openrouter/anthropic/claude-sonnet-5"),
+     thinking_level: str = "",
      plugins: SessionPlugins = SessionPlugins();
 
 glob _t0: float = 0.0,
      _n_tools: int = 0;
 
 
+"""Switch the active model. Fires Pi's model_select hook best-effort so
+listeners see every change regardless of source (/model command or an
+extension's pi.setModel applied via _apply_pending_model_requests)."""
 def set_model(name: str) -> str {
     model = name;
+    b = plugins.bridge;
+    if b is not None {
+        try {
+            fire_hook(b as PluginBridge, "model_select", {"model": name});
+        } except Exception {
+        }
+    }
     return model;
+}
+
+
+"""Set the reasoning-effort level used for subsequent turns (empty = off).
+The transport layer maps it to the request body's reasoning.effort. Fires
+Pi's thinking_level_select hook best-effort, mirroring set_model."""
+def set_thinking_level(level: str) -> str {
+    thinking_level = level;
+    b = plugins.bridge;
+    if b is not None {
+        try {
+            fire_hook(b as PluginBridge, "thinking_level_select", {"level": level});
+        } except Exception {
+        }
+    }
+    return thinking_level;
 }
 
 
@@ -180,6 +210,22 @@ def _warm_sidecar(decls: list[ExtensionDecl], base_cwd: str) {
         # Lifecycle hook: session is fully loaded (best-effort, never fatal).
         fire_hook(bridge as PluginBridge, "session_start", {
             "session_id": plugins.session_id,
+        });
+        # Lifecycle hook: surface discovered resource dirs once after load
+        # (skills/prompts conventions; absent dirs are simply not listed).
+        res_paths: list[str] = [];
+        for cand in [
+            os.path.join(base_cwd, ".jackal", "skills"),
+            os.path.join(base_cwd, "skills"),
+            os.path.join(base_cwd, ".jackal", "prompts"),
+            os.path.join(base_cwd, "prompts"),
+        ] {
+            if os.path.isdir(cand) {
+                res_paths.append(cand);
+            }
+        }
+        fire_hook(bridge as PluginBridge, "resources_discover", {
+            "paths": res_paths,
         });
     } except Exception as e {
         plugins.phase = "degraded";
@@ -396,6 +442,27 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
 }
 
 
+"""Apply extension-issued pi.setModel / pi.setThinkingLevel requests drained
+from the bridge. Goes through set_model/set_thinking_level so model_select /
+thinking_level_select reach all listeners exactly once per change. Never
+raises — a broken extension must not break the turn."""
+def _apply_pending_model_requests() {
+    b = plugins.bridge;
+    if b is None {
+        return;
+    }
+    req: dict = drain_model_requests(b as PluginBridge);
+    m = str(req.get("model", ""));
+    lv = str(req.get("thinking_level", ""));
+    if m and m != model {
+        set_model(m);
+    }
+    if lv and lv != thinking_level {
+        set_thinking_level(lv);
+    }
+}
+
+
 """Run one agent turn: wait for extension snapshot, then stream the loop.
 
 on_event(kind, data) is the UI boundary: the term renderer prints, the
@@ -411,6 +478,8 @@ def run_turn(
         session_boot(plugins.session_id, plugins.cwd if plugins.cwd else os.getcwd(), []);
     }
     st = wait_extensions_ready();
+    # Extensions may have called pi.setModel/setThinkingLevel during load.
+    _apply_pending_model_requests();
     if on_event is not None and st.total > 0 {
         on_event(
             "extensions",
@@ -454,7 +523,7 @@ def run_turn(
     transport: any = None;
     if model.startswith("ext/") {
         try {
-            transport = make_ext_transport(bridge as PluginBridge, model);
+            transport = make_ext_transport(bridge as PluginBridge, model, thinking=thinking_level);
         } except Exception {
             transport = None;
         }
@@ -466,7 +535,7 @@ def run_turn(
         }
     }
     if transport is None {
-        transport = make_transport(model);
+        transport = make_transport(model, thinking_level);
     }
     _t0 = time.time();
     _n_tools = 0;
@@ -650,6 +719,8 @@ def run_command(name: str, args: str = "") -> str {
         return f"ERROR: no plugin host running (command /{name} unavailable)";
     }
     res: dict = invoke_command(bridge as PluginBridge, name, args);
+    # A command handler may have called pi.setModel/setThinkingLevel.
+    _apply_pending_model_requests();
     lines: list[str] = [];
     for note in res.get("notifications", []) or [] {
         lines.append(str(note));
@@ -663,6 +734,20 @@ def run_command(name: str, args: str = "") -> str {
         lines.append("ERROR: " + str(res.get("error", "command failed")));
     }
     return "\n".join(lines);
+}
+
+
+"""Shortcut bindings registered by loaded extensions (key -> meta with
+extension_id + description). Listed for host UIs; key-binding wiring into
+the TUI input loop is a documented follow-up."""
+def list_extension_shortcuts() -> dict {
+    return list_shortcuts(plugins.bridge);
+}
+
+
+"""Labels set by loaded extensions via pi.setLabel (id -> meta)."""
+def list_extension_labels() -> dict {
+    return list_labels(plugins.bridge);
 }
 
 
