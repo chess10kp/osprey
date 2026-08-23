@@ -48,6 +48,19 @@ export default function activate(pi) {
     return undefined;
   });
 
+  // tool_result middleware: appends a marker line to every successful
+  // echo_arg result (chaining pin for the node path).
+  pi.on("tool_result", async (event) => {
+    if (
+      event.toolName === "echo_arg" &&
+      !event.isError &&
+      typeof event.content === "string"
+    ) {
+      return { content: event.content + "\n[gated-result-marker]" };
+    }
+    return undefined;
+  });
+
   pi.on("context", async (event) => {
     if (Array.isArray(event.messages)) {
       event.messages.push({ role: "user", content: "[gated-context-injection]" });

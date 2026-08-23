@@ -725,7 +725,7 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
     // edits) get a deep working copy handlers mutate IN PLACE; later handlers
     // see earlier mutations — Pi semantics. The final copy echoes back so the
     // Jac side observes chained mutations without per-handler round trips.
-    const MUTABLE_EVENTS = new Set(["tool_call", "context", "input"]);
+    const MUTABLE_EVENTS = new Set(["tool_call", "context", "input", "tool_result"]);
     const working = MUTABLE_EVENTS.has(event)
       ? JSON.parse(JSON.stringify(data ?? {}))
       : data;
@@ -745,6 +745,16 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
           out.text != null
         ) {
           working.text = String(out.text);
+        }
+        // tool_result middleware: partial patches {content, isError} apply to
+        // the working copy so later handlers see the latest result.
+        if (out && typeof out === "object") {
+          if (typeof out.content === "string") {
+            working.content = out.content;
+          }
+          if (typeof out.isError === "boolean") {
+            working.isError = out.isError;
+          }
         }
         entry = {
           ok: true,

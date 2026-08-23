@@ -19,6 +19,17 @@ import from .protocol {
     is_ui_kind,
     make_plugin_envelope,
 }
+import from .fake_host {
+    register_fake_command,
+    register_fake_listener,
+    register_fake_transformer,
+    register_fake_provider,
+    register_fake_renderer,
+    fake_push_message,
+    fake_push_entry,
+    set_fake_active_tools,
+    fake_session_name,
+}
 
 
 def _echo(text: str) -> str {
@@ -932,5 +943,59 @@ test "node host renders message and entry blocks over the wire" {
     unload_extension(bridge, reg as ToolRegistry, "pi.renderer");
     r4 = render_extension_block(bridge, "message", "assistant", {"content": "hi"});
     assert r4["ok"] is False;
+    dispose_bridge(bridge);
+}
+
+
+# ===================== tool_result result-rewriting =====================
+
+test "tool_result_gate chains patches and echoes latest content" {
+    bridge = create_bridge("s-tres");
+    ensure_host(bridge);
+
+    def _first(data: dict, ctx: any) -> dict {
+        if data.get("toolName") == "bash" {
+            return {"content": str(data.get("content", "")) + "\n[redacted]"};
+        }
+        return None;
+    }
+
+    def _second(data: dict, ctx: any) -> dict {
+        # Sees the first patch applied (middleware chaining pin).
+        assert str(data.get("content", "")).endswith("[redacted]");
+        return {"isError": True};
+    }
+
+    register_fake_listener(bridge as PluginBridge, "tool_result", _first);
+    register_fake_listener(bridge as PluginBridge, "tool_result", _second);
+    g = tool_result_gate(bridge, "bash", {"command": "ls"}, "out");
+    assert g["ok"] is True;
+    assert g["result"] == "out\n[redacted]";
+    assert g["is_error"] is True;
+
+    # No bridge -> identity.
+    plain = tool_result_gate(None, "x", {}, "raw");
+    assert plain == {"ok": True, "result": "raw", "is_error": False};
+    dispose_bridge(bridge);
+}
+
+
+test "node host applies tool_result rewrites over the wire" {
+    bridge = create_bridge("s-tres-node");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    gated = resolve_pi_gated();
+    load_extension_path(bridge, reg, "pi.gated", gated);
+    drain_inbox(bridge);
+
+    g = tool_result_gate(bridge, "echo_arg", {"text": "hi"}, "ECHO:hi");
+    assert g["ok"] is True;
+    # Fixture appends the marker to successful echo_arg results.
+    assert g["result"] == "ECHO:hi\n[gated-result-marker]";
+    assert g["is_error"] is False;
+
+    # Non-matching tools pass through untouched.
+    g2 = tool_result_gate(bridge, "noop", {}, "ok");
+    assert g2["result"] == "ok";
     dispose_bridge(bridge);
 }

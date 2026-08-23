@@ -1,8 +1,13 @@
-"""Plugin bridge — fake in-process host + Node sidecar (D11/D13/D21).
+"""Plugin bridge — Node sidecar transport + fake-host dispatch seams.
 
 Speaks the same Envelope types as agent.protocol. Session may warm Node in
 parallel with the first frame; undeclared installs never start Node.
 Async stdout reader + correlation map multiplex replies (P3).
+
+The in-process FAKE host (FakePluginHost, register_fake_*, ...) lives in
+agent/fake_host.jac — unit-test-only, re-exported here for compatibility.
+Host caps/compat tier are always DERIVED from the received host_hello
+envelope (apply_hello), never from hand-copied constants.
 """
 
 import json;
@@ -23,29 +28,13 @@ import from .registry {
     register_js,
     unregister_extension,
 }
-
-# Host capability tiers advertised in host_hello (P4).
-glob HOST_CAPS_T0: list[str] = ["tools"],
-     HOST_CAPS_T1: list[str] = ["tools", "cancel", "updates"],
-     COMPAT_TIER: str = "T0";
-
-
-obj FakePluginHost {
-    has handlers: dict[str, any] = {},
-        command_handlers: dict[str, any] = {},
-        listeners: dict[str, list] = {},
-        md_transformers: list = [],
-        pending_messages: list = [],
-        pending_entries: list = [],
-        active_tools: any = None,
-        session_name: str = "",
-        providers: dict = {},
-        message_renderers: dict = {},
-        entry_renderers: dict = {},
-        extension_tools: dict[str, list[str]] = {},
-        cancelled: set[str] = set(),
-        node_version: str = "fake",
-        alive: bool = True;
+import from .fake_host {
+    FakePluginHost,
+    FakeUi,
+    apply_hello,
+    create_fake_host,
+    ensure_host,
+    touch_bridge,
 }
 
 
@@ -57,7 +46,6 @@ obj PluginBridge {
         node_bin: str = "node",
         host_mjs: str = "",
         next_corr: int = 1,
-        outbox: list[Envelope] = [],
         inbox: list[Envelope] = [],
         last_active: float = 0.0,
         status_phase: str = "idle",
@@ -87,11 +75,6 @@ obj PluginBridge {
 
 def create_bridge(session_id: str) -> PluginBridge {
     return PluginBridge(session_id=session_id);
-}
-
-
-def create_fake_host(node_version: str = "fake") -> FakePluginHost {
-    return FakePluginHost(node_version=node_version);
 }
 
 
@@ -271,15 +254,6 @@ def _node_alive(bridge: PluginBridge) -> bool {
 }
 
 
-"""Mark bridge activity (resets idle reap clock)."""
-def _touch(bridge: PluginBridge) {
-    bridge.last_active = time.monotonic();
-    if bridge.status_phase in ("idle", "ready", "") {
-        bridge.status_phase = "ready";
-    }
-}
-
-
 """Push host_status into inbox and record phase (D13 degraded visibility)."""
 def _emit_host_status(bridge: PluginBridge, phase: str, detail: str = "") {
     bridge.status_phase = phase;
@@ -362,7 +336,6 @@ def _write_node(bridge: PluginBridge, env: Envelope) {
         bridge.proc.stdin.write(line);
         bridge.proc.stdin.flush();
     }
-    bridge.outbox.append(env);
 }
 
 
@@ -551,63 +524,6 @@ def _read_node_until(
 }
 
 
-"""Attach an in-process host (lazy ensure). Emits host_hello into inbox."""
-def ensure_host(bridge: PluginBridge, host: FakePluginHost | None = None) -> str {
-    if bridge.host_kind == "node" and _node_alive(bridge) {
-        return "ready";
-    }
-    if bridge.host is not None and bridge.host.alive {
-        return "ready";
-    }
-    h = host if host is not None else create_fake_host();
-    bridge.host = h;
-    bridge.host_kind = "fake";
-    h.alive = True;
-    caps = list(HOST_CAPS_T0);
-    bridge.host_caps = caps;
-    bridge.compat_tier = "T0";
-    bridge.hello_payload = {
-        "protocol": 1,
-        "node": h.node_version,
-        "caps": caps,
-        "compat": "T0",
-        "compat_label": "Pi tool-extension compatibility",
-    };
-    bridge.inbox.append(
-        make_envelope(
-            kind="host_hello",
-            session_id=bridge.session_id,
-            payload=bridge.hello_payload,
-        )
-    );
-    _touch(bridge);
-    bridge.status_phase = "ready";
-    return "ready";
-}
-
-
-"""Apply host_hello payload onto bridge capability fields (P4)."""
-def _apply_hello(bridge: PluginBridge, hello: Envelope) {
-    payload = hello.payload if hello.payload is not None else {};
-    bridge.hello_payload = dict(payload);
-    raw_caps: any = payload.get("caps", []);
-    caps: list = [];
-    if isinstance(raw_caps, list) {
-        caps = [str(c) for c in raw_caps];
-    }
-    bridge.host_caps = caps;
-    tier = str(payload.get("compat", "") or "");
-    if not tier {
-        if "cancel" in caps or "updates" in caps {
-            tier = "T1";
-        } else {
-            tier = "T0";
-        }
-    }
-    bridge.compat_tier = tier;
-}
-
-
 """Spawn the Node plugin host. Emits host_hello from the child."""
 def ensure_node_host(
     bridge: PluginBridge,
@@ -644,8 +560,8 @@ def ensure_node_host(
         dispose_bridge(bridge);
         raise RuntimeError(f"expected host_hello, got {hello.kind}");
     }
-    _apply_hello(bridge, hello);
-    _touch(bridge);
+    apply_hello(bridge, hello);
+    touch_bridge(bridge);
     bridge.status_phase = "ready";
     return "ready";
 }
@@ -722,7 +638,6 @@ def dispose_bridge(bridge: PluginBridge) {
                 payload={"reason": "dispose"},
             )
         );
-        bridge.outbox.clear();
         return;
     }
     if bridge.host is not None {
@@ -737,7 +652,6 @@ def dispose_bridge(bridge: PluginBridge) {
     }
     bridge.host = None;
     bridge.host_kind = "";
-    bridge.outbox.clear();
 }
 
 
@@ -762,14 +676,6 @@ def load_extension(
         raise RuntimeError("plugin host unavailable");
     }
     corr = _alloc_corr(bridge);
-    bridge.outbox.append(
-        make_envelope(
-            kind="ext_load",
-            session_id=bridge.session_id,
-            correlation_id=corr,
-            payload={"id": extension_id, "path": "in-process:" + extension_id},
-        )
-    );
     names: list[str] = [];
     schemas: list = [];
     for td in tool_defs {
@@ -811,10 +717,7 @@ def load_extension(
             payload={"id": extension_id, "tools": schemas},
         )
     );
-    if bridge.outbox {
-        bridge.outbox.pop(0);
-    }
-    _touch(bridge);
+    touch_bridge(bridge);
     return names;
 }
 
@@ -877,9 +780,6 @@ def load_extension_path(
         },
     );
     _write_node(bridge, req);
-    if bridge.outbox {
-        bridge.outbox.pop(0);
-    }
     reply = _read_node_until(bridge, "ext_loaded", correlation_id=corr, timeout=timeout);
     _absorb_payload(bridge, dict(reply.payload));
     err = reply.payload.get("error", "");
@@ -929,7 +829,7 @@ def load_extension_path(
             }
         }
     }
-    _touch(bridge);
+    touch_bridge(bridge);
     return names;
 }
 
@@ -966,9 +866,6 @@ def unload_extension(
         );
         try {
             _write_node(bridge, req);
-            if bridge.outbox {
-                bridge.outbox.pop(0);
-            }
         } except Exception {
         }
         return removed;
@@ -1008,16 +905,6 @@ def unload_extension(
             }
         }
     }
-    bridge.outbox.append(
-        make_envelope(
-            kind="ext_unload",
-            session_id=bridge.session_id,
-            payload={"id": extension_id},
-        )
-    );
-    if bridge.outbox {
-        bridge.outbox.pop(0);
-    }
     return removed;
 }
 
@@ -1035,7 +922,7 @@ def invoke_tool(bridge: PluginBridge, name: str, args: dict) -> str {
         result = _invoke_tool_fake(bridge, name, args);
     }
     if not str(result).startswith("ERROR: plugin host unavailable") {
-        _touch(bridge);
+        touch_bridge(bridge);
     } elif bridge.host_kind == "node" {
         host_status(bridge);
     }
@@ -1050,17 +937,7 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
         return "ERROR: plugin host unavailable";
     }
     corr = _alloc_corr(bridge);
-    bridge.outbox.append(
-        make_envelope(
-            kind="tool_invoke",
-            session_id=bridge.session_id,
-            tool_id=name,
-            correlation_id=corr,
-            payload={"name": name, "args": args},
-        )
-    );
     if corr in h.cancelled {
-        bridge.outbox.pop(0);
         result_env = make_envelope(
             kind="tool_result",
             session_id=bridge.session_id,
@@ -1072,7 +949,6 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
         return "ERROR: cancelled";
     }
     if name not in h.handlers {
-        bridge.outbox.pop(0);
         bridge.inbox.append(
             make_envelope(
                 kind="tool_result",
@@ -1086,7 +962,6 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
     }
     # Fake-host parity for active-tool enforcement (B1).
     if h.active_tools is not None and name not in h.active_tools {
-        bridge.outbox.pop(0);
         bridge.inbox.append(
             make_envelope(
                 kind="tool_result",
@@ -1106,9 +981,6 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
         result = "";
         ok = False;
         err = str(e);
-    }
-    if bridge.outbox {
-        bridge.outbox.pop(0);
     }
     payload: dict = {"ok": ok};
     if ok {
@@ -1150,9 +1022,6 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
     );
     try {
         _write_node(bridge, req);
-        if bridge.outbox {
-            bridge.outbox.pop(0);
-        }
         reply = _read_node_until(
             bridge, "tool_result", correlation_id=corr, timeout=10.0
         );
@@ -1187,14 +1056,6 @@ def cancel_tool(bridge: PluginBridge, correlation_id: str) {
     if h is not None {
         h.cancelled.add(correlation_id);
     }
-    bridge.outbox.append(
-        make_envelope(
-            kind="tool_cancel",
-            session_id=bridge.session_id,
-            correlation_id=correlation_id,
-            payload={},
-        )
-    );
 }
 
 
@@ -1212,42 +1073,6 @@ def drain_inbox(bridge: PluginBridge) -> list[str] {
 
 
 # ======================= T2-partial: commands + hooks =======================
-
-"""Register a command handler on the FAKE host (unit-test path)."""
-def register_fake_command(
-    bridge: PluginBridge,
-    name: str,
-    handler: any,
-    description: str = "",
-    extension_id: str = "fake.commands",
-) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is None {
-        raise RuntimeError("plugin host unavailable");
-    }
-    h.command_handlers[name] = {"handler": handler, "owner": extension_id};
-    bridge.commands[name] = {
-        "name": name,
-        "description": description,
-        "extension_id": extension_id,
-    };
-}
-
-
-"""Register a lifecycle listener on the FAKE host (unit-test path)."""
-def register_fake_listener(bridge: PluginBridge, event: str, handler: any) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is None {
-        raise RuntimeError("plugin host unavailable");
-    }
-    if event not in h.listeners {
-        h.listeners[event] = [];
-    }
-    h.listeners[event].append(handler);
-}
-
 
 """Invoke an extension command. Returns the cmd_result payload dict:
 {ok, result?, error?, notifications?}. Raises TimeoutError on Node silence."""
@@ -1278,7 +1103,7 @@ def invoke_command(
         } except Exception as e {
             return {"ok": False, "error": str(e)};
         }
-        _touch(bridge);
+        touch_bridge(bridge);
         return dict(reply.payload);
     }
     # Fake host path.
@@ -1417,7 +1242,7 @@ def fire_hook_data(
         } except Exception {
             return empty;
         }
-        _touch(bridge);
+        touch_bridge(bridge);
         raw: any = reply.payload.get("results", []);
         out_list: list = raw if isinstance(raw, list) else [];
         final: any = reply.payload.get("data");
@@ -1447,6 +1272,16 @@ def fire_hook_data(
                 and out.get("text") is not None
             ) {
                 working["text"] = str(out.get("text"));
+            }
+            # tool_result middleware: partial patches apply to the working
+            # copy so later handlers see the latest result.
+            if isinstance(out, dict) {
+                if isinstance(out.get("content"), str) {
+                    working["content"] = out["content"];
+                }
+                if isinstance(out.get("isError"), bool) {
+                    working["isError"] = out["isError"];
+                }
             }
             entry_r: dict = {
                 "ok": True,
@@ -1515,6 +1350,56 @@ def tool_call_gate(bridge: PluginBridge | None, name: str, args: dict) -> dict {
             break;
         }
     }
+    return out;
+}
+
+
+"""tool_result gate: fires the Pi `tool_result` hook over a finished result.
+
+Pi middleware semantics: each handler sees the latest content (hosts apply
+{content, isError} patches between handlers) and may return partial patches.
+Returns {ok, result, is_error} — never raises; on any failure the original
+result passes through untouched."""
+def tool_result_gate(
+    bridge: PluginBridge | None,
+    name: str,
+    args: dict,
+    result: str,
+) -> dict {
+    out: dict = {"ok": True, "result": result, "is_error": False};
+    if bridge is None {
+        return out;
+    }
+    data = {
+        "toolName": str(name),
+        "toolCallId": "",
+        "input": args,
+        "content": result,
+        "isError": False,
+    };
+    try {
+        fired = fire_hook_data(bridge, "tool_result", data);
+        results = fired.get("results", []);
+        final = fired.get("data", {});
+    } except Exception {
+        return out;
+    }
+    any_ok = False;
+    for v in _ok_verdicts(results) {
+        if isinstance(v.get("content"), str) or isinstance(v.get("isError"), bool) {
+            any_ok = True;
+        }
+    }
+    if not any_ok {
+        return out;
+    }
+    content: any = final.get("content") if isinstance(final, dict) else None;
+    is_err: any = final.get("isError") if isinstance(final, dict) else None;
+    out["ok"] = True;
+    if isinstance(content, str) {
+        out["result"] = content;
+    }
+    out["is_error"] = bool(is_err) if isinstance(is_err, bool) else False;
     return out;
 }
 
@@ -1650,50 +1535,6 @@ def _absorb_pending_fake(bridge: PluginBridge, h: FakePluginHost) {
 }
 
 
-"""Minimal UI surface handed to fake-host handlers; collects notifications
-and display-method ui_events (parity with the JS makeUi surface)."""
-obj FakeUi {
-    has notifications: list[str],
-        ui_events: list;
-
-    def notify(message: str, level: str = "info") {
-        self.notifications.append(str(message));
-    }
-
-    def _record(method: str, args: list) {
-        self.ui_events.append({"method": method, "args": args});
-    }
-
-    def set_status(owner: str, text: str) {
-        self._record("setStatus", [text]);
-    }
-
-    def set_widget(id: str, text: str) {
-        self._record("setWidget", [id, text]);
-    }
-
-    def set_footer(text: str) {
-        self._record("setFooter", [text]);
-    }
-
-    def set_title(text: str) {
-        self._record("setTitle", [text]);
-    }
-
-    def select(_title: str, _options: list) -> any {
-        return None;
-    }
-
-    def confirm(_message: str) -> bool {
-        return False;
-    }
-
-    def input(_message: str, _default: str = "") -> str {
-        return "";
-    }
-}
-
-
 """Fire a lifecycle hook. Returns the per-listener results list from the
 hook_done payload: [{ok, extension_id, result|error, verdict?,
 notifications?, ui_events?}] where verdict carries the handler's raw object
@@ -1717,7 +1558,7 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
         } except Exception {
             return [];
         }
-        _touch(bridge);
+        touch_bridge(bridge);
         raw: any = reply.payload.get("results", []);
         out_list: list = raw if isinstance(raw, list) else [];
         _absorb_payload(bridge, dict(reply.payload));
@@ -1762,23 +1603,6 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
 
 # ======================= T2-partial: markdown transformers =======================
 
-"""Register a markdown transformer on the FAKE host (unit-test path)."""
-def register_fake_transformer(
-    bridge: PluginBridge,
-    fn: any,
-    extension_id: str = "fake.xform",
-) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is None {
-        raise RuntimeError("plugin host unavailable");
-    }
-    entry = {"fn": fn, "extension_id": extension_id};
-    h.md_transformers.append(entry);
-    bridge.md_transformers.append(entry);
-}
-
-
 """Run the extension markdown-transformer chain over a complete block.
 
 Display-only (Pi semantics): the session/model context is never mutated.
@@ -1818,7 +1642,7 @@ def transform_markdown(
         } except Exception as e {
             return {"ok": False, "error": str(e), "markdown": md};
         }
-        _touch(bridge);
+        touch_bridge(bridge);
         out = dict(reply.payload);
         out["ok"] = True;
         _absorb_payload(bridge, out);
@@ -1898,58 +1722,7 @@ def set_session_name(bridge: PluginBridge, name: str, timeout: float = 5.0) -> b
 }
 
 
-# ---- fake-host helpers (unit-test parity for the JS API surface) ----
-
-def fake_push_message(bridge: PluginBridge, role: str, content: str) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is not None {
-        h.pending_messages.append({"role": role, "content": content});
-    }
-}
-
-
-def fake_push_entry(bridge: PluginBridge, type: str, data: dict) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is not None {
-        h.pending_entries.append({"type": type, "data": data});
-    }
-}
-
-
-def set_fake_active_tools(bridge: PluginBridge, names: list | None) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is not None {
-        h.active_tools = list(names) if names is not None else None;
-    }
-}
-
-
-def fake_session_name(bridge: PluginBridge) -> str {
-    return str(bridge.session_name);
-}
-
-
 # ============================ P10: provider seam ============================
-
-"""Register a provider on the FAKE host (unit-test parity for registerProvider)."""
-def register_fake_provider(bridge: PluginBridge, cfg: dict, extension_id: str = "fake.provider") {
-    ensure_host(bridge);
-    name = str(cfg.get("name", ""));
-    if not name {
-        raise ValueError("provider config requires a name");
-    }
-    h = bridge.host;
-    entry = dict(cfg);
-    if h is not None {
-        h.providers[name] = {**entry, "owner": extension_id};
-    }
-    entry["extension_id"] = extension_id;
-    bridge.providers[name] = entry;
-}
-
 
 """Resolve an `ext/<extension>/<model>` model id against declared providers.
 
@@ -2036,24 +1809,6 @@ def prepare_provider_request(
 }
 
 
-"""Register a renderer on the FAKE host (unit-test parity)."""
-def register_fake_renderer(
-    bridge: PluginBridge,
-    kind: str,
-    type: str,
-    fn: any,
-    extension_id: str = "fake.renderer",
-) {
-    ensure_host(bridge);
-    h = bridge.host;
-    if h is None {
-        raise RuntimeError("plugin host unavailable");
-    }
-    table = h.message_renderers if kind != "entry" else h.entry_renderers;
-    table[str(type)] = {"fn": fn, "owner": extension_id};
-}
-
-
 """Mirror the shim's toContentLines normalization."""
 def _fake_content_lines(out: any) -> list {
     if out is None {
@@ -2096,7 +1851,7 @@ def render_extension_block(
         } except Exception {
             return none_out;
         }
-        _touch(bridge);
+        touch_bridge(bridge);
         ok = bool(reply.payload.get("ok", False));
         raw: any = reply.payload.get("lines", []);
         lines: list = [str(x) for x in raw] if isinstance(raw, list) else [];
