@@ -332,6 +332,9 @@ glob PLUGIN_KINDS: set[str] = {
     "md_transformed",
     "render_message",
     "rendered",
+    "ui_request",
+    "ui_response",
+    "ui_cancel",
 };
 
 

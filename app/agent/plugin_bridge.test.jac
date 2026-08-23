@@ -1053,3 +1053,105 @@ test "wait-time registration records expectation for direct callers" {
     assert "corr-k2" in bridge.pending;
     dispose_bridge(bridge);
 }
+
+
+# ===================== P12 slice 2: interaction queue routing =====================
+
+test "dispatch routes ui_request/ui_cancel into the interaction queue" {
+    bridge = create_bridge("s-p12-route");
+    ensure_host(bridge);
+    assert bridge.interactive_ui is False;
+
+    req = make_plugin_envelope(
+        kind="ui_request",
+        payload={
+            "parent_correlation_id": "corr-9",
+            "parent_kind": "cmd_invoke",
+            "extension_id": "t.ext",
+            "method": "select",
+            "title": "pick",
+            "options": ["a", "b"],
+            "timeout_ms": 30000.0,
+        },
+        session_id=bridge.session_id,
+        correlation_id="will-be-replaced",
+    );
+    _dispatch_inbound(bridge as PluginBridge, req);
+
+    polled = poll_ui_request(bridge);
+    assert polled is not None;
+    assert polled["method"] == "select";
+    assert polled["parent_corr"] == "corr-9";
+    assert polled["options"] == ["a", "b"];
+
+    # Answer it; queue drains and a second poll is None.
+    assert respond_ui(bridge, polled["corr"], "a") is True;
+    assert poll_ui_request(bridge) is None;
+    # Idempotent answer to unknown corr.
+    assert respond_ui(bridge, polled["corr"], "a") is False;
+
+    # ui_cancel removes the pending request.
+    req2 = make_plugin_envelope(
+        kind="ui_request",
+        payload={
+            "parent_correlation_id": "corr-10",
+            "method": "confirm",
+            "message": "sure?",
+            "timeout_ms": 30000.0,
+        },
+        session_id=bridge.session_id,
+        correlation_id="child-2",
+    );
+    _dispatch_inbound(bridge as PluginBridge, req2);
+    cancel_env = make_plugin_envelope(
+        kind="ui_cancel",
+        payload={"reason": "signal"},
+        session_id=bridge.session_id,
+        correlation_id="child-2",
+    );
+    _dispatch_inbound(bridge as PluginBridge, cancel_env);
+    assert poll_ui_request(bridge) is None;
+    dispose_bridge(bridge);
+}
+
+
+test "cancel_all_ui drains and expires auto-cancel" {
+    bridge = create_bridge("s-p12-drain");
+    ensure_host(bridge);
+    for p in ["c1", "c2", "c3"] {
+        env = make_plugin_envelope(
+            kind="ui_request",
+            payload={
+                "parent_correlation_id": p,
+                "method": "input",
+                "placeholder": "x",
+                "timeout_ms": 30000.0,
+            },
+            session_id=bridge.session_id,
+            correlation_id=p,
+        );
+        _dispatch_inbound(bridge as PluginBridge, env);
+    }
+    n = cancel_all_ui(bridge, "turn-abort");
+    assert n == 3;
+    assert poll_ui_request(bridge) is None;
+    assert cancel_all_ui(bridge, "again") == 0;
+
+    # Expiry path: enqueue with a tiny timeout, poll after it lapses.
+    import time;
+    env2 = make_plugin_envelope(
+        kind="ui_request",
+        payload={
+            "parent_correlation_id": "exp",
+            "method": "input",
+            "timeout_ms": 1.0,
+        },
+        session_id=bridge.session_id,
+        correlation_id="exp-child",
+    );
+    _dispatch_inbound(bridge as PluginBridge, env2);
+    time.sleep(0.05);
+    got = poll_ui_request(bridge);
+    assert got is None;  # expired -> answered cancelled, not surfaced
+    dispose_bridge(bridge);
+}

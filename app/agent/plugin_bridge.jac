@@ -28,6 +28,7 @@ import from .registry {
     register_js,
     unregister_extension,
 }
+import from .interactions { new_ui_queue, UiInteraction }
 import from .fake_host {
     FakePluginHost,
     FakeUi,
@@ -62,6 +63,8 @@ obj PluginBridge {
         commands: dict = {},
         md_transformers: list = [],
         providers: dict = {},
+        ui_q: any = None,
+        interactive_ui: bool = False,
         traffic_messages: list = [],
         traffic_entries: list = [],
         session_name: str = "";
@@ -346,6 +349,19 @@ mismatched envelopes stay inbox-only so interleaved traffic (tool_update vs
 tool_result, future ui_request children) cannot wake or consume the wrong
 waiter."""
 def _dispatch_inbound(bridge: PluginBridge, env: Envelope) {
+    # P12 interactive-UI traffic routes to the interaction queue, never to
+    # parent waiters and never into the unbounded diagnostic inbox.
+    if env.kind == "ui_request" {
+        _ui_enqueue_from_env(bridge, env);
+        return;
+    }
+    if env.kind == "ui_cancel" {
+        q0: any = bridge.ui_q;
+        if q0 is not None {
+            q0.take(str(env.correlation_id));
+        }
+        return;
+    }
     bridge.inbox.append(env);
     corr = env.correlation_id;
     pending = bridge.pending;
@@ -1892,4 +1908,153 @@ def render_extension_block(
             "lines": [x for x in text.split("\n")],
         };
     }
+}
+
+
+# ==================== P12: interactive ui round-trip ====================
+
+def _ui_queue(bridge: PluginBridge) -> UiInteraction {
+    if bridge.ui_q is None {
+        bridge.ui_q = new_ui_queue();
+    }
+    return bridge.ui_q as UiInteraction;
+}
+
+
+def _ui_enqueue_from_env(bridge: PluginBridge, env: Envelope) {
+    p = env.payload if env.payload is not None else {};
+    req = {
+        "corr": str(env.correlation_id or ""),
+        "parent_corr": str(p.get("parent_correlation_id", "")),
+        "parent_kind": str(p.get("parent_kind", "")),
+        "extension_id": str(p.get("extension_id", "")),
+        "method": str(p.get("method", "")),
+        "title": str(p.get("title", "")),
+        "message": str(p.get("message", "")),
+        "options": p.get("options", []) if isinstance(p.get("options"), list) else [],
+        "placeholder": str(p.get("placeholder", "")),
+        "created": time.monotonic(),
+        "timeout_ms": float(p.get("timeout_ms", 30000.0)),
+    };
+    q = _ui_queue(bridge);
+    res = q.enqueue(req);
+    if not res[0] {
+        # Invalid request: tell Node immediately so its Promise settles.
+        _ui_send_response(bridge, str(env.correlation_id), "cancelled", None, res[1]);
+    }
+}
+
+
+def _ui_send_response(
+    bridge: PluginBridge, corr: str, status: str, value: any, reason: str = ""
+) -> bool {
+    payload: dict = {"status": status};
+    if value is not None {
+        payload["value"] = value;
+    }
+    if reason {
+        payload["reason"] = reason;
+    }
+    if bridge.host_kind == "node" and _node_alive(bridge) {
+        try {
+            _write_node(make_envelope(
+                kind="ui_response",
+                session_id=bridge.session_id,
+                correlation_id=corr,
+                payload=payload,
+            ));
+            return True;
+        } except Exception {
+            return False;
+        }
+    }
+    return True;  # fake-host path: nothing to write
+}
+
+
+"""Poll the oldest live UI request for the TUI mainloop. Reaped-expired
+requests are answered cancelled automatically. Returns a payload dict for
+the modal controller or None:
+{corr, parent_corr, parent_kind, extension_id, method, title, message,
+options, placeholder}."""
+def poll_ui_request(bridge: PluginBridge) -> dict | None {
+    if bridge is None or bridge.ui_q is None {
+        return None;
+    }
+    q = bridge.ui_q as UiInteraction;
+    polled: list = q.poll(time.monotonic());
+    live: any = polled[0];
+    expired: list = polled[1];
+    for r in expired {
+        _ui_send_response(bridge, r.corr, "cancelled", None, "timeout");
+    }
+    if live is None {
+        return None;
+    }
+    return {
+        "corr": live.corr,
+        "parent_corr": live.parent_corr,
+        "parent_kind": live.parent_kind,
+        "extension_id": live.extension_id,
+        "method": live.method,
+        "title": live.title,
+        "message": live.message,
+        "options": list(live.options),
+        "placeholder": live.placeholder,
+    };
+}
+
+
+"""Answer one pending request. select/input pass strings, confirm passes
+bool. Unknown/expired corr is ignored (idempotent)."""
+def respond_ui(bridge: PluginBridge, corr: str, value: any) -> bool {
+    if bridge is None or bridge.ui_q is None {
+        return False;
+    }
+    r: any = (bridge.ui_q as UiInteraction).take(str(corr));
+    if r is None {
+        return False;
+    }
+    return _ui_send_response(bridge, r.corr, "ok", value);
+}
+
+
+"""Cancel one pending request by child correlation."""
+def cancel_ui(bridge: PluginBridge, corr: str, reason: str = "cancelled") -> bool {
+    if bridge is None or bridge.ui_q is None {
+        return False;
+    }
+    r: any = (bridge.ui_q as UiInteraction).take(str(corr));
+    if r is None {
+        return False;
+    }
+    return _ui_send_response(bridge, r.corr, "cancelled", None, reason);
+}
+
+
+"""Cancel every open request (turn abort / dispose). Returns count."""
+def cancel_all_ui(bridge: PluginBridge, reason: str = "cancelled") -> int {
+    if bridge is None or bridge.ui_q is None {
+        return 0;
+    }
+    q = bridge.ui_q as UiInteraction;
+    n = 0;
+    # Drain via take() so queue and wire stay consistent.
+    while True {
+        recs: list = [];
+        polled2: list = q.poll(time.monotonic());
+        live: any = polled2[0];
+        expired: list = polled2[1];
+        for r in expired + ([live] if live is not None else []) {
+            recs.append(r);
+        }
+        if len(recs) == 0 {
+            break;
+        }
+        for r in recs {
+            _ui_send_response(bridge, r.corr, "cancelled", None, reason);
+            n += 1;
+        }
+    }
+    return n;
 }
