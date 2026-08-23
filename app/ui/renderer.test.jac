@@ -1,8 +1,11 @@
-"""Behavior tests for retained damage renderer, patch scope, and cursor.
-
-Assert both final cells and patch scope so full clears cannot hide shrink,
-move, overlay-close, or cursor-cleanup bugs (OSPUI.md §21, PLAN Gate 3).
-"""
+# Behavior tests for retained damage renderer, patch scope, and cursor.
+#
+# Assert both final cells and patch scope so full clears cannot hide shrink,
+# move, overlay-close, or cursor-cleanup bugs (OSPUI.md §21, PLAN Gate 3).
+#
+# Same-stem annex of ui/renderer.jac: base symbols are ambient here — never
+# import from ui.renderer or ui.layout in this file (circular at collection);
+# pull everything else from leaves (ui.layout_types, ui.model).
 
 import from ui.model {
     MainScreen,
@@ -18,14 +21,16 @@ import from ui.mutation {
     detach,
 }
 
-import from ui.layout {
-    fixed,
-    grow,
-    intrinsic,
-    overlay_contract,
+import from ui.layout_types {
+    AxisSize,
+    LayoutSpec,
+    LayoutState,
+    Rect,
+    fill_axis,
+    fixed_axis,
+    grow_axis,
+    intrinsic_axis,
     rect_of,
-    snapshot_rects,
-    measure_and_arrange,
 }
 
 import from ui.virtual_terminal {
@@ -35,6 +40,46 @@ import from ui.virtual_terminal {
 
 node TextRegion(UiRegion) {
     has label: str = "";
+}
+
+
+# Spec builders over the permanent seam (legacy contract equivalents).
+def _sp(width: AxisSize, height: AxisSize) -> LayoutSpec {
+    return LayoutSpec(width=width, height=height);
+}
+
+
+def _fill_fill() -> LayoutSpec {
+    return _sp(fill_axis(), fill_axis());
+}
+
+
+def _grow_region() -> LayoutSpec {
+    return _sp(fill_axis(), grow_axis(1.0));
+}
+
+
+def _intrinsic_spec() -> LayoutSpec {
+    return _sp(intrinsic_axis(), intrinsic_axis());
+}
+
+
+def _fixed_height(h: float) -> LayoutSpec {
+    return _sp(fill_axis(), fixed_axis(h));
+}
+
+
+def _box(w: float, h: float) -> LayoutSpec {
+    return _sp(fixed_axis(w), fixed_axis(h));
+}
+
+
+def _rect_of(state: LayoutState, n: UiNode) -> Rect {
+    r = rect_of(state, n);
+    if r is None {
+        raise AssertionError("no published frame entry for node");
+    }
+    return r;
 }
 
 
@@ -56,10 +101,10 @@ def _shell_renderer(columns: int = 40, rows: int = 12) -> ShellFixture {
     append_child(screen, top);
     append_child(screen, mid);
     append_child(screen, bot);
-    set_node_contract(renderer, screen, intrinsic());
-    set_node_contract(renderer, top, fixed(height=1));
-    set_node_contract(renderer, mid, grow());
-    set_node_contract(renderer, bot, fixed(height=1));
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, top, _fixed_height(1.0));
+    set_node_contract(renderer, mid, _grow_region());
+    set_node_contract(renderer, bot, _fixed_height(1.0));
     set_node_content(renderer, top, ["TOP"]);
     set_node_content(renderer, mid, ["mid"]);
     set_node_content(renderer, bot, ["BOT"]);
@@ -83,10 +128,10 @@ def _rows_contain(rows: list[str], needle: str) -> bool {
 }
 
 
-test "create_renderer owns empty layout tables at terminal size" {
+test "create_renderer owns empty layout registry at terminal size" {
     renderer = create_renderer(40, 12);
-    assert renderer.layout.columns == 40;
-    assert renderer.layout.rows == 12;
+    assert renderer.layout.viewport.columns == 40;
+    assert renderer.layout.viewport.rows == 12;
     assert renderer.cursor_node_id == "";
     assert renderer.damage == [];
 }
@@ -130,11 +175,11 @@ test "growth damages union of old and new mid bounds and shifts bot" {
     screen = shell.screen;
     mid = shell.mid;
     bot = shell.bot;
-    set_node_contract(renderer, mid, intrinsic());
+    set_node_contract(renderer, mid, _intrinsic_spec());
     term = VirtualTerminal(columns=40, rows=10);
     term.start();
     render_frame(renderer, screen, term);
-    bot_y_before = rect_of(renderer.layout, bot).y;
+    bot_y_before = _rect_of(renderer.layout, bot).y;
     term.clear_writes();
 
     set_node_content(renderer, mid, ["m0", "m1", "m2", "m3"]);
@@ -142,7 +187,7 @@ test "growth damages union of old and new mid bounds and shifts bot" {
     mark_layout_dirty(renderer, mid);
     result = render_frame(renderer, screen, term);
 
-    bot_y_after = rect_of(renderer.layout, bot).y;
+    bot_y_after = _rect_of(renderer.layout, bot).y;
     assert bot_y_after > bot_y_before;
     assert result.used_full_clear == False;
     assert frame_used_full_clear(term.writes) == False;
@@ -160,13 +205,13 @@ test "shrink repairs uncovered cells without full clear" {
     screen = shell.screen;
     mid = shell.mid;
     bot = shell.bot;
-    set_node_contract(renderer, mid, intrinsic());
+    set_node_contract(renderer, mid, _intrinsic_spec());
     term = VirtualTerminal(columns=40, rows=10);
     term.start();
     set_node_content(renderer, mid, ["m0", "m1", "m2", "m3"]);
     render_frame(renderer, screen, term);
-    mid_before = rect_of(renderer.layout, mid);
-    bot_y_before = rect_of(renderer.layout, bot).y;
+    mid_before = _rect_of(renderer.layout, mid);
+    bot_y_before = _rect_of(renderer.layout, bot).y;
     term.clear_writes();
 
     set_node_content(renderer, mid, ["m0"]);
@@ -174,8 +219,8 @@ test "shrink repairs uncovered cells without full clear" {
     mark_layout_dirty(renderer, mid);
     result = render_frame(renderer, screen, term);
 
-    mid_after = rect_of(renderer.layout, mid);
-    bot_y_after = rect_of(renderer.layout, bot).y;
+    mid_after = _rect_of(renderer.layout, mid);
+    bot_y_after = _rect_of(renderer.layout, bot).y;
     assert mid_after.height < mid_before.height;
     assert bot_y_after < bot_y_before;
     assert result.used_full_clear == False;
@@ -209,12 +254,12 @@ test "sibling move after height change repaints shifted region" {
     term.clear_writes();
 
     set_node_content(renderer, top, ["TOP", "TOP2"]);
-    set_node_contract(renderer, top, fixed(height=2));
+    set_node_contract(renderer, top, _fixed_height(2.0));
     mark_layout_dirty(renderer, top);
     result = render_frame(renderer, screen, term);
 
-    assert rect_of(renderer.layout, mid).y == 2;
-    assert rect_of(renderer.layout, bot).y > 2;
+    assert _rect_of(renderer.layout, mid).y == 2;
+    assert _rect_of(renderer.layout, bot).y > 2;
     cells = term.capture_cells();
     assert cells[0].startswith("TOP");
     assert cells[1].startswith("TOP2");
@@ -229,22 +274,22 @@ test "resize recomputes wrap and keeps node ids" {
     screen = MainScreen(key="main");
     body = TextRegion(key="body");
     append_child(screen, body);
-    set_node_contract(renderer, screen, intrinsic());
-    set_node_contract(renderer, body, intrinsic());
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, body, _intrinsic_spec());
     set_node_content(renderer, body, ["abcdefghijklmnop"]);
     body_id = node_id(body);
 
     term = VirtualTerminal(columns=40, rows=8);
     term.start();
     render_frame(renderer, screen, term);
-    h1 = rect_of(renderer.layout, body).height;
+    h1 = _rect_of(renderer.layout, body).height;
 
     term.inject_resize(8, 8);
-    renderer.layout.columns = 8;
-    renderer.layout.rows = 8;
+    renderer.layout.viewport.columns = 8;
+    renderer.layout.viewport.rows = 8;
     mark_layout_dirty(renderer, body);
     result = render_frame(renderer, screen, term);
-    h2 = rect_of(renderer.layout, body).height;
+    h2 = _rect_of(renderer.layout, body).height;
 
     assert node_id(body) == body_id;
     assert h2 > h1;
@@ -258,8 +303,8 @@ test "unicode content paints without corrupting neighbor cells" {
     screen = MainScreen(key="main");
     body = TextRegion(key="cjk");
     append_child(screen, body);
-    set_node_contract(renderer, screen, intrinsic());
-    set_node_contract(renderer, body, fixed(height=1));
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, body, _fixed_height(1.0));
     set_node_content(renderer, body, ["你好"]);
 
     term = VirtualTerminal(columns=20, rows=4);
@@ -280,22 +325,28 @@ test "overlay close damages old rect and restores underlying cells" {
     append_child(screen, body);
     screen +>:Layer(z_index=10, modal=True):+> overlay;
 
-    set_node_contract(renderer, screen, intrinsic());
-    set_node_contract(renderer, body, grow());
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, body, _grow_region());
     set_node_content(renderer, body, ["UNDERLAY"]);
-    set_node_contract(renderer, overlay, overlay_contract(20, 4));
+    set_node_contract(renderer, overlay, _box(20.0, 4.0));
     set_node_content(renderer, overlay, ["Approve?", "y/n"]);
 
     term = VirtualTerminal(columns=40, rows=12);
     term.start();
     render_frame(renderer, screen, term);
-    overlay_rect = rect_of(renderer.layout, overlay);
+    overlay_rect = _rect_of(renderer.layout, overlay);
     assert not overlay_rect.is_empty();
     cells_with = term.capture_cells();
     assert _rows_contain(cells_with, "Approve");
     term.clear_writes();
 
     detach_node(renderer, overlay);
+    # mutation.detach cuts Child edges only; mirror runtime.close_overlay
+    # teardown by cutting the Layer edge so the overlay leaves the
+    # compute scope (a Layer-reached node needs a registered spec).
+    for e in [edge screen ->:Layer:-> overlay] {
+        del e;
+    }
     detach(overlay);
     result = render_frame(renderer, screen, term);
 
@@ -321,15 +372,15 @@ test "cursor placed in prompt region and cleared on detach" {
     screen = MainScreen(key="main");
     prompt = Prompt(key="prompt", draft="hi");
     append_child(screen, prompt);
-    set_node_contract(renderer, screen, intrinsic());
-    set_node_contract(renderer, prompt, fixed(height=1));
+    set_node_contract(renderer, screen, _intrinsic_spec());
+    set_node_contract(renderer, prompt, _fixed_height(1.0));
     set_node_content(renderer, prompt, ["> hi"]);
     request_cursor(renderer, prompt, row_offset=0, col_offset=2);
 
     term = VirtualTerminal(columns=40, rows=6);
     term.start();
     result = render_frame(renderer, screen, term);
-    pr = rect_of(renderer.layout, prompt);
+    pr = _rect_of(renderer.layout, prompt);
     assert result.cursor_row == pr.y + 0;
     assert result.cursor_col == pr.x + 2;
     assert renderer.last_cursor_row == result.cursor_row;
@@ -365,7 +416,7 @@ test "localized semantic edit writes fewer cells than full frame" {
     assert result.used_full_clear == False;
     assert damage_cell_count(result.damage) <= 40 * 2;
     cells = term.capture_cells();
-    assert cells[rect_of(renderer.layout, bot).y].startswith("DONE");
+    assert cells[_rect_of(renderer.layout, bot).y].startswith("DONE");
     term.stop();
 }
 
@@ -392,14 +443,14 @@ test "compute_damage unions prev and current rects after growth" {
     renderer = shell.renderer;
     screen = shell.screen;
     mid = shell.mid;
-    set_node_contract(renderer, mid, intrinsic());
+    set_node_contract(renderer, mid, _intrinsic_spec());
     term = VirtualTerminal(columns=30, rows=10);
     term.start();
+    # First frame establishes the prev-rect damage baseline.
     render_frame(renderer, screen, term);
-    snapshot_rects(renderer.layout);
     set_node_content(renderer, mid, ["a", "b", "c", "d"]);
     mark_layout_dirty(renderer, mid);
-    measure_and_arrange(renderer.layout, screen, 30, 10);
+    relayout(renderer, screen);
     damage = compute_damage(renderer, screen);
     assert len(damage) >= 1;
     total = damage_cell_count(damage);

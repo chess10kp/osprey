@@ -1,45 +1,213 @@
-"""Registry lifecycle for the permanent constraint-layout interface.
+"""Permanent layout value types + registry lifecycle (LAYOUT-ENGINE-PLAN §3/§4).
 
-LAYOUT-ENGINE-PLAN §4: LayoutState owns specs, content revisions, relations,
-and (from M5) solver state and the last published frame. The lifecycle
-functions live here — not in ui.layout — because four permanent names
-(set_content, clear_node, rect_of, set_scroll_offset) collide with legacy
-contract-table helpers that renderer/gates still call until M6. At cutover
-these functions move into ui.layout and this module disappears.
-
-Validation policy (plan §4/§6): every mutation is atomic and returns a
-typed MutationResult; failures carry diagnostics with provenance and leave
-the registry unchanged.
+Leaf module: imports only constraints.algebra and ui.model (for node ids). Every other layout module
+(ui.layout seam, compile, measure, quantize, renderer, screen) takes these
+names from here — ui.layout re-exports them so downstream callers keep a
+single import surface. Splitting the values out of ui.layout keeps the
+import graph acyclic: ui.layout hosts compute_layout, which needs
+layout_compile, which needs these types.
 """
 
 import from constraints.algebra {
     StrengthTier,
     is_finite,
 }
-import from ui.layout {
-    Align,
-    Axis,
-    AxisSize,
-    FrameEntry,
-    LayoutDiagnostic,
-    LayoutError,
-    LayoutFrame,
-    LayoutRelation,
-    LayoutRelationKind,
-    LayoutSeverity,
-    LayoutSpec,
-    MutationResult,
-    OverlayAnchor,
-    Rect,
-    RelationHandle,
-    Size,
-    SizeMode,
-    Viewport,
-}
 import from ui.model {
     UiNode,
-    child_parent,
     node_id,
+}
+
+
+"""Axis-aligned terminal rectangle in cell coordinates (origin top-left)."""
+obj Rect {
+    has x: int = 0,
+        y: int = 0,
+        width: int = 0,
+        height: int = 0;
+
+    def right() -> int {
+        return self.x + self.width;
+    }
+
+    def bottom() -> int {
+        return self.y + self.height;
+    }
+
+    def is_empty() -> bool {
+        return self.width <= 0 or self.height <= 0;
+    }
+
+    def contains_point(col: int, row: int) -> bool {
+        return (
+            col >= self.x
+            and col < self.right()
+            and row >= self.y
+            and row < self.bottom()
+        );
+    }
+
+    def intersects(other: Rect) -> bool {
+        if self.is_empty() or other.is_empty() {
+            return False;
+        }
+        return (
+            self.x < other.right()
+            and self.right() > other.x
+            and self.y < other.bottom()
+            and self.bottom() > other.y
+        );
+    }
+
+    def copy() -> Rect {
+        return Rect(
+            x=self.x,
+            y=self.y,
+            width=self.width,
+            height=self.height,
+        );
+    }
+}
+
+
+obj Size {
+    has width: int = 0,
+        height: int = 0;
+}
+
+
+def rect_union(a: Rect, b: Rect) -> Rect {
+    if a.is_empty() {
+        return b.copy();
+    }
+    if b.is_empty() {
+        return a.copy();
+    }
+    x0 = min(a.x, b.x);
+    y0 = min(a.y, b.y);
+    x1 = max(a.right(), b.right());
+    y1 = max(a.bottom(), b.bottom());
+    return Rect(x=x0, y=y0, width=x1 - x0, height=y1 - y0);
+}
+
+
+enum Axis { HORIZONTAL = "horizontal", VERTICAL = "vertical" }
+enum SizeMode { FIXED = "fixed", INTRINSIC = "intrinsic", BOUNDED = "bounded", FILL = "fill", GROW = "grow" }
+enum Align { START = "start", CENTER = "center", END = "end", STRETCH = "stretch" }
+enum OverlayAnchor { CENTER = "center", TOP = "top", BOTTOM = "bottom", LEFT = "left", RIGHT = "right" }
+
+
+"""Per-axis sizing policy (plan §4.1)."""
+obj AxisSize {
+    has mode: SizeMode,
+        minimum: float = 0.0,
+        preferred: float | None = None,
+        maximum: float | None = None,
+        grow_weight: float = 0.0;
+}
+
+
+"""Permanent node layout spec (plan §4.1).
+
+Field order puts the required axis sizes first because Jac objects follow
+dataclass default rules (a plan-sanctioned spelling change)."""
+obj LayoutSpec {
+    has width: AxisSize,
+        height: AxisSize,
+        flow_axis: Axis = Axis.VERTICAL,
+        cross_align: Align = Align.STRETCH,
+        scroll_vertical: bool = False,
+        overlay_anchor: OverlayAnchor | None = None;
+}
+
+
+enum LayoutSeverity { WARNING = "warning", ERROR = "error" }
+enum LayoutError {
+    INVALID_SPEC = "invalid_spec",
+    INVALID_RELATION = "invalid_relation",
+    STALE_NODE = "stale_node",
+    OUT_OF_SCOPE = "out_of_scope",
+    INVALID_TOPOLOGY = "invalid_topology",
+    UNSATISFIABLE = "unsatisfiable",
+    OVERFLOW = "overflow",
+    UNSUPPORTED_AXIS_COUPLING = "unsupported_axis_coupling",
+    INTERNAL_INVARIANT = "internal_invariant"
+}
+
+
+obj Viewport {
+    has columns: int,
+        rows: int;
+}
+
+
+obj RelationHandle {
+    has id: int;
+}
+
+
+obj LayoutDiagnostic {
+    has code: LayoutError,
+        severity: LayoutSeverity,
+        message: str,
+        node_ids: list[str] = [],
+        provenance: list[str] = [];
+}
+
+
+obj FrameEntry {
+    has measured: Size,
+        rect: Rect,
+        clip: Rect,
+        wrapped_lines: list[str],
+        requested_scroll_offset: int = 0,
+        scroll_offset: int = 0,
+        max_scroll_offset: int = 0;
+}
+
+
+obj LayoutFrame {
+    has generation: int,
+        viewport: Viewport,
+        entries: dict[str, FrameEntry],
+        overlay_ids: list[str];
+}
+
+
+obj MutationResult {
+    has ok: bool,
+        relation_handle: RelationHandle | None = None,
+        diagnostics: list[LayoutDiagnostic] = [];
+}
+
+
+obj LayoutResult {
+    has ok: bool,
+        frame: LayoutFrame | None = None,
+        diagnostics: list[LayoutDiagnostic] = [];
+}
+
+
+enum LayoutRelationKind {
+    LEFT_OF = "left_of", RIGHT_OF = "right_of",
+    ABOVE = "above", BELOW = "below",
+    ALIGN_START = "align_start", ALIGN_END = "align_end",
+    ALIGN_CENTER = "align_center", SAME_SIZE = "same_size"
+}
+
+
+"""Process-local spatial relation between two live nodes (plan §4.1).
+
+Not an OSP edge: relations are registry data keyed by stable node ids so
+a replaced node (new jid) never inherits geometry declarations."""
+obj LayoutRelation {
+    has owner_id: str,
+        source_id: str,
+        target_id: str,
+        kind: LayoutRelationKind,
+        axis: Axis,
+        provenance: str,
+        gap: float = 0.0,
+        strength: StrengthTier = StrengthTier.REQUIRED;
 }
 
 
@@ -64,8 +232,8 @@ obj MeasureEntry {
 
 """Permanent layout registry (plan §4).
 
-`solver` and `last_frame` are populated from M5; the fields exist now so
-the shape is locked. Frames are immutable by ownership convention."""
+`solver` and `last_frame` carry solver state and the last published
+frame. Frames are immutable by ownership convention."""
 obj LayoutState {
     has viewport: Viewport = Viewport(columns=80, rows=24),
         specs: dict[str, LayoutSpec] = {},
@@ -77,6 +245,34 @@ obj LayoutState {
         last_frame: LayoutFrame | None = None;
 }
 
+
+# ----------------------------------------------------------------------
+# Spec construction helpers (axis sugar over AxisSize).
+# ----------------------------------------------------------------------
+
+def fill_axis() -> AxisSize {
+    return AxisSize(mode=SizeMode.FILL);
+}
+
+
+def fixed_axis(n: float) -> AxisSize {
+    return AxisSize(mode=SizeMode.FIXED, preferred=n);
+}
+
+
+def grow_axis(weight: float) -> AxisSize {
+    return AxisSize(mode=SizeMode.GROW, grow_weight=weight);
+}
+
+
+def intrinsic_axis() -> AxisSize {
+    return AxisSize(mode=SizeMode.INTRINSIC);
+}
+
+
+# ----------------------------------------------------------------------
+# Registry lifecycle (plan §4).
+# ----------------------------------------------------------------------
 
 def _error(code: LayoutError, message: str, node_ids: list[str] = []) -> MutationResult {
     return MutationResult(
@@ -249,12 +445,6 @@ def _validate_relation_shape(rel: LayoutRelation) -> LayoutDiagnostic | None {
 }
 
 
-"""True when both endpoints name nodes registered through set_spec."""
-def _endpoints_live(state: LayoutState, rel: LayoutRelation) -> bool {
-    return rel.source_id in state.specs and rel.target_id in state.specs;
-}
-
-
 """Register a spatial relation; validates liveness, shape, owner, and
 duplicate policy (plan §4.1)."""
 def add_relation(state: LayoutState, relation: LayoutRelation) -> MutationResult {
@@ -423,7 +613,7 @@ def clear_node(state: LayoutState, target: UiNode) -> MutationResult {
 
 
 """Deep-copy accessors over the last published frame (plan §4 invariant 2).
-Both return None until M5 starts publishing frames."""
+Both return None before the first successful compute_layout."""
 def frame_entry_of(state: LayoutState, target: UiNode) -> FrameEntry | None {
     if state.last_frame is None {
         return None;

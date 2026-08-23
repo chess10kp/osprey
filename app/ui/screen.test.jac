@@ -7,10 +7,8 @@ import from ui.model {
     node_id,
 }
 
-import from ui.layout {
+import from ui.layout_types {
     SizeMode,
-}
-import from ui.layout_state {
     create_layout_state,
 }
 import from ui.runtime {

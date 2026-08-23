@@ -28,6 +28,7 @@ import from ui.events {
 
 import from ui.screen {
     build_main_shell,
+    configure_main_shell_layout,
     install_shell_contracts,
     shell_insert_text,
     shell_open_approval,
@@ -35,18 +36,10 @@ import from ui.screen {
     shell_resize,
 }
 
-import from ui.layout {
-    LayoutContract,
-    LayoutKind,
-    set_contract,
-    set_content,
-    fixed,
-    grow,
-}
-
 import from ui.renderer {
     create_renderer,
     render_frame,
+    set_node_content,
 }
 
 import from ui.virtual_terminal {
@@ -134,11 +127,11 @@ def run_gate3_layout_damage() -> bool {
     }
     term = VirtualTerminal(columns=80, rows=24);
     renderer = create_renderer(80, 24);
-    set_contract(
-        renderer.layout,
-        shell.screen,
-        LayoutContract(kind=LayoutKind.VIEWPORT, fixed_width=80, fixed_height=24),
-    );
+    failures = configure_main_shell_layout(renderer.layout, shell);
+    if failures {
+        dispose_session(session);
+        return False;
+    }
     frame = render_frame(renderer, shell.screen, term);
     close_res = shell_close_approval(session, shell);
     _ = (frame, close_res);
@@ -155,23 +148,18 @@ def run_gate4_invalidation_bench() -> Gate4Report {
     shell = build_main_shell(session);
     term = VirtualTerminal(columns=80, rows=24);
     renderer = create_renderer(80, 24);
-    set_contract(
-        renderer.layout,
-        shell.screen,
-        LayoutContract(kind=LayoutKind.VIEWPORT, fixed_width=80, fixed_height=24),
-    );
-    set_contract(renderer.layout, shell.header, fixed(height=1));
-    set_contract(renderer.layout, shell.transcript, grow());
-    set_contract(renderer.layout, shell.status, fixed(height=1));
-    set_contract(renderer.layout, shell.prompt, fixed(height=2));
-    set_content(renderer.layout, shell.header, ["Jackal"]);
-    set_content(renderer.layout, shell.transcript, ["hello retained stream"]);
-    set_content(renderer.layout, shell.status, ["ready"]);
-    set_content(renderer.layout, shell.prompt, ["> "]);
+    if configure_main_shell_layout(renderer.layout, shell) {
+        dispose_session(session);
+        return Gate4Report();
+    }
+    set_node_content(renderer, shell.header, ["Jackal"]);
+    set_node_content(renderer, shell.transcript, ["hello retained stream"]);
+    set_node_content(renderer, shell.status, ["ready"]);
+    set_node_content(renderer, shell.prompt, ["> "]);
 
     t0 = perf_counter();
     frame1 = render_frame(renderer, shell.screen, term);
-    set_content(renderer.layout, shell.transcript, ["hello retained stream!"]);
+    set_node_content(renderer, shell.transcript, ["hello retained stream!"]);
     frame2 = render_frame(renderer, shell.screen, term);
     t1 = perf_counter();
 

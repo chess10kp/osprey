@@ -72,7 +72,7 @@ import from constraints.solver {
     SolveError,
     Solver,
 }
-import from ui.layout {
+import from ui.layout_types {
     Align,
     AxisSize,
     LayoutDiagnostic,
@@ -86,7 +86,7 @@ import from ui.layout {
     SizeMode,
     Viewport,
 }
-import from ui.layout_state {
+import from ui.layout_types {
     LayoutState,
 }
 import from ui.model {
@@ -1554,7 +1554,7 @@ def compile_layout(
 
 
 # ----------------------------------------------------------------------
-# Engine-facing helpers (M5 orchestration lives in ui.layout_engine).
+# Engine-facing helpers (compute pipeline lives in ui.layout).
 # ----------------------------------------------------------------------
 
 """Validated scope walk shared with the engine: Child tree plus

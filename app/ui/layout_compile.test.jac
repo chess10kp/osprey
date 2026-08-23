@@ -13,7 +13,7 @@ import from constraints.algebra {
 import from constraints.solver {
     Solver,
 }
-import from ui.layout {
+import from ui.layout_types {
     Axis,
     AxisSize,
     LayoutError,
@@ -21,12 +21,10 @@ import from ui.layout {
     LayoutRelationKind,
     LayoutSeverity,
     LayoutSpec,
+    LayoutState,
     Size,
     SizeMode,
     Viewport,
-}
-import from ui.layout_state {
-    LayoutState,
     add_relation,
     create_layout_state,
     set_spec,

@@ -47,6 +47,7 @@ import from ui.runtime {
 import from ui.screen {
     ShellScreen,
     build_main_shell,
+    configure_main_shell_layout,
     install_shell_contracts,
     shell_insert_text,
     shell_submit,
@@ -72,11 +73,10 @@ import from ui.transcript {
 }
 
 import from ui.layout {
-    LayoutContract,
-    LayoutKind,
-    fixed,
-    grow,
-    overlay_contract,
+    LayoutSpec,
+    OverlayAnchor,
+    fill_axis,
+    fixed_axis,
 }
 
 import from ui.renderer {
@@ -247,19 +247,20 @@ def _rewrite_turn(app: LiveShell, message_id: str, role: str, body: str) {
 
 
 def _install_layout(app: LiveShell) {
+    # Permanent shell specs first (screen fill/fill, transcript grow+scroll,
+    # status/prompt legacy heights), then this shell's parity overrides:
+    # header 2 rows, prompt 3 rows (mirrors the pre-M6 contracts).
+    configure_main_shell_layout(app.renderer.layout, app.shell);
     set_node_contract(
         app.renderer,
-        app.shell.screen,
-        LayoutContract(
-            kind=LayoutKind.VIEWPORT,
-            fixed_width=app.columns,
-            fixed_height=app.rows,
-        ),
+        app.shell.header,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(2)),
     );
-    set_node_contract(app.renderer, app.shell.header, fixed(height=2));
-    set_node_contract(app.renderer, app.shell.transcript, grow());
-    set_node_contract(app.renderer, app.shell.status, fixed(height=1));
-    set_node_contract(app.renderer, app.shell.prompt, fixed(height=3));
+    set_node_contract(
+        app.renderer,
+        app.shell.prompt,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(3)),
+    );
 }
 
 
@@ -370,7 +371,11 @@ def _paint(app: LiveShell) {
         set_node_contract(
             app.renderer,
             app.shell.approval,
-            overlay_contract(48, len(overlay)),
+            LayoutSpec(
+                width=fixed_axis(48),
+                height=fixed_axis(len(overlay)),
+                overlay_anchor=OverlayAnchor.CENTER,
+            ),
         );
         set_node_content(app.renderer, app.shell.approval, overlay);
         mark_semantic_dirty(app.renderer, app.shell.approval);

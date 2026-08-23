@@ -18,7 +18,7 @@ import from ui.width {
     display_width,
     wrap_text,
 }
-import from ui.layout_state {
+import from ui.layout_types {
     LayoutState,
     MeasureEntry,
 }

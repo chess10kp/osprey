@@ -49,12 +49,11 @@ import from ui.transcript {
     set_follow_tail,
 }
 
-import from ui.layout {
-    LayoutContract,
-    LayoutKind,
-    fixed,
-    grow,
-    overlay_contract,
+import from ui.layout_types {
+    LayoutSpec,
+    fill_axis,
+    fixed_axis,
+    grow_axis,
 }
 
 import from ui.renderer {
@@ -144,19 +143,34 @@ def _frame_text(rows: list[str]) -> str {
 
 
 def _install_shell_layout(renderer: any, shell: any, columns: int, rows: int) {
+    _ = columns;
+    _ = rows;
+    # Mirror screen.jac configure_main_shell_layout (M6 LayoutSpec specs).
     set_node_contract(
         renderer,
         shell.screen,
-        LayoutContract(
-            kind=LayoutKind.VIEWPORT,
-            fixed_width=columns,
-            fixed_height=rows,
-        ),
+        LayoutSpec(width=fill_axis(), height=fill_axis()),
     );
-    set_node_contract(renderer, shell.header, fixed(height=1));
-    set_node_contract(renderer, shell.transcript, grow());
-    set_node_contract(renderer, shell.status, fixed(height=1));
-    set_node_contract(renderer, shell.prompt, fixed(height=2));
+    set_node_contract(
+        renderer,
+        shell.header,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(1)),
+    );
+    set_node_contract(
+        renderer,
+        shell.transcript,
+        LayoutSpec(width=fill_axis(), height=grow_axis(1.0), scroll_vertical=True),
+    );
+    set_node_contract(
+        renderer,
+        shell.status,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(1)),
+    );
+    set_node_contract(
+        renderer,
+        shell.prompt,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(2)),
+    );
 }
 
 
@@ -182,7 +196,10 @@ def _paint_shell(
         set_node_contract(
             renderer,
             shell.approval,
-            overlay_contract(48, max(3, len(overlay_lines))),
+            LayoutSpec(
+                width=fixed_axis(48),
+                height=fixed_axis(max(3, len(overlay_lines))),
+            ),
         );
         set_node_content(renderer, shell.approval, overlay_lines);
         mark_semantic_dirty(renderer, shell.approval);

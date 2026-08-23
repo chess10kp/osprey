@@ -18,12 +18,11 @@ import from ui.renderer {
     Renderer,
 }
 
-import from ui.layout {
-    LayoutContract,
-    LayoutKind,
-    fixed,
-    grow,
-    intrinsic,
+import from ui.layout_types {
+    LayoutSpec,
+    fill_axis,
+    fixed_axis,
+    grow_axis,
 }
 
 import from ui.virtual_terminal {
@@ -78,19 +77,34 @@ def _check(name: str, ok: bool, detail: str = "") -> N1Result {
 def _wire_shell_content(
     renderer: Renderer, shell: ShellScreen, transcript: str, prompt: str
 ) {
+    # Mirror screen.jac configure_main_shell_layout: screen fills the
+    # renderer's viewport; header/status keep fixed 1-row, prompt 2-row;
+    # transcript grows with vertical scroll.
     set_node_contract(
         renderer,
         shell.screen,
-        LayoutContract(
-            kind=LayoutKind.VIEWPORT,
-            fixed_width=renderer.layout.columns,
-            fixed_height=renderer.layout.rows,
-        ),
+        LayoutSpec(width=fill_axis(), height=fill_axis()),
     );
-    set_node_contract(renderer, shell.header, fixed(height=1));
-    set_node_contract(renderer, shell.transcript, grow());
-    set_node_contract(renderer, shell.status, fixed(height=1));
-    set_node_contract(renderer, shell.prompt, fixed(height=2));
+    set_node_contract(
+        renderer,
+        shell.header,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(1)),
+    );
+    set_node_contract(
+        renderer,
+        shell.transcript,
+        LayoutSpec(width=fill_axis(), height=grow_axis(1.0), scroll_vertical=True),
+    );
+    set_node_contract(
+        renderer,
+        shell.status,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(1)),
+    );
+    set_node_contract(
+        renderer,
+        shell.prompt,
+        LayoutSpec(width=fill_axis(), height=fixed_axis(2)),
+    );
     set_node_content(renderer, shell.header, ["Jackal"]);
     set_node_content(renderer, shell.transcript, [transcript] if transcript else [""]);
     set_node_content(renderer, shell.status, ["ready"]);

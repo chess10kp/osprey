@@ -48,15 +48,13 @@ import from ui.editor {
     AblePrompt,
 }
 
-import from ui.layout {
+import from ui.layout_types {
     AxisSize,
     SizeMode,
     LayoutSpec,
     LayoutDiagnostic,
-}
-
-import from ui.layout_state {
     LayoutState,
+    fixed_axis,
     set_spec,
 }
 
@@ -293,6 +291,22 @@ def configure_main_shell_layout(
     ];
     for i in range(len(targets)) {
         r = set_spec(state, targets[i], specs[i]);
+        if not r.ok {
+            for d in r.diagnostics {
+                failures.append(d);
+            }
+        }
+    }
+
+    # An open approval overlay is part of the compute scope (Layer-reached
+    # nodes need registered specs); mirror the legacy overlay_contract
+    # 20x4 fixed box.
+    if shell.approval is not None {
+        r = set_spec(
+            state,
+            shell.approval,
+            LayoutSpec(width=fixed_axis(20.0), height=fixed_axis(4.0)),
+        );
         if not r.ok {
             for d in r.diagnostics {
                 failures.append(d);

@@ -1,820 +1,531 @@
-"""Retained layout side tables for the OSP UI graph.
+"""Permanent public layout seam (LAYOUT-ENGINE-PLAN §3/§4).
 
-Geometry, contracts, and measurement live here keyed by jid(node). Semantic
-nodes never store rectangles, dirty flags, or wrapped cells.
+Everything downstream (renderer, screen, gates, demos, tests) imports the
+layout surface from here and only from here:
 
-Measure is bottom-up; arrange is top-down over ordered Child edges. Walker
-entry/exit is not used for layout (OSPUI.md §15.3).
+- value types + registry lifecycle re-exported from ui.layout_types;
+- frame accessors (rect_of, frame_entry_of) over the last published frame;
+- compute_layout — the axis-separated pipeline of §7.1.
+
+compute_layout lives here while its phases (compile / measure / quantize)
+stay in sibling modules; those siblings depend on ui.layout_types, never
+back on this module, so the import graph stays acyclic.
 """
 
+import from ui.layout_types {
+    Align,
+    Axis,
+    AxisSize,
+    ContentEntry,
+    FrameEntry,
+    LayoutDiagnostic,
+    LayoutError,
+    LayoutFrame,
+    LayoutRelation,
+    LayoutRelationKind,
+    LayoutResult,
+    LayoutSeverity,
+    LayoutSpec,
+    LayoutState,
+    MeasureEntry,
+    MutationResult,
+    OverlayAnchor,
+    Rect,
+    RelationHandle,
+    Size,
+    SizeMode,
+    Viewport,
+    rect_union,
+    fill_axis,
+    fixed_axis,
+    grow_axis,
+    intrinsic_axis,
+    create_layout_state,
+    validate_spec,
+    set_spec,
+    add_relation,
+    remove_relation,
+    set_content,
+    set_scroll_offset,
+    clear_node,
+    frame_entry_of,
+    rect_of,
+    _copy_rect,
+}
+import from ui.layout_compile {
+    CompileResult,
+    PartitionInfo,
+    _ScopedNode,
+    collect_scope_for_engine,
+    compile_layout,
+}
+import from ui.layout_measure {
+    natural_width,
+    wrapped_lines_at,
+}
+import from ui.layout_quantize {
+    PartitionRequest,
+    quantize_partition,
+    snap_edge,
+}
 import from ui.model {
     UiNode,
-    UiContainer,
-    Screen,
-    Overlay,
-    Layer,
-    ordered_children,
     node_id,
 }
-
 import from ui.width {
-    display_width,
     wrap_text,
 }
 
 
-"""Axis-aligned terminal rectangle in cell coordinates (origin top-left)."""
-obj Rect {
-    has x: int = 0,
-        y: int = 0,
-        width: int = 0,
-        height: int = 0;
+# ----------------------------------------------------------------------
+# Compute pipeline (plan §7.1).
+#
+# 1. natural-width measurement from registered content
+# 2. horizontal-only compile + solve (phase "h")
+# 3. horizontal quantization: root exact; flow partitions via the §7.2
+#    largest-remainder quantizer using PartitionInfo recorded by the
+#    compiler; every other node snaps its solved left/right edges
+# 4. wrapped-height measurement ONCE at each node's integer width
+# 5. vertical-only compile + solve (phase "v"), measured heights as
+#    natural-size constants
+# 6. vertical quantization (mirror of step 3) + clip propagation +
+#    scroll clamping + overlay arrangement
+# 7. atomic publish: state.last_frame replaced only after every phase
+#    succeeds; a failed run leaves the prior frame untouched
+#
+# Hard-overflow partitions (FIXED claims > span) bypass the quantizer per
+# its documented contract: children keep snapped solved edges and the
+# OVERFLOW warning travels on the published frame. Overlay origins clamp
+# to (0, 0) keeping their requested size, clipped to the viewport
+# (plan §6.3).
+# ----------------------------------------------------------------------
 
-    def right() -> int {
-        return self.x + self.width;
-    }
+def _fail(diagnostics: list[LayoutDiagnostic]) -> LayoutResult {
+    return LayoutResult(ok=False, frame=None, diagnostics=diagnostics);
+}
 
-    def bottom() -> int {
-        return self.y + self.height;
-    }
 
-    def is_empty() -> bool {
-        return self.width <= 0 or self.height <= 0;
-    }
+def _overflow_warning(node_ids: list[str]) -> LayoutDiagnostic {
+    return LayoutDiagnostic(
+        code=LayoutError.OVERFLOW,
+        severity=LayoutSeverity.WARNING,
+        message="partition exceeded span; quantized clip-aware",
+        node_ids=node_ids,
+    );
+}
 
-    def contains_point(col: int, row: int) -> bool {
-        return (
-            col >= self.x
-            and col < self.right()
-            and row >= self.y
-            and row < self.bottom()
-        );
-    }
 
-    def intersects(other: Rect) -> bool {
-        if self.is_empty() or other.is_empty() {
-            return False;
+"""Non-overlay ordered child ids of one scoped parent.
+
+scope.order is BFS: each parent's children appear contiguously in rank
+order, so a single scan groups them correctly."""
+def _child_ids(scope_order: list[_ScopedNode], parent_id: str) -> list[str] {
+    out: list[str] = [];
+    for scoped in scope_order {
+        if scoped.parent_id == parent_id and not scoped.is_overlay {
+            out.append(scoped.id_str);
         }
-        return (
-            self.x < other.right()
-            and self.right() > other.x
-            and self.y < other.bottom()
-            and self.bottom() > other.y
+    }
+    return out;
+}
+
+
+"""Place one axis of the tree top-down.
+
+Partition members are positioned by largest-remainder sizes cumulative
+from the parent's start cell (exact closure); every other child snaps
+its solved edges — pinned children hold byte-identical solved floats to
+their parent, so snapping preserves pinning exactly."""
+def _place_axis(
+    result: CompileResult,
+    values: dict[int, float],
+    order: list,
+    parent_id: str,
+    p_start: int,
+    p_end: int,
+    infos: dict[str, PartitionInfo],
+    starts: dict[str, int],
+    ends: dict[str, int],
+    warnings: list[LayoutDiagnostic],
+    horizontal: bool,
+) -> None {
+    kids = _child_ids(order, parent_id);
+    if len(kids) == 0 {
+        return;
+    }
+
+    placed = False;
+    info = infos.get(parent_id);
+    aligned = False;
+    if info is not None and len(info.child_ids) == len(kids) {
+        # Element-wise identity, not just length: quantized sizes must
+        # never map onto the wrong children if grouping ever drifts.
+        aligned = True;
+        for i in range(len(kids)) {
+            if info.child_ids[i] != kids[i] {
+                aligned = False;
+            }
+        }
+        if not aligned {
+            warnings.append(LayoutDiagnostic(
+                code=LayoutError.INTERNAL_INVARIANT,
+                severity=LayoutSeverity.ERROR,
+                message="partition child order misaligned with scope walk",
+                node_ids=[parent_id],
+            ));
+        }
+    }
+    if info is not None and aligned {
+        req = PartitionRequest(
+            span=p_end - p_start,
+            targets=info.targets,
+            fixed=info.fixed,
+            minimums=info.minimums,
+            maximums=info.maximums,
+        );
+        qr = quantize_partition(req);
+        if qr.ok {
+            pos = p_start;
+            for i in range(len(kids)) {
+                kid = kids[i];
+                starts[kid] = pos;
+                ends[kid] = pos + qr.sizes[i];
+                pos += qr.sizes[i];
+            }
+            placed = True;
+        } else {
+            # Hard overflow: no honest integer closure exists; snap the
+            # solved edges clip-aware and warn (quantizer contract).
+            warnings.append(_overflow_warning([parent_id]));
+        }
+    }
+
+    if not placed {
+        for kid in kids {
+            e = result.nodes[kid];
+            if horizontal {
+                starts[kid] = snap_edge(values[e.left.id]);
+                ends[kid] = snap_edge(values[e.right.id]);
+            } else {
+                starts[kid] = snap_edge(values[e.top.id]);
+                ends[kid] = snap_edge(values[e.bottom.id]);
+            }
+        }
+    }
+
+    for kid in kids {
+        _place_axis(
+            result, values, order, kid,
+            starts[kid], ends[kid], infos,
+            starts, ends, warnings, horizontal,
         );
     }
+}
 
-    def copy() -> Rect {
-        return Rect(
-            x=self.x,
-            y=self.y,
-            width=self.width,
-            height=self.height,
-        );
+
+"""Structural naturals, mirroring the frozen legacy measure semantics:
+leaf size from wrapped content at the hint width; containers sum along
+their flow axis and take the max across it; FIXED uses preferred;
+FILL/GROW contribute their content natural (legacy grow measured value).
+Computed bottom-up over reversed BFS order."""
+def _structural_naturals(
+    order: list[_ScopedNode],
+    state: LayoutState,
+    wrap_widths: dict[str, int],
+) -> dict[str, Size] {
+    out: dict[str, Size] = {};
+    rev: list[_ScopedNode] = [];
+    for i in range(len(order)) {
+        rev.insert(0, order[i]);
     }
-}
+    for scoped in rev {
+        id_str = scoped.id_str;
+        spec = state.specs.get(id_str);
+        lines: list[str] = [];
+        entry = state.content.get(id_str);
+        if entry is not None {
+            lines = entry.lines;
+        }
+        w_cols = wrap_widths.get(id_str, 80);
+        if w_cols < 1 {
+            w_cols = 1;
+        }
+        leaf_h = 0;
+        for line in lines {
+            leaf_h += len(wrap_text(line, w_cols));
+        }
 
-
-obj Size {
-    has width: int = 0,
-        height: int = 0;
-}
-
-
-obj Constraints {
-    has min_width: int = 0,
-        max_width: int = 100000,
-        min_height: int = 0,
-        max_height: int = 100000;
-}
-
-
-"""Layout contract kinds from OSPUI.md §15.2."""
-enum LayoutKind {
-    FIXED = "fixed",
-    INTRINSIC = "intrinsic",
-    BOUNDED = "bounded",
-    GROW = "grow",
-    VIEWPORT = "viewport",
-    OVERLAY = "overlay"
-}
-
-
-obj LayoutContract {
-    has kind: LayoutKind = LayoutKind.INTRINSIC,
-        fixed_width: int | None = None,
-        fixed_height: int | None = None,
-        min_width: int = 0,
-        max_width: int = 100000,
-        min_height: int = 0,
-        max_height: int = 100000,
-        grow_weight: float = 1.0,
-        overlay_width: int = 0,
-        overlay_height: int = 0,
-        # Parent composition axis. "horizontal" is the Jackal fragment path.
-        axis: str = "vertical";
-}
-
-
-obj LayoutEntry {
-    has contract: LayoutContract = LayoutContract(),
-        measured: Size = Size(),
-        rect: Rect = Rect(),
-        prev_rect: Rect = Rect(),
-        clip: Rect = Rect(),
-        scroll_offset: int = 0,
-        wrapped_lines: list[str] = [],
-        semantic_dirty: bool = True,
-        layout_dirty: bool = True;
-}
-
-
-"""Process-local layout tables owned by the session/renderer, never by nodes."""
-obj LayoutTables {
-    has entries: dict[str, LayoutEntry] = {},
-        content: dict[str, list[str]] = {},
-        columns: int = 80,
-        rows: int = 24;
-}
-
-
-def rect_union(a: Rect, b: Rect) -> Rect {
-    if a.is_empty() {
-        return b.copy();
-    }
-    if b.is_empty() {
-        return a.copy();
-    }
-    x0 = min(a.x, b.x);
-    y0 = min(a.y, b.y);
-    x1 = max(a.right(), b.right());
-    y1 = max(a.bottom(), b.bottom());
-    return Rect(x=x0, y=y0, width=x1 - x0, height=y1 - y0);
-}
-
-
-def fixed(width: int | None = None, height: int | None = None) -> LayoutContract {
-    return LayoutContract(
-        kind=LayoutKind.FIXED,
-        fixed_width=width,
-        fixed_height=height,
-    );
-}
-
-
-def intrinsic() -> LayoutContract {
-    return LayoutContract(kind=LayoutKind.INTRINSIC);
-}
-
-
-def bounded(
-    min_width: int = 0,
-    max_width: int = 100000,
-    min_height: int = 0,
-    max_height: int = 100000,
-) -> LayoutContract {
-    return LayoutContract(
-        kind=LayoutKind.BOUNDED,
-        min_width=min_width,
-        max_width=max_width,
-        min_height=min_height,
-        max_height=max_height,
-    );
-}
-
-
-def grow(weight: float = 1.0) -> LayoutContract {
-    return LayoutContract(kind=LayoutKind.GROW, grow_weight=weight);
-}
-
-
-def viewport() -> LayoutContract {
-    return LayoutContract(kind=LayoutKind.VIEWPORT);
-}
-
-
-def overlay_contract(width: int, height: int) -> LayoutContract {
-    return LayoutContract(
-        kind=LayoutKind.OVERLAY,
-        overlay_width=width,
-        overlay_height=height,
-    );
-}
-
-
-"""Mark a container as laying out direct children on one horizontal row."""
-def horizontal() -> LayoutContract {
-    return LayoutContract(kind=LayoutKind.INTRINSIC, axis="horizontal");
-}
-
-
-def create_layout_tables(columns: int = 80, rows: int = 24) -> LayoutTables {
-    return LayoutTables(columns=columns, rows=rows);
-}
-
-
-def _ensure_entry(tables: LayoutTables, n: UiNode) -> LayoutEntry {
-    nid = node_id(n);
-    if nid not in tables.entries {
-        tables.entries[nid] = LayoutEntry();
-    }
-    return tables.entries[nid];
-}
-
-
-def set_contract(tables: LayoutTables, n: UiNode, contract: LayoutContract) {
-    entry = _ensure_entry(tables, n);
-    entry.contract = contract;
-    entry.layout_dirty = True;
-}
-
-
-def set_content(tables: LayoutTables, n: UiNode, lines: list[str]) {
-    nid = node_id(n);
-    tables.content[nid] = list(lines);
-    entry = _ensure_entry(tables, n);
-    entry.semantic_dirty = True;
-}
-
-
-def get_entry(tables: LayoutTables, n: UiNode) -> LayoutEntry | None {
-    return tables.entries.get(node_id(n));
-}
-
-
-def rect_of(tables: LayoutTables, n: UiNode) -> Rect {
-    entry = get_entry(tables, n);
-    if entry is None {
-        return Rect();
-    }
-    return entry.rect.copy();
-}
-
-
-def measured_of(tables: LayoutTables, n: UiNode) -> Size {
-    entry = get_entry(tables, n);
-    if entry is None {
-        return Size();
-    }
-    return Size(width=entry.measured.width, height=entry.measured.height);
-}
-
-
-def invalidate_semantic(tables: LayoutTables, n: UiNode) {
-    entry = _ensure_entry(tables, n);
-    entry.semantic_dirty = True;
-}
-
-
-def invalidate_layout(tables: LayoutTables, n: UiNode) {
-    entry = _ensure_entry(tables, n);
-    entry.layout_dirty = True;
-}
-
-
-def set_scroll_offset(tables: LayoutTables, n: UiNode, offset: int) {
-    entry = _ensure_entry(tables, n);
-    max_off = max(0, len(entry.wrapped_lines) - max(1, entry.rect.height));
-    if entry.rect.height <= 0 and entry.wrapped_lines {
-        max_off = max(0, len(entry.wrapped_lines) - 1);
-    }
-    entry.scroll_offset = max(0, min(offset, max_off));
-    entry.layout_dirty = True;
-}
-
-
-"""Remove layout state for a disposed node. Caller must snapshot prev_rect first."""
-def clear_node(tables: LayoutTables, n: UiNode) {
-    nid = node_id(n);
-    if nid in tables.entries {
-        del tables.entries[nid];
-    }
-    if nid in tables.content {
-        del tables.content[nid];
-    }
-}
-
-
-"""Snapshot current rects into prev_rect before the next measure/arrange."""
-def snapshot_rects(tables: LayoutTables) {
-    for (_nid, entry) in tables.entries.items() {
-        entry.prev_rect = entry.rect.copy();
-    }
-}
-
-
-def _flow_children(tables: LayoutTables, parent: UiContainer) -> list[UiNode] {
-    out: list[UiNode] = [];
-    for child in ordered_children(parent) {
-        entry = _ensure_entry(tables, child);
-        if entry.contract.kind == LayoutKind.OVERLAY {
+        kids = _child_ids(order, id_str);
+        if spec is None or len(kids) == 0 {
+            out[id_str] = Size(
+                width=natural_width(lines),
+                height=leaf_h,
+            );
             continue;
         }
-        out.append(child);
-    }
-    return out;
-}
-
-
-def _wrap_content(tables: LayoutTables, n: UiNode, width: int) -> list[str] {
-    raw = tables.content.get(node_id(n), []);
-    if not raw {
-        return [];
-    }
-    wrapped: list[str] = [];
-    for line in raw {
-        wrapped.extend(wrap_text(line, max(1, width)));
-    }
-    return wrapped;
-}
-
-
-def _leaf_size(tables: LayoutTables, n: UiNode, avail_width: int) -> Size {
-    entry = _ensure_entry(tables, n);
-    c = entry.contract;
-    width = avail_width;
-    if c.kind == LayoutKind.FIXED and c.fixed_width is not None {
-        width = int(c.fixed_width);
-    } elif c.kind == LayoutKind.OVERLAY {
-        width = c.overlay_width;
-    } elif c.kind == LayoutKind.BOUNDED {
-        width = max(c.min_width, min(avail_width, c.max_width));
-    }
-    if width < 0 {
-        width = 0;
-    }
-    lines = _wrap_content(tables, n, width if width > 0 else 1);
-    entry.wrapped_lines = lines;
-    height = len(lines);
-    if c.kind == LayoutKind.FIXED {
-        if c.fixed_width is not None {
-            width = int(c.fixed_width);
+        flow_horiz = False;
+        if spec.flow_axis == Axis.HORIZONTAL {
+            flow_horiz = True;
         }
-        if c.fixed_height is not None {
-            height = int(c.fixed_height);
-        }
-    } elif c.kind == LayoutKind.BOUNDED {
-        height = max(c.min_height, min(height, c.max_height));
-        width = max(c.min_width, min(width, c.max_width));
-    } elif c.kind == LayoutKind.OVERLAY {
-        width = c.overlay_width;
-        height = c.overlay_height;
-        entry.wrapped_lines = _wrap_content(tables, n, max(1, width));
-    } elif c.kind == LayoutKind.VIEWPORT or c.kind == LayoutKind.GROW {
-        # Content height is the intrinsic minimum; arrange assigns final size.
-        _ = height;
-    }
-    entry.measured = Size(width=width, height=height);
-    return entry.measured;
-}
-
-
-def _measure_node(tables: LayoutTables, n: UiNode, avail_width: int) -> Size {
-    entry = _ensure_entry(tables, n);
-    if not isinstance(n, UiContainer) {
-        return _leaf_size(tables, n, avail_width);
-    }
-    children = _flow_children(tables, n);
-    if not children {
-        return _leaf_size(tables, n, avail_width);
-    }
-    c = entry.contract;
-    if c.axis == "horizontal" {
-        total_w = 0;
-        max_h = 0;
-        for child in children {
-            child_entry = _ensure_entry(tables, child);
-            child_c = child_entry.contract;
-            child_avail = avail_width;
-            if child_c.kind == LayoutKind.FIXED and child_c.fixed_width is not None {
-                child_avail = int(child_c.fixed_width);
-            }
-            sz = _measure_node(tables, child, child_avail);
-            total_w += sz.width;
-            if sz.height > max_h {
-                max_h = sz.height;
-            }
-        }
-        width = avail_width;
-        height = max_h;
-        if c.kind == LayoutKind.FIXED {
-            if c.fixed_width is not None {
-                width = int(c.fixed_width);
-            }
-            if c.fixed_height is not None {
-                height = int(c.fixed_height);
-            }
-        }
-        entry.measured = Size(width=width, height=height);
-        entry.wrapped_lines = _wrap_content(tables, n, max(1, width));
-        return entry.measured;
-    }
-    # Vertical composition.
-    max_w = avail_width;
-    total_h = 0;
-    for child in children {
-        sz = _measure_node(tables, child, avail_width);
-        total_h += sz.height;
-        if sz.width > max_w {
-            max_w = sz.width;
-        }
-    }
-    width = avail_width;
-    height = total_h;
-    if c.kind == LayoutKind.FIXED {
-        if c.fixed_width is not None {
-            width = int(c.fixed_width);
-        }
-        if c.fixed_height is not None {
-            height = int(c.fixed_height);
-        }
-    } elif c.kind == LayoutKind.BOUNDED {
-        height = max(c.min_height, min(height, c.max_height));
-        width = max(c.min_width, min(width, c.max_width));
-    }
-    entry.measured = Size(width=width, height=height);
-    entry.wrapped_lines = _wrap_content(tables, n, max(1, width));
-    return entry.measured;
-}
-
-
-def _clip_intersect(parent_clip: Rect, rect: Rect) -> Rect {
-    if parent_clip.is_empty() or rect.is_empty() {
-        return Rect();
-    }
-    x0 = max(parent_clip.x, rect.x);
-    y0 = max(parent_clip.y, rect.y);
-    x1 = min(parent_clip.right(), rect.right());
-    y1 = min(parent_clip.bottom(), rect.bottom());
-    if x1 <= x0 or y1 <= y0 {
-        return Rect();
-    }
-    return Rect(x=x0, y=y0, width=x1 - x0, height=y1 - y0);
-}
-
-
-def _assign_axis_sizes(
-    tables: LayoutTables,
-    children: list[UiNode],
-    total: int,
-    horizontal: bool,
-) -> list[int] {
-    n = len(children);
-    sizes: list[int] = [0] * n;
-    if n == 0 {
-        return sizes;
-    }
-    fixed_sum = 0;
-    grow_weight = 0.0;
-    grow_idxs: list[int] = [];
-    for (i, child) in enumerate(children) {
-        entry = _ensure_entry(tables, child);
-        c = entry.contract;
-        if c.kind == LayoutKind.FIXED {
-            if horizontal {
-                sizes[i] = (
-                    int(c.fixed_width)
-                    if c.fixed_width is not None
-                    else entry.measured.width
-                );
-            } else {
-                sizes[i] = (
-                    int(c.fixed_height)
-                    if c.fixed_height is not None
-                    else entry.measured.height
-                );
-            }
-            fixed_sum += sizes[i];
-        } elif c.kind == LayoutKind.GROW or c.kind == LayoutKind.VIEWPORT {
-            grow_idxs.append(i);
-            grow_weight += c.grow_weight if c.grow_weight > 0.0 else 1.0;
-            sizes[i] = 0;
-        } else {
-            # intrinsic / bounded use measured size on this axis
-            if horizontal {
-                sizes[i] = entry.measured.width;
-            } else {
-                sizes[i] = entry.measured.height;
-            }
-            fixed_sum += sizes[i];
-        }
-    }
-    remaining = total - fixed_sum;
-    if remaining < 0 {
-        remaining = 0;
-    }
-    if grow_idxs {
-        allocated = 0;
-        for (gi, idx) in enumerate(grow_idxs) {
-            entry = _ensure_entry(tables, children[idx]);
-            weight = entry.contract.grow_weight;
-            if weight <= 0.0 {
-                weight = 1.0;
-            }
-            if gi == len(grow_idxs) - 1 {
-                sizes[idx] = remaining - allocated;
-            } else {
-                share = int(remaining * (weight / grow_weight));
-                sizes[idx] = share;
-                allocated += share;
-            }
-            if sizes[idx] < 0 {
-                sizes[idx] = 0;
-            }
-        }
-    }
-    return sizes;
-}
-
-
-def _arrange_node(tables: LayoutTables, n: UiNode, parent_clip: Rect) {
-    entry = _ensure_entry(tables, n);
-    entry.clip = _clip_intersect(parent_clip, entry.rect);
-    entry.layout_dirty = False;
-    entry.semantic_dirty = False;
-    if entry.contract.kind == LayoutKind.VIEWPORT {
-        # Keep full wrapped content; paint applies scroll_offset.
-        width = max(1, entry.rect.width);
-        entry.wrapped_lines = _wrap_content(tables, n, width);
-    } elif not entry.wrapped_lines and node_id(n) in tables.content {
-        entry.wrapped_lines = _wrap_content(
-            tables, n, max(1, entry.rect.width)
-        );
-    }
-    if not isinstance(n, UiContainer) {
-        return;
-    }
-    children = _flow_children(tables, n);
-    if not children {
-        return;
-    }
-    rect = entry.rect;
-    if entry.contract.axis == "horizontal" {
-        widths = _assign_axis_sizes(tables, children, rect.width, True);
-        x = rect.x;
-        for (i, child) in enumerate(children) {
-            child_entry = _ensure_entry(tables, child);
-            h = child_entry.measured.height;
-            if child_entry.contract.kind == LayoutKind.FIXED {
-                if child_entry.contract.fixed_height is not None {
-                    h = int(child_entry.contract.fixed_height);
+        sum_flow = 0.0;
+        max_cross = 0.0;
+        for kid_id in kids {
+            nat = out[kid_id];
+            kid_w: float = float(nat.width);
+            kid_h: float = float(nat.height);
+            kspec = state.specs.get(kid_id);
+            if kspec is not None {
+                if kspec.width.mode == SizeMode.FIXED
+                    and kspec.width.preferred is not None {
+                    kid_w = kspec.width.preferred;
                 }
-            } elif (
-                child_entry.contract.kind == LayoutKind.GROW
-                or child_entry.contract.kind == LayoutKind.VIEWPORT
-            ) {
-                h = rect.height;
+                if kspec.height.mode == SizeMode.FIXED
+                    and kspec.height.preferred is not None {
+                    kid_h = kspec.height.preferred;
+                }
             }
-            child_entry.rect = Rect(x=x, y=rect.y, width=widths[i], height=h);
-            _arrange_node(tables, child, entry.clip);
-            x += widths[i];
-        }
-        return;
-    }
-    heights = _assign_axis_sizes(tables, children, rect.height, False);
-    y = rect.y;
-    for (i, child) in enumerate(children) {
-        child_entry = _ensure_entry(tables, child);
-        child_entry.rect = Rect(
-            x=rect.x, y=y, width=rect.width, height=heights[i]
-        );
-        _arrange_node(tables, child, entry.clip);
-        y += heights[i];
-    }
-}
-
-
-obj RankedLayer {
-    has z_index: int = 0,
-        overlay: Overlay | None = None;
-}
-
-
-def _ranked_layer_key(pair: RankedLayer) -> int {
-    return pair.z_index;
-}
-
-
-def _layer_overlays(screen: Screen) -> list[Overlay] {
-    pairs: list[RankedLayer] = [];
-    for candidate in [screen ->:Layer:->] {
-        if isinstance(candidate, Overlay) {
-            z = 0;
-            for layer_edge in [edge screen ->:Layer:-> candidate] {
-                z = layer_edge.z_index;
+            if flow_horiz {
+                sum_flow += kid_w;
+                if kid_h > max_cross {
+                    max_cross = kid_h;
+                }
+            } else {
+                sum_flow += kid_h;
+                if kid_w > max_cross {
+                    max_cross = kid_w;
+                }
             }
-            pairs.append(RankedLayer(z_index=z, overlay=candidate));
         }
-    }
-    pairs.sort(key=_ranked_layer_key);
-    out: list[Overlay] = [];
-    for p in pairs {
-        if p.overlay is not None {
-            out.append(p.overlay);
+        if flow_horiz {
+            out[id_str] = Size(
+                width=int(sum_flow),
+                height=int(max_cross),
+            );
+        } else {
+            out[id_str] = Size(
+                width=int(max_cross),
+                height=int(sum_flow),
+            );
         }
     }
     return out;
 }
 
 
-def _arrange_overlays(tables: LayoutTables, screen: Screen, columns: int, rows: int) {
-    for overlay in _layer_overlays(screen) {
-        entry = _ensure_entry(tables, overlay);
-        _measure_node(tables, overlay, columns);
-        w = entry.contract.overlay_width;
-        h = entry.contract.overlay_height;
-        if entry.contract.kind != LayoutKind.OVERLAY {
-            w = entry.measured.width;
-            h = entry.measured.height;
-        }
-        if w <= 0 {
-            w = entry.measured.width;
-        }
-        if h <= 0 {
-            h = entry.measured.height;
-        }
-        x = max(0, (columns - w) // 2);
-        y = max(0, (rows - h) // 2);
-        if x + w > columns {
-            x = max(0, columns - w);
-        }
-        if y + h > rows {
-            y = max(0, rows - h);
-        }
-        entry.rect = Rect(x=x, y=y, width=w, height=h);
-        entry.clip = entry.rect.copy();
-        entry.wrapped_lines = _wrap_content(tables, overlay, max(1, w));
-        entry.layout_dirty = False;
-        entry.semantic_dirty = False;
-        if isinstance(overlay, UiContainer) {
-            _arrange_node(tables, overlay, entry.clip);
-        }
-    }
-}
-
-
-"""Public helpers used by the renderer paint pass."""
-def flow_children(tables: LayoutTables, parent: UiContainer) -> list[UiNode] {
-    return _flow_children(tables, parent);
-}
-
-
-def layer_overlays(screen: Screen) -> list[Overlay] {
-    return _layer_overlays(screen);
-}
-
-
-"""Measure bottom-up and arrange top-down for layout_root under terminal bounds."""
-def measure_and_arrange(
-    tables: LayoutTables,
+"""Full pipeline: registry + topology -> published LayoutFrame."""
+def compute_layout(
+    state: LayoutState,
     layout_root: UiNode,
-    columns: int,
-    rows: int,
-) -> None {
-    tables.columns = columns;
-    tables.rows = rows;
-    _measure_node(tables, layout_root, columns);
-    root_entry = _ensure_entry(tables, layout_root);
-    root_entry.rect = Rect(x=0, y=0, width=columns, height=rows);
-    root_clip = root_entry.rect.copy();
-    root_entry.clip = root_clip;
-    _arrange_node(tables, layout_root, root_clip);
-    if isinstance(layout_root, Screen) {
-        _arrange_overlays(tables, layout_root, columns, rows);
+    viewport: Viewport,
+) -> LayoutResult {
+    scope = collect_scope_for_engine(layout_root);
+    if scope.error is not None {
+        return _fail([scope.error]);
     }
-}
+    order = scope.order;
+    root_id = node_id(layout_root);
+
+    # ---- Phase H ----------------------------------------------------
+    # Legacy measures leaves at the available width (full viewport here);
+    # containers get structural sum/max naturals.
+    hint_all: dict[str, int] = {};
+    for scoped in order {
+        hint_all[scoped.id_str] = viewport.columns;
+    }
+    naturals_w = _structural_naturals(order, state, hint_all);
+
+    ch = compile_layout(state, layout_root, viewport, naturals_w, "h");
+    if not ch.ok or ch.solver is None {
+        return _fail(ch.diagnostics);
+    }
+    hv = ch.solver.snapshot().values;
+
+    L: dict[str, int] = {};
+    R: dict[str, int] = {};
+    L[root_id] = 0;
+    R[root_id] = viewport.columns;
+    hinfos: dict[str, PartitionInfo] = {};
+    for info in ch.partitions {
+        if info.horizontal {
+            hinfos[info.parent_id] = info;
+        }
+    }
+    warnings: list[LayoutDiagnostic] = [];
+    _place_axis(
+        ch, hv, order, root_id, 0, viewport.columns,
+        hinfos, L, R, warnings, True,
+    );
+    # Overlays sit outside every flow partition: snap each axis's cells
+    # in its own phase before that axis is consumed.
+    for scoped in order {
+        if not scoped.is_overlay {
+            continue;
+        }
+        id_str = scoped.id_str;
+        eh = ch.nodes[id_str];
+        L[id_str] = snap_edge(hv[eh.left.id]);
+        R[id_str] = snap_edge(hv[eh.right.id]);
+    }
+
+    # ---- Measure once at integer widths ------------------------------
+    widths: dict[str, int] = {};
+    wrapped_by_node: dict[str, list[str]] = {};
+    for scoped in order {
+        id_str = scoped.id_str;
+        w = R[id_str] - L[id_str];
+        if w < 0 {
+            return _fail([LayoutDiagnostic(
+                code=LayoutError.INTERNAL_INVARIANT,
+                severity=LayoutSeverity.ERROR,
+                message="negative derived width",
+                node_ids=[id_str],
+            )]);
+        }
+        widths[id_str] = w;
+        wrapped_by_node[id_str] = list(wrapped_lines_at(state, id_str, w));
+    }
+
+    # ---- Phase V -----------------------------------------------------
+    # Leaves rewrap at their quantized integer widths; containers use
+    # structural sum/max over those measured children.
+    naturals_h = _structural_naturals(order, state, widths);
+
+    cv = compile_layout(state, layout_root, viewport, naturals_h, "v");
+    if not cv.ok or cv.solver is None {
+        return _fail(cv.diagnostics);
+    }
+    vv = cv.solver.snapshot().values;
+
+    T: dict[str, int] = {};
+    B: dict[str, int] = {};
+    T[root_id] = 0;
+    B[root_id] = viewport.rows;
+    vinfos: dict[str, PartitionInfo] = {};
+    for info in cv.partitions {
+        if not info.horizontal {
+            vinfos[info.parent_id] = info;
+        }
+    }
+    _place_axis(
+        cv, vv, order, root_id, 0, viewport.rows,
+        vinfos, T, B, warnings, False,
+    );
+    for scoped in order {
+        if not scoped.is_overlay {
+            continue;
+        }
+        id_str = scoped.id_str;
+        ev = cv.nodes[id_str];
+        T[id_str] = snap_edge(vv[ev.top.id]);
+        B[id_str] = snap_edge(vv[ev.bottom.id]);
+    }
 
 
-# ----------------------------------------------------------------------
-# Permanent constraint-layout interface (LAYOUT-ENGINE-PLAN §4, M4).
-#
-# These values coexist with the legacy contract tables above until the
-# M6 cutover deletes LayoutKind/LayoutContract/measure_and_arrange.
-# Registry lifecycle functions live in ui.layout_state because four of
-# the permanent names (set_content, clear_node, rect_of, set_scroll_
-# offset) collide with legacy helpers that renderer/gates still call.
-# ----------------------------------------------------------------------
+    # ---- Frame construction ------------------------------------------
+    entries: dict[str, FrameEntry] = {};
+    clips: dict[str, Rect] = {};
 
-import from constraints.algebra {
-    StrengthTier,
-}
+    for scoped in order {
+        id_str = scoped.id_str;
+        l = L[id_str];
+        r = R[id_str];
+        t = T[id_str];
+        b = B[id_str];
 
+        w = r - l;
+        h = b - t;
+        if scoped.is_overlay {
+            # Origin clamped into the viewport; SIZE KEPT AS SOLVED so a
+            # too-big fixed overlay clips instead of shrinking (§6.3).
+            if l < 0 {
+                l = 0;
+            }
+            if t < 0 {
+                t = 0;
+            }
+        }
+        if w < 0 or h < 0 {
+            return _fail([LayoutDiagnostic(
+                code=LayoutError.INTERNAL_INVARIANT,
+                severity=LayoutSeverity.ERROR,
+                message="negative derived size",
+                node_ids=[id_str],
+            )]);
+        }
+        rect = Rect(x=l, y=t, width=w, height=h);
 
-enum Axis { HORIZONTAL = "horizontal", VERTICAL = "vertical" }
-enum SizeMode { FIXED = "fixed", INTRINSIC = "intrinsic", BOUNDED = "bounded", FILL = "fill", GROW = "grow" }
-enum Align { START = "start", CENTER = "center", END = "end", STRETCH = "stretch" }
-enum OverlayAnchor { CENTER = "center", TOP = "top", BOTTOM = "bottom", LEFT = "left", RIGHT = "right" }
+        # Clip propagation: BFS order guarantees the parent clip exists.
+        if scoped.parent_id == "" {
+            # Root and Layer-reached overlays have no Child parent; both
+            # keep clip == rect like the frozen oracle (plan 8.3 strict
+            # parity — the renderer bounds its own paint).
+            clip = _copy_rect(rect);
+        } else {
+            pclip = clips[scoped.parent_id];
+            if pclip.width <= 0 or pclip.height <= 0 or w <= 0 or h <= 0 {
+                clip = Rect(x=0, y=0, width=0, height=0);
+            } else {
+                # Mirror oracle _clip_intersect exactly: a non-positive
+                # intersection yields the empty sentinel at origin 0,0.
+                x0 = pclip.x if pclip.x > l else l;
+                y0 = pclip.y if pclip.y > t else t;
+                pr_end = pclip.x + pclip.width;
+                pb_end = pclip.y + pclip.height;
+                x1 = pr_end if pr_end < r else r;
+                y1 = pb_end if pb_end < b else b;
+                cw = x1 - x0;
+                chh = y1 - y0;
+                if cw <= 0 or chh <= 0 {
+                    clip = Rect(x=0, y=0, width=0, height=0);
+                } else {
+                    clip = Rect(x=x0, y=y0, width=cw, height=chh);
+                }
+            }
+        }
+        clips[id_str] = clip;
 
+        wrapped = wrapped_by_node[id_str];
+        requested = 0;
+        spec = state.specs.get(id_str);
+        if spec is not None and spec.scroll_vertical {
+            requested = state.scroll_requests.get(id_str, 0);
+        }
+        max_off = max(0, len(wrapped) - max(1, h));
+        off = min(max(requested, 0), max_off);
 
-"""Per-axis sizing policy (plan §4.1)."""
-obj AxisSize {
-    has mode: SizeMode,
-        minimum: float = 0.0,
-        preferred: float | None = None,
-        maximum: float | None = None,
-        grow_weight: float = 0.0;
-}
+        entries[id_str] = FrameEntry(
+            measured=Size(width=w, height=h),
+            rect=_copy_rect(rect),
+            clip=clip,
+            wrapped_lines=list(wrapped),
+            requested_scroll_offset=requested,
+            scroll_offset=off,
+            max_scroll_offset=max_off,
+        );
+    }
 
+    overlay_ids: list[str] = [];
+    for scoped in order {
+        if scoped.is_overlay {
+            overlay_ids.append(scoped.id_str);
+        }
+    }
 
-"""Permanent node layout spec (plan §4.1). Replaces LayoutContract.
+    prev_gen = 0;
+    if state.last_frame is not None {
+        prev_gen = state.last_frame.generation;
+    }
+    frame = LayoutFrame(
+        generation=prev_gen + 1,
+        viewport=Viewport(columns=viewport.columns, rows=viewport.rows),
+        entries=entries,
+        overlay_ids=overlay_ids,
+    );
+    state.last_frame = frame;
 
-Field order puts the required axis sizes first because Jac objects follow
-dataclass default rules (a plan-sanctioned spelling change)."""
-obj LayoutSpec {
-    has width: AxisSize,
-        height: AxisSize,
-        flow_axis: Axis = Axis.VERTICAL,
-        cross_align: Align = Align.STRETCH,
-        scroll_vertical: bool = False,
-        overlay_anchor: OverlayAnchor | None = None;
-}
-
-
-enum LayoutSeverity { WARNING = "warning", ERROR = "error" }
-enum LayoutError {
-    INVALID_SPEC = "invalid_spec",
-    INVALID_RELATION = "invalid_relation",
-    STALE_NODE = "stale_node",
-    OUT_OF_SCOPE = "out_of_scope",
-    INVALID_TOPOLOGY = "invalid_topology",
-    UNSATISFIABLE = "unsatisfiable",
-    OVERFLOW = "overflow",
-    UNSUPPORTED_AXIS_COUPLING = "unsupported_axis_coupling",
-    INTERNAL_INVARIANT = "internal_invariant"
-}
-
-
-obj Viewport {
-    has columns: int,
-        rows: int;
-}
-
-
-obj RelationHandle {
-    has id: int;
-}
-
-
-obj LayoutDiagnostic {
-    has code: LayoutError,
-        severity: LayoutSeverity,
-        message: str,
-        node_ids: list[str] = [],
-        provenance: list[str] = [];
-}
-
-
-obj FrameEntry {
-    has measured: Size,
-        rect: Rect,
-        clip: Rect,
-        wrapped_lines: list[str],
-        requested_scroll_offset: int = 0,
-        scroll_offset: int = 0,
-        max_scroll_offset: int = 0;
-}
-
-
-obj LayoutFrame {
-    has generation: int,
-        viewport: Viewport,
-        entries: dict[str, FrameEntry],
-        overlay_ids: list[str];
-}
-
-
-obj MutationResult {
-    has ok: bool,
-        relation_handle: RelationHandle | None = None,
-        diagnostics: list[LayoutDiagnostic] = [];
-}
-
-
-obj LayoutResult {
-    has ok: bool,
-        frame: LayoutFrame | None = None,
-        diagnostics: list[LayoutDiagnostic] = [];
-}
-
-
-enum LayoutRelationKind {
-    LEFT_OF = "left_of", RIGHT_OF = "right_of",
-    ABOVE = "above", BELOW = "below",
-    ALIGN_START = "align_start", ALIGN_END = "align_end",
-    ALIGN_CENTER = "align_center", SAME_SIZE = "same_size"
-}
-
-
-"""Process-local spatial relation between two live nodes (plan §4.1).
-
-Not an OSP edge: relations are registry data keyed by stable node ids so
-a replaced node (new jid) never inherits geometry declarations."""
-obj LayoutRelation {
-    has owner_id: str,
-        source_id: str,
-        target_id: str,
-        kind: LayoutRelationKind,
-        axis: Axis,
-        provenance: str,
-        gap: float = 0.0,
-        strength: StrengthTier = StrengthTier.REQUIRED;
+    diags: list[LayoutDiagnostic] = [];
+    for d in warnings {
+        diags.append(d);
+    }
+    return LayoutResult(ok=True, frame=frame, diagnostics=diags);
 }
