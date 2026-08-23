@@ -8,12 +8,14 @@ import from .plugin_bridge {
     resolve_stub_echo,
     resolve_pi_greet,
     resolve_stub_commands,
-    register_fake_command,
-    register_fake_listener,
     create_bridge,
-    ensure_host,
     fire_hook,
     PluginBridge,
+}
+import from .fake_host {
+    ensure_host,
+    register_fake_command,
+    register_fake_listener,
     fake_push_message,
     fake_push_entry,
 }
@@ -129,7 +131,8 @@ test "enqueue_prompt queues while loading" {
 
 # ===================== T2-partial: commands + hooks =====================
 
-import from .plugin_bridge { resolve_stub_commands, register_fake_command, register_fake_listener }
+import from .plugin_bridge { resolve_stub_commands }
+import from .fake_host { register_fake_command, register_fake_listener }
 
 
 test "session_boot mirrors extension commands and run_command round-trips" {
