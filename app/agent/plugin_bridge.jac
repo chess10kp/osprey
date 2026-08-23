@@ -140,6 +140,21 @@ def resolve_pi_greet(explicit: str = "") -> str {
 }
 
 
+def resolve_pi_ctx_probe(explicit: str = "") -> str {
+    if explicit {
+        if os.path.isfile(explicit) {
+            return os.path.abspath(explicit);
+        }
+        raise FileNotFoundError(f"pi_ctx_probe not found: {explicit}");
+    }
+    host = resolve_host_mjs();
+    path = os.path.join(os.path.dirname(host), "fixtures", "pi_ctx_probe.mjs");
+    if not os.path.isfile(path) {
+        raise FileNotFoundError(f"pi_ctx_probe fixture missing: {path}");
+    }
+    return path;
+}
+
 def resolve_stub_commands(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
@@ -853,6 +868,18 @@ def load_extension_path(
     if not os.path.isfile(abs_path) {
         raise FileNotFoundError(f"extension module not found: {abs_path}");
     }
+    # Builtin catalog rides ext_load so pi.getAllTools() sees the full
+    # surface (native-origin tools only; js tools come from other exts).
+    builtins: list[dict] = [];
+    for entry in reg.tools.values() {
+        if entry.origin == "native" {
+            builtins.append({
+                "name": entry.name,
+                "description": entry.description,
+                "parameters": entry.parameters,
+            });
+        }
+    }
     corr = _alloc_corr(bridge);
     _prepare_corr(bridge, corr, expect_kind="ext_loaded");
     req = make_envelope(
@@ -864,6 +891,7 @@ def load_extension_path(
             "path": abs_path,
             "requires": [str(x) for x in requires],
             "has_ui": bool(has_ui),
+            "builtins": builtins,
         },
     );
     _write_node(bridge, req);

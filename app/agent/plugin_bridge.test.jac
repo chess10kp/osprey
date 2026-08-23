@@ -13,6 +13,7 @@ import from .registry {
     get_tool,
     invoke,
     as_tool_specs,
+    register_native,
 }
 import from .protocol {
     is_plugin_kind,
@@ -1153,5 +1154,54 @@ test "cancel_all_ui drains and expires auto-cancel" {
     time.sleep(0.05);
     got = poll_ui_request(bridge);
     assert got is None;  # expired -> answered cancelled, not surfaced
+    dispose_bridge(bridge);
+}
+
+# ===================== T2c: execute ctx (builtins + ui) =====================
+
+test "node host sends builtins on ext_load and getAllTools sees them" {
+    bridge = create_bridge("s-t2-builtins");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    drain_inbox(bridge);
+    # Seed a native builtin so the catalog is non-empty on the wire.
+    register_native(reg, "read_file", "Read a file", {"type": "object", "properties": {}}, _echo);
+    load_extension_path(bridge, reg, "ctx.probe", resolve_pi_ctx_probe());
+
+    ctx_report = invoke(reg, "probe_ctx", {}, bridge);
+    assert ctx_report.startswith("{");
+    import json;
+    data: dict = json.loads(ctx_report);
+    assert data["has_cwd"] is True;
+    assert data["ui_kind"] == "object";
+    assert data["notify_kind"] == "function";
+    assert data["select_kind"] == "function";
+    # Builtins first, extension tools after — one flat catalog.
+    assert data["tools"] == ["read_file", "probe_ctx", "probe_ui"];
+
+    dispose_bridge(bridge);
+}
+
+
+test "tool execute ui ctx: notify rides tool_result notifications, setStatus rides ui_events" {
+    bridge = create_bridge("s-t2-toolui");
+    reg = create_registry();
+    ensure_node_host(bridge);
+    drain_inbox(bridge);
+    load_extension_path(bridge, reg, "ctx.probe", resolve_pi_ctx_probe());
+
+    res = invoke(reg, "probe_ui", {}, bridge);
+    assert res == "ui exercised";
+
+    # setStatus is a display method -> normalized ui_event entry.
+    traffic = drain_extension_traffic(bridge);
+    methods: list[str] = [];
+    for entry in traffic["entries"] {
+        if str(entry.get("type", "")) == "ui_event" {
+            methods.append(str(entry.get("method", "")));
+        }
+    }
+    assert methods == ["setStatus"];
+
     dispose_bridge(bridge);
 }

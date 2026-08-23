@@ -9,6 +9,11 @@
  * Jackal also accepts the spike shape `{ handler(args) }` so fixtures keep
  * working.
  *
+ * `execute` ctx carries `cwd` plus a live `ui` object (same surface command
+ * handlers get): notify() collects into tool_result notifications, display
+ * methods collect into ui_events, interactive methods round-trip through the
+ * broker when a UI-capable frontend is attached (fail loud otherwise).
+ *
  * Compat honesty (P4): this host ships **T2-partial** compatibility — tools
  * (T0/T1), commands, lifecycle session hooks, and markdown transformers are
  * real; UI events and renderers remain stubs. If an extension declares
@@ -70,6 +75,10 @@ export function createHostState() {
     labels: new Map(),
     modelName: "",
     thinkingLevel: "off",
+    /** Native builtin tool metadata ({name, description, parameters}) sent
+     * by the Jac side on ext_load, so pi.getAllTools() reports the full
+     * catalog — builtins execute on the Jac side, they are read-only here. */
+    builtinTools: [],
     /** Extension-issued setModel/setThinkingLevel requests ride the next
      * outgoing reply (model_select / thinking_level_select) so the Jac side
      * can actually switch the session. Cleared on drain. */
@@ -307,10 +316,11 @@ function makePiApi(state, extensionId) {
           `registerTool(${def.name}): execute or handler required`,
         );
       }
-      const run = async (args, toolCallId = "call", signal, onUpdate) => {
+      const run = async (args, toolCallId = "call", signal, onUpdate, ui) => {
         if (typeof execute === "function") {
           const out = await execute(toolCallId, args, signal, onUpdate, {
             cwd: process.cwd(),
+            ui: ui ?? null,
           });
           return resultToString(out);
         }
@@ -544,11 +554,19 @@ function makePiApi(state, extensionId) {
       return [...state.tools.keys()];
     },
     getAllTools() {
-      return [...state.tools.values()].map((t) => ({
+      // Builtins first (Jac-side executors), then extension tools in
+      // registration order — one flat Pi-shaped catalog.
+      const builtins = state.builtinTools.map((t) => ({
         name: t.name,
         description: t.description,
         parameters: t.parameters,
       }));
+      const ext = [...state.tools.values()].map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      }));
+      return [...builtins, ...ext];
     },
   };
   return api;
@@ -701,6 +719,19 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
     const path = String(env.payload?.path ?? "");
     if (env.payload?.has_ui != null) {
       state.uiAvailable = env.payload.has_ui === true;
+    }
+    if (Array.isArray(env.payload?.builtins)) {
+      // Refresh builtin metadata each load; the Jac side is authoritative.
+      state.builtinTools = env.payload.builtins
+        .filter((t) => t && typeof t === "object" && typeof t.name === "string" && t.name)
+        .map((t) => ({
+          name: t.name,
+          description: String(t.description ?? ""),
+          parameters:
+            t.parameters && typeof t.parameters === "object"
+              ? t.parameters
+              : { type: "object", properties: {} },
+        }));
     }
     const requires = Array.isArray(env.payload?.requires)
       ? env.payload.requires
@@ -971,8 +1002,16 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
         },
       ];
     }
+    // Live UI context for execute(): same surface commands get. parentCorr
+    // is the tool_invoke correlation; children get their own broker ids so
+    // ui_response/ui_cancel never collide with the terminal reply.
+    const ui = makeUi(
+      state,
+      tool.extensionId,
+      makeUiBridge(state, ctx, corr || "call", tool.extensionId),
+    );
     try {
-      const result = await tool.run(args, corr || "call", signal, onUpdate);
+      const result = await tool.run(args, corr || "call", signal, onUpdate, ui);
       if (signal?.aborted || (corr && state.cancelled.has(corr))) {
         state.cancelled.delete(corr);
         return [
@@ -984,14 +1023,11 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
           },
         ];
       }
-      return [
-        {
-          ...base,
-          kind: "tool_result",
-          tool_id: name,
-          payload: { ok: true, result: String(result) },
-        },
-      ];
+      const payload = { ok: true, result: String(result), notifications: ui.notifications };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "tool_result", payload }];
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const cancelled =
@@ -999,14 +1035,15 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
         (corr && state.cancelled.has(corr)) ||
         (err && err.name === "AbortError");
       if (corr) state.cancelled.delete(corr);
-      return [
-        {
-          ...base,
-          kind: "tool_result",
-          tool_id: name,
-          payload: { ok: false, error: cancelled ? "cancelled" : msg },
-        },
-      ];
+      const payload = {
+        ok: false,
+        error: cancelled ? "cancelled" : msg,
+        notifications: ui.notifications,
+      };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "tool_result", payload }];
     }
   }
 
