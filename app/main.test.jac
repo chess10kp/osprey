@@ -3,8 +3,10 @@
 import from agent.session { plugins, session_boot, session_dispose }
 import from agent.plugin_bridge {
     create_bridge,
-    ensure_host,
     dispose_bridge,
+}
+import from agent.fake_host {
+    ensure_host,
     register_fake_command,
 }
 
