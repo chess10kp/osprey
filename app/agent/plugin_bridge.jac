@@ -339,13 +339,22 @@ def _write_node(bridge: PluginBridge, env: Envelope) {
 }
 
 
-"""Route an inbound envelope to a pending waiter; always keep a copy in inbox."""
+"""Route an inbound envelope to a pending waiter; always keep a copy in inbox.
+
+Kind-aware: a waiter registered with expect_kind only completes for that kind;
+mismatched envelopes stay inbox-only so interleaved traffic (tool_update vs
+tool_result, future ui_request children) cannot wake or consume the wrong
+waiter."""
 def _dispatch_inbound(bridge: PluginBridge, env: Envelope) {
     bridge.inbox.append(env);
     corr = env.correlation_id;
     pending = bridge.pending;
     if corr and corr in pending {
         waiter: any = pending[corr];
+        expect: any = waiter.get("expect", "");
+        if expect and str(expect) != env.kind {
+            return;
+        }
         waiter["env"] = env;
         ev: any = waiter.get("event");
         if ev is not None {
@@ -441,12 +450,18 @@ Callers that write a request MUST register `correlation_id` in
 `bridge.pending` *before* `_write_node` (or call `_prepare_corr`) so the
 reader cannot win the race.
 """
-def _prepare_corr(bridge: PluginBridge, correlation_id: str) {
+def _prepare_corr(
+    bridge: PluginBridge, correlation_id: str, expect_kind: str = ""
+) {
     _ensure_io(bridge);
     if correlation_id and correlation_id not in bridge.pending {
+        # expect_kind: only an envelope of this kind may complete the waiter.
+        # Guards against sibling traffic (e.g. tool_update sharing the parent
+        # correlation with tool_result) waking the wrong waiter.
         bridge.pending[correlation_id] = {
             "event": threading.Event(),
             "env": None,
+            "expect": expect_kind,
         };
     }
 }
@@ -460,7 +475,7 @@ def _wait_corr(
 ) -> Envelope {
     deadline = time.monotonic() + timeout;
     if correlation_id {
-        _prepare_corr(bridge, correlation_id);
+        _prepare_corr(bridge, correlation_id, expect_kind=kind);
         waiter: any = bridge.pending[correlation_id];
         if waiter.get("env") is not None {
             bridge.pending.pop(correlation_id, None);
@@ -768,7 +783,7 @@ def load_extension_path(
         raise FileNotFoundError(f"extension module not found: {abs_path}");
     }
     corr = _alloc_corr(bridge);
-    _prepare_corr(bridge, corr);
+    _prepare_corr(bridge, corr, expect_kind="ext_loaded");
     req = make_envelope(
         kind="ext_load",
         session_id=bridge.session_id,
@@ -1012,7 +1027,7 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
         }
     }
     corr = _alloc_corr(bridge);
-    _prepare_corr(bridge, corr);
+    _prepare_corr(bridge, corr, expect_kind="tool_result");
     req = make_envelope(
         kind="tool_invoke",
         session_id=bridge.session_id,
@@ -1088,7 +1103,7 @@ def invoke_command(
             }
         }
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="cmd_result");
         req = make_envelope(
             kind="cmd_invoke",
             session_id=bridge.session_id,
@@ -1227,7 +1242,7 @@ def fire_hook_data(
     }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="hook_done");
         req = make_envelope(
             kind="hook_fire",
             session_id=bridge.session_id,
@@ -1543,7 +1558,7 @@ Returns [] when no host exists (hooks are best-effort, never fatal)."""
 def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.0) -> list {
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="md_transformed");
         req = make_envelope(
             kind="hook_fire",
             session_id=bridge.session_id,
@@ -1623,7 +1638,7 @@ def transform_markdown(
     mctx = {"message_type": message_type, "isStreaming": streaming};
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="md_transformed");
         req = make_envelope(
             kind="md_transform",
             session_id=bridge.session_id,
@@ -1698,7 +1713,7 @@ def set_session_name(bridge: PluginBridge, name: str, timeout: float = 5.0) -> b
     bridge.session_name = str(name);
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="rendered");
         req = make_envelope(
             kind="hook_fire",
             session_id=bridge.session_id,
@@ -1836,7 +1851,7 @@ def render_extension_block(
     }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
-        _prepare_corr(bridge, corr);
+        _prepare_corr(bridge, corr, expect_kind="rendered");
         req = make_envelope(
             kind="render_message",
             session_id=bridge.session_id,

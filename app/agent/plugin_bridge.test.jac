@@ -999,3 +999,57 @@ test "node host applies tool_result rewrites over the wire" {
     assert g2["result"] == "ok";
     dispose_bridge(bridge);
 }
+
+
+# ===================== kind-aware correlation (P12 prereq) =====================
+
+test "interleaved sibling traffic does not wake or consume the wrong waiter" {
+    bridge = create_bridge("s-kind");
+    ensure_node_host(bridge);
+    drain_inbox(bridge);
+
+    corr = "corr-kind-test";
+    _prepare_corr(bridge as PluginBridge, corr, expect_kind="tool_result");
+
+    # A tool_update sharing the parent correlation arrives first.
+    upd = make_plugin_envelope(
+        kind="tool_update",
+        payload={"text": "partial"},
+        session_id=bridge.session_id,
+        correlation_id=corr,
+        tool_id="slow",
+    );
+    _dispatch_inbound(bridge as PluginBridge, upd);
+    # Waiter must still be pending — not woken, not consumed.
+    assert corr in bridge.pending;
+
+    res = make_plugin_envelope(
+        kind="tool_result",
+        payload={"ok": True, "result": "final"},
+        session_id=bridge.session_id,
+        correlation_id=corr,
+        tool_id="slow",
+    );
+    _dispatch_inbound(bridge as PluginBridge, res);
+    waiter: any = bridge.pending.get(corr);
+    assert waiter is not None and waiter["env"] is not None;
+    assert waiter["env"].kind == "tool_result";
+    dispose_bridge(bridge);
+}
+
+
+test "wait-time registration records expectation for direct callers" {
+    bridge = create_bridge("s-kind2");
+    ensure_host(bridge);
+    # Simulate the historical race window: register bare, then wait.
+    _prepare_corr(bridge as PluginBridge, "corr-k2", expect_kind="hook_done");
+    junk = make_plugin_envelope(
+        kind="tool_update",
+        payload={"text": "noise"},
+        session_id=bridge.session_id,
+        correlation_id="corr-k2",
+    );
+    _dispatch_inbound(bridge as PluginBridge, junk);
+    assert "corr-k2" in bridge.pending;
+    dispose_bridge(bridge);
+}
