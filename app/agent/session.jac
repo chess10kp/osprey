@@ -11,6 +11,14 @@ import json;
 import time;
 
 import from .llm { Transport, react_loop, make_transport, make_ext_transport, TurnCancel }
+import from .compaction {
+    load_project_config,
+    resolve_auto_compact_config,
+    compute_context_usage,
+    should_auto_compact,
+    build_mechanical_summary,
+    summarize_for_compaction,
+}
 import from .tools { default_registry }
 import from .system { SYSTEM_PROMPT }
 import from .plugin_bridge {
@@ -463,6 +471,83 @@ def _apply_pending_model_requests() {
 }
 
 
+"""Best-effort auto-compaction of session history when the context threshold
+is crossed (checked after the user message lands — matches src ordering).
+
+Fires Pi's session_before_compact / session_after_compact hooks; a blocking
+verdict ({block: true}) from any before-listener skips compaction this turn.
+Never raises — compaction failure must not break the turn."""
+def _maybe_auto_compact(bridge: PluginBridge | None) {
+    try {
+        cwd = plugins.cwd if plugins.cwd else os.getcwd();
+        raw_cfg = load_project_config(cwd);
+        cfg = resolve_auto_compact_config(
+            raw_cfg, str(raw_cfg.get("compactStrategy", ""))
+        );
+        override: any = None;
+        env_max: str = os.environ.get("JACKAL_CONTEXT_MAX", "");
+        if env_max.isdigit() {
+            override = int(env_max);
+        }
+        usage = compute_context_usage(history, override);
+        if not should_auto_compact(usage, cfg) {
+            return;
+        }
+        keep_tail: any = cfg.get("keepTail", 12);
+        kt = int(keep_tail);
+        if len(history) <= kt {
+            return;
+        }
+        blocked = False;
+        if bridge is not None {
+            results = fire_hook(bridge as PluginBridge, "session_before_compact", {
+                "messages_count": len(history),
+                "percent": usage.get("percent"),
+            });
+            for r in results {
+                v: any = r.get("verdict") if isinstance(r, dict) else None;
+                if isinstance(v, dict) and v.get("block") {
+                    blocked = True;
+                    break;
+                }
+            }
+        }
+        if blocked {
+            return;
+        }
+        count_before = len(history);
+        dropped = history[:count_before - kt];
+        kept = history[count_before - kt:];
+        summary_text = build_mechanical_summary(dropped);
+        strategy = "mechanical";
+        if str(cfg.get("strategy", "mechanical")) == "llm" {
+            llm_text = summarize_for_compaction(dropped, model, thinking_level);
+            if llm_text is not None {
+                summary_text = llm_text;
+                strategy = "llm";
+            }
+        }
+        compacted: list[dict] = [{"role": "user", "content": summary_text}];
+        for m in kept {
+            compacted.append(m);
+        }
+        # Clear + refill (glob reassignment is a trap per SessionPlugins note).
+        history.clear();
+        for m in compacted {
+            history.append(m);
+        }
+        if bridge is not None {
+            fire_hook(bridge as PluginBridge, "session_after_compact", {
+                "before": count_before,
+                "after": len(history),
+                "strategy": strategy,
+            });
+        }
+    } except Exception {
+    }
+}
+
+
 """Run one agent turn: wait for extension snapshot, then stream the loop.
 
 on_event(kind, data) is the UI boundary: the term renderer prints, the
@@ -518,6 +603,8 @@ def run_turn(
         history.append({"role": "system", "content": SYSTEM_PROMPT});
     }
     history.append({"role": "user", "content": message});
+    # Auto-compact seam: threshold check after the user message lands.
+    _maybe_auto_compact(bridge);
     # P10: extension-declared models route through the provider seam;
     # anything else uses the native provider table.
     transport: any = None;
