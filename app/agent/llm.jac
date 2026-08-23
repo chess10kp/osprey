@@ -50,6 +50,14 @@ obj Transport {
         model: str = "",
         thinking: str = "";
 
+    # Pi `after_provider_response` parity (see docs/AFTER-PROVIDER-RESPONSE-NOTE.md):
+    # informational-only {status, headers}, fired when response headers arrive,
+    # before the body is consumed. hook_bridge is the PluginBridge whose Node
+    # sidecar hosts extension hooks; None disables. hook_timeout bounds the
+    # stdio round trip so a hung handler never stalls stream-open.
+    has hook_bridge: any = None,
+        hook_timeout: float = 2.0;
+
     def _build_body(messages: list, tool_defs: list) -> dict {
         # Single source of truth for the request body so tests can assert its
         # exact shape without network I/O. With thinking == "" the returned
@@ -77,6 +85,25 @@ obj Transport {
         yield from self._open_stream(url, headers, body);
     }
 
+    """Fire the informational after_provider_response hook (Pi parity).
+    Never raises and never blocks longer than hook_timeout — a failing or
+    hung hook must not affect the stream."""
+    def _notify_response(status: int, headers: dict) {
+        if self.hook_bridge is None {
+            return;
+        }
+        try {
+            fire_hook(
+                self.hook_bridge as PluginBridge,
+                "after_provider_response",
+                {"status": status, "headers": dict(headers)},
+                timeout=self.hook_timeout,
+            );
+        } except Exception {
+            # Informational: hook failures are silent by design.
+        }
+    }
+
     """POST `body` to `url` and yield normalized chunks (shared by native
     and P10 provider transports)."""
     def _open_stream(url: str, headers: dict, body: dict) -> Generator[dict, None, None] {
@@ -87,6 +114,9 @@ obj Transport {
         try {
             ctx: any = client_obj.stream("POST", url, json=body, headers=headers);
             r = ctx.__enter__();
+            # Fire strictly before the first line is read so handlers observe
+            # "provider answered" ahead of any content event downstream.
+            self._notify_response(r.status_code, dict(r.headers));
             if r.status_code != 200 {
                 detail = r.read().decode("utf-8", "replace")[:400];
                 yield {"error": f"HTTP {r.status_code}: {detail}"};
@@ -145,13 +175,14 @@ whole model edge is one swappable module.
 per turn); `thinking` optionally carries a reasoning level
 ("off"|"minimal"|"low"|"medium"|"high", "" = omit from request body).
 """
-def make_transport(model: str = "", thinking: str = "") -> Transport {
+def make_transport(model: str = "", thinking: str = "", hook_bridge: any = None) -> Transport {
     if model.startswith("openrouter/") {
         return Transport(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY", ""),
             model=model[len("openrouter/"):],
             thinking=thinking,
+            hook_bridge=hook_bridge,
         );
     }
     if model.startswith("deepseek/") {
@@ -160,6 +191,7 @@ def make_transport(model: str = "", thinking: str = "") -> Transport {
             api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
             model=model[len("deepseek/"):],
             thinking=thinking,
+            hook_bridge=hook_bridge,
         );
     }
     return Transport(
@@ -167,6 +199,7 @@ def make_transport(model: str = "", thinking: str = "") -> Transport {
         api_key=os.environ.get("OPENAI_API_KEY", ""),
         model=model,
         thinking=thinking,
+        hook_bridge=hook_bridge,
     );
 }
 
@@ -225,6 +258,9 @@ def make_ext_transport(bridge: PluginBridge | None, model_id: str, thinking: str
     );
     t.ext_bridge = bridge;
     t.ext_cfg = cfg;
+    # Same informational hook surface as native transports (ProviderTransport
+    # additionally fires before_provider_request in its own stream override).
+    t.hook_bridge = bridge;
     return t;
 }
 

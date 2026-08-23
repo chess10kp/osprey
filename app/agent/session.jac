@@ -622,7 +622,7 @@ def run_turn(
         }
     }
     if transport is None {
-        transport = make_transport(model, thinking_level);
+        transport = make_transport(model, thinking_level, hook_bridge=bridge);
     }
     _t0 = time.time();
     _n_tools = 0;

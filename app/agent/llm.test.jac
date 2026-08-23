@@ -555,3 +555,178 @@ test "react loop skips tool execution when cancelled during the gate" {
     assert len(messages) == 3;  # no assistant reply after abort
     dispose_bridge(bridge);
 }
+
+# ===================== after_provider_response (Pi parity) =====================
+
+test "make_transport wires hook_bridge through every provider branch" {
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+    bridge = create_bridge("apr-native");
+
+    for m in ["openrouter/vendor/x", "deepseek/ds-chat", "gpt-4o-mini"] {
+        tr = make_transport(m, thinking="low", hook_bridge=bridge);
+        assert tr.hook_bridge is bridge;
+        assert tr.hook_timeout == 2.0;
+    }
+
+    # Default stays None so bare transports never touch hooks.
+    assert make_transport("gpt-4o-mini").hook_bridge is None;
+    dispose_bridge(bridge);
+}
+
+
+test "make_ext_transport attaches the hook bridge" {
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+    import from .fake_host {
+        register_fake_provider,
+    }
+
+    bridge = create_bridge("apr-ext");
+    register_fake_provider(bridge, {
+        "name": "acme",
+        "models": ["sonnet-x"],
+        "base_url": "https://acme.example/v1",
+    });
+    t = make_ext_transport(bridge as PluginBridge, "ext/fake.provider/sonnet-x");
+    assert t is not None;
+    assert t.hook_bridge is bridge;
+    dispose_bridge(bridge);
+}
+
+
+test "_notify_response fires after_provider_response with status and headers" {
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+    import from .fake_host {
+        register_fake_listener,
+    }
+
+    bridge = create_bridge("apr-notify");
+    seen: list = [];
+    def _capture(data: dict, ctx: any) -> str {
+        seen.append(dict(data));
+        return "ok";
+    }
+    register_fake_listener(bridge, "after_provider_response", _capture);
+
+    t = make_transport("gpt-4o-mini", hook_bridge=bridge);
+    t._notify_response(200, {"content-type": "text/event-stream"});
+    assert len(seen) == 1;
+    assert seen[0]["status"] == 200;
+    assert seen[0]["headers"]["content-type"] == "text/event-stream";
+
+    # Non-200 statuses also flow through (informational event).
+    t._notify_response(429, {});
+    assert len(seen) == 2;
+    assert seen[1]["status"] == 429;
+
+    # No bridge -> silent no-op.
+    bare = Transport(model="m");
+    bare._notify_response(200, {});
+    dispose_bridge(bridge);
+}
+
+
+test "_open_stream fires hook before the first delta from a live SSE server" {
+    import from .fake_host { register_fake_listener }
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+
+    order: list = [];
+    def _mark(data: dict, ctx: any) -> str {
+        order.append("hook:" + str(data.get("status")));
+        return "";
+    }
+
+    server: any = make_sse_server("ok");
+    bridge = create_bridge("apr-live");
+    register_fake_listener(bridge, "after_provider_response", _mark);
+    try {
+        t = Transport(
+            base_url=f"http://127.0.0.1:{server.server_port}",
+            model="test-model",
+            hook_bridge=bridge,
+        );
+        chunks: list = [];
+        for chunk in t.stream([{"role": "user", "content": "hi"}], []) {
+            if "content" in chunk {
+                order.append("chunk");
+                chunks.append(chunk["content"]);
+            }
+        }
+        assert chunks == ["hello"];
+        # Hook strictly precedes the first content delta downstream.
+        assert order == ["hook:200", "chunk"];
+    } finally {
+        server.shutdown();
+        dispose_bridge(bridge);
+    }
+}
+
+
+test "_open_stream fires the hook even when the provider answers non-200" {
+    import from .fake_host { register_fake_listener }
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+
+    statuses: list = [];
+    def _cap(data: dict, ctx: any) -> str {
+        statuses.append(int(data.get("status", 0)));
+        return "";
+    }
+
+    server: any = make_sse_server("boom");
+    bridge = create_bridge("apr-503");
+    register_fake_listener(bridge, "after_provider_response", _cap);
+    try {
+        t = Transport(
+            base_url=f"http://127.0.0.1:{server.server_port}",
+            model="test-model",
+            hook_bridge=bridge,
+        );
+        out: list = [];
+        for chunk in t.stream([], []) {
+            out.append(dict(chunk));
+        }
+        assert len(out) == 1;
+        assert "HTTP 503" in str(out[0].get("error", ""));
+        assert statuses == [503];
+    } finally {
+        server.shutdown();
+        dispose_bridge(bridge);
+    }
+}
+
+::py::
+import threading as _threading
+from http.server import BaseHTTPRequestHandler as _BaseHTTPRequestHandler, HTTPServer as _HTTPServer
+
+
+class _SSEHandler(_BaseHTTPRequestHandler):
+    mode = "ok"
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length:
+            self.rfile.read(length)
+        if self.mode == "ok":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n')
+            self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+        else:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(b"upstream down")
+            self.wfile.flush()
+
+    def log_message(self, format, *args):
+        pass
+
+
+def make_sse_server(mode="ok"):
+    """Threaded local SSE (or error) endpoint for transport tests."""
+    handler = type("H", (_SSEHandler,), {"mode": mode})
+    srv = _HTTPServer(("127.0.0.1", 0), handler)
+    _threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+::py::
