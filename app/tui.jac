@@ -665,22 +665,6 @@ def _tick_stream(app: LiveShell) {
             _push_turn(app, "tool", "? approve " + app.appr_tool);
             app.status_hint = "a accept · r deny";
             app.dirty = True;
-        } elif kind == "__approve__" {
-            tool_name = str(data.get("tool", "?"));
-            a: any = data.get("args", {});
-            parts: list[str] = [];
-            if isinstance(a, dict) {
-                for pair in a.items() {
-                    parts.append(str(pair[0]) + "=" + str(pair[1])[:60]);
-                }
-            }
-            app.appr_tool = tool_name + "(" + (", ".join(parts))[:160] + ")";
-            app.phase = "approval";
-            app.shell.status.phase = "approval";
-            shell_open_approval(app.session, app.shell);
-            _push_turn(app, "tool", "? approve " + app.appr_tool);
-            app.status_hint = "a accept · r deny";
-            app.dirty = True;
         } elif kind == "__done__" {
             _finish_stream(app, str(data.get("answer", "")));
             return;
