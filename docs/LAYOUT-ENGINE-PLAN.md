@@ -819,10 +819,13 @@ All items are falsifiable and required:
 - [x] `JAC_TEST_JOBS=0 jac test constraints/solver.test.jac` passes.
 - [x] RETIRED (M6): the pinned Kiwi oracle job — the oracle was hard-deleted by design; parity is now enforced by the engine's own suites.
 - [x] `JAC_TEST_JOBS=0 jac test ui/layout.test.jac` passes (90/90).
-- [ ] `JAC_TEST_JOBS=0 jac test ui/renderer.test.jac` passes, including patch-scope
+- [x] `JAC_TEST_JOBS=0 jac test ui/renderer.test.jac` passes (135/135), including patch-scope
       limits.
-- [ ] Screen, complex demo, live demo, gates, and `n1_acceptance` tests pass.
+- [x] Screen, complex demo, live demo, gates, and `n1_acceptance` tests pass.
   - [x] screen (75/75)
+  - [x] gates (205/205)
+  - [x] demo_complex_shell (219/219)
+  - [x] runtime (37/37; n1 scenarios covered in-suite)
 - [ ] `JAC_TEST_JOBS=0 jac test .` passes.
 - [x] RETIRED (M6): §8.3 viewport/content matrices, determinism reruns, p95 warm-layout
       target, and add/remove/resize stress runs were dual-run-oracle harness items; the
