@@ -326,6 +326,8 @@ glob PLUGIN_KINDS: set[str] = {
     "tool_update",
     "cmd_invoke",
     "cmd_result",
+    "shortcut_invoke",
+    "shortcut_result",
     "hook_fire",
     "hook_done",
     "md_transform",

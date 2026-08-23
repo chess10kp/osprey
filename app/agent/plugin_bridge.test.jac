@@ -22,6 +22,7 @@ import from .protocol {
 }
 import from .fake_host {
     register_fake_command,
+    register_fake_shortcut,
     register_fake_listener,
     register_fake_transformer,
     register_fake_provider,
@@ -338,6 +339,33 @@ test "fake host command invoke round-trips with notifications" {
     missing = invoke_command(bridge, "nope", "");
     assert missing["ok"] is False;
     assert "unknown command" in missing["error"];
+}
+
+
+test "fake host shortcut invoke fires handler with ui ctx" {
+    bridge = create_bridge("s-sc");
+
+    fired: list[str] = [];
+
+    def _toggle(ctx: any) -> str {
+        ctx["ui"].notify("TOGGLED");
+        fired.append("hit");
+        return "plan mode on";
+    }
+
+    register_fake_shortcut(bridge, "ctrl+shift+p", _toggle, description="Toggle plan");
+    assert bridge.shortcuts["ctrl+shift+p"]["extension_id"] == "fake.shortcuts";
+    assert bridge.shortcuts["ctrl+shift+p"]["description"] == "Toggle plan";
+
+    res = invoke_shortcut(bridge, "ctrl+shift+p");
+    assert res["ok"] is True;
+    assert res["result"] == "plan mode on";
+    assert res["notifications"] == ["TOGGLED"];
+    assert len(fired) == 1;
+
+    missing = invoke_shortcut(bridge, "ctrl+shift+z");
+    assert missing["ok"] is False;
+    assert "unknown shortcut" in missing["error"];
 }
 
 

@@ -467,8 +467,8 @@ function makePiApi(state, extensionId) {
 
     // ---- stored registrations / typed getters: degrade, never crash ----
     registerShortcut(key, opts) {
-      // Listed via the ext_loaded payload; full key-binding wiring into the
-      // native shell input loop is a follow-up (no binding layer exists yet).
+      // Listed via the ext_loaded payload; the native TUI input loop matches
+      // keypresses against these bindings and fires them via shortcut_invoke.
       state.shortcuts.push({ key: String(key ?? ""), opts, extensionId });
     },
     registerFlag(name, opts) {
@@ -815,6 +815,53 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
     const id = String(env.payload?.id ?? "");
     dropExtension(state, id);
     return [];
+  }
+
+  if (kind === "shortcut_invoke") {
+    const key = String(env.payload?.key ?? "");
+    const sc = state.shortcuts.find((s) => s.key === key);
+    if (!sc) {
+      return [
+        {
+          ...base,
+          kind: "shortcut_result",
+          payload: { ok: false, error: `unknown shortcut ${key}` },
+        },
+      ];
+    }
+    const handler = sc.opts && typeof sc.opts === "object" ? sc.opts.handler : null;
+    if (typeof handler !== "function") {
+      return [
+        {
+          ...base,
+          kind: "shortcut_result",
+          payload: { ok: false, error: `shortcut ${key} has no handler` },
+        },
+      ];
+    }
+    const ui = makeUi(
+      state,
+      sc.extensionId,
+      makeUiBridge(state, ctx, base.correlation_id, sc.extensionId),
+    );
+    try {
+      await handler({ ui });
+      const payload = { ok: true, notifications: ui.notifications };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "shortcut_result", payload }];
+    } catch (err) {
+      const payload = {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        notifications: ui.notifications,
+      };
+      if (ui.uiEvents.length) {
+        payload.ui_events = ui.uiEvents;
+      }
+      return [{ ...base, kind: "shortcut_result", payload }];
+    }
   }
 
   if (kind === "cmd_invoke") {

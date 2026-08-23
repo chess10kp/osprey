@@ -32,6 +32,7 @@ glob FAKE_HOST_CAPS: list[str] = [
 obj FakePluginHost {
     has handlers: dict[str, any] = {},
         command_handlers: dict[str, any] = {},
+        shortcut_handlers: dict[str, any] = {},
         listeners: dict[str, list] = {},
         md_transformers: list = [],
         pending_messages: list = [],
@@ -144,6 +145,27 @@ def register_fake_command(
     h.command_handlers[name] = {"handler": handler, "owner": extension_id};
     bridge.commands[name] = {
         "name": name,
+        "description": description,
+        "extension_id": extension_id,
+    };
+}
+
+
+def register_fake_shortcut(
+    bridge: any,
+    key: str,
+    handler: any,
+    description: str = "",
+    extension_id: str = "fake.shortcuts",
+) {
+    ensure_host(bridge);
+    h = bridge.host;
+    if h is None {
+        raise RuntimeError("plugin host unavailable");
+    }
+    h.shortcut_handlers[key] = {"handler": handler, "owner": extension_id};
+    bridge.shortcuts[key] = {
+        "key": key,
         "description": description,
         "extension_id": extension_id,
     };

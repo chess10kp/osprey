@@ -29,6 +29,7 @@ import from .plugin_bridge {
     ensure_node_host,
     load_extension_path,
     invoke_command,
+    invoke_shortcut,
     fire_hook,
     transform_markdown,
     drain_extension_traffic,
@@ -824,9 +825,37 @@ def run_command(name: str, args: str = "") -> str {
 }
 
 
+"""Fire an extension keyboard shortcut by key (TUI keybinding path).
+
+Returns a display string: handler notifications + result, or an ERROR line.
+Never raises. Shortcut handlers may call pi.setModel/setThinkingLevel.
+"""
+def run_extension_shortcut(key: str) -> str {
+    bridge = plugins.bridge;
+    if bridge is None {
+        return f"ERROR: no plugin host running (shortcut {key} unavailable)";
+    }
+    res: dict = invoke_shortcut(bridge as PluginBridge, key);
+    _apply_pending_model_requests();
+    lines: list[str] = [];
+    for note in res.get("notifications", []) or [] {
+        lines.append(str(note));
+    }
+    if res.get("ok") {
+        result_s = str(res.get("result", ""));
+        if result_s {
+            lines.append(result_s);
+        }
+    } else {
+        lines.append("ERROR: " + str(res.get("error", "shortcut failed")));
+    }
+    return "\n".join(lines);
+}
+
+
 """Shortcut bindings registered by loaded extensions (key -> meta with
-extension_id + description). Listed for host UIs; key-binding wiring into
-the TUI input loop is a documented follow-up."""
+extension_id + description). Listed for host UIs; the TUI input loop matches
+keypresses against these and fires them via run_extension_shortcut."""
 def list_extension_shortcuts() -> dict {
     return list_shortcuts(plugins.bridge);
 }

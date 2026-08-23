@@ -24,6 +24,8 @@ import from agent.session {
     get_history,
     list_commands,
     run_command,
+    run_extension_shortcut,
+    list_extension_shortcuts,
     plugins,
     new_session_id,
 }
@@ -1067,6 +1069,21 @@ def _handle_key(app: LiveShell, key: str) {
             _reject_approval(app);
             return;
         }
+        return;
+    }
+    # Extension keyboard shortcuts (pi.registerShortcut): modifier-combo keys
+    # registered by loaded extensions shadow built-in navigation, matching Pi
+    # global-binding semantics. ctrl+c / modals / approvals keep precedence.
+    scs = list_extension_shortcuts();
+    if key in scs {
+        meta: dict = scs[key];
+        desc = str(meta.get("description", "") or "");
+        app.status_hint = "shortcut " + key + (" — " + desc if desc else "");
+        reply = run_extension_shortcut(key);
+        if reply {
+            _push_turn(app, "tool", reply);
+        }
+        app.dirty = True;
         return;
     }
     if key == "escape" {

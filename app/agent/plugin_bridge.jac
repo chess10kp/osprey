@@ -1162,6 +1162,83 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
 }
 
 
+# ======================= T2-partial: shortcuts =======================
+
+"""Invoke an extension keyboard shortcut by key. Returns the shortcut_result
+payload dict: {ok, notifications?, ui_events?, error?}. Raises TimeoutError on
+Node silence."""
+def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> dict {
+    if bridge.host_kind == "node" {
+        if not _node_alive(bridge) {
+            phase = maybe_restart_host(bridge);
+            if phase != "ready" or not _node_alive(bridge) {
+                host_status(bridge);
+                return {"ok": False, "error": "plugin host unavailable"};
+            }
+        }
+        corr = _alloc_corr(bridge);
+        _prepare_corr(bridge, corr, expect_kind="shortcut_result");
+        req = make_envelope(
+            kind="shortcut_invoke",
+            session_id=bridge.session_id,
+            correlation_id=corr,
+            payload={"key": key},
+        );
+        try {
+            _write_node(bridge, req);
+            reply = _read_node_until(
+                bridge, "shortcut_result", correlation_id=corr, timeout=timeout
+            );
+        } except Exception as e {
+            return {"ok": False, "error": str(e)};
+        }
+        touch_bridge(bridge);
+        # Absorb reply-attached extension traffic and model/thinking requests
+        # issued inside shortcut handlers.
+        _absorb_payload(bridge, dict(reply.payload));
+        return dict(reply.payload);
+    }
+    # Fake host path.
+    try {
+        ensure_host(bridge);
+    } except Exception as e {
+        return {"ok": False, "error": str(e)};
+    }
+    h = bridge.host;
+    if h is None or not h.alive {
+        return {"ok": False, "error": "plugin host unavailable"};
+    }
+    entry = h.shortcut_handlers.get(key);
+    if entry is None {
+        return {"ok": False, "error": f"unknown shortcut {key}"};
+    }
+    notifications: list[str] = [];
+    try {
+        ui = FakeUi(notifications, []);
+        result = entry["handler"]({"ui": ui});
+        res_payload: dict = {
+            "ok": True,
+            "result": "" if result is None else str(result),
+            "notifications": notifications,
+        };
+        if ui.ui_events {
+            res_payload["ui_events"] = list(ui.ui_events);
+        }
+        _absorb_pending_fake(bridge, h);
+        _absorb_payload(bridge, res_payload);
+        return res_payload;
+    } except Exception as e {
+        err_payload: dict = {
+            "ok": False,
+            "error": str(e),
+            "notifications": notifications,
+        };
+        _absorb_pending_fake(bridge, h);
+        return err_payload;
+    }
+}
+
+
 def cancel_tool(bridge: PluginBridge, correlation_id: str) {
     if bridge.host_kind == "node" and _node_alive(bridge) {
         req = make_envelope(
@@ -1324,8 +1401,8 @@ def _absorb_payload(bridge: PluginBridge, payload: dict) {
             }
         }
     }
-    # Shortcut/label registrations ride ext_loaded payloads (listed only —
-    # no native key-binding layer yet).
+    # Shortcut/label registrations ride ext_loaded payloads; the TUI input
+    # loop binds shortcut keys and fires them via invoke_shortcut.
     scs: any = payload.get("shortcuts", []);
     if isinstance(scs, list) {
         for sc in scs {
