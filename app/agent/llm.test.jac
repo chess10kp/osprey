@@ -705,28 +705,78 @@ class _SSEHandler(_BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         if length:
             self.rfile.read(length)
-        if self.mode == "ok":
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
+        self.posts[0] += 1
+        if self.mode == "flaky" and self.posts[0] == 1:
+            self.send_response(503)
             self.end_headers()
-            self.wfile.write(b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n')
+            self.wfile.write(b"flaky upstream")
             self.wfile.flush()
-            self.wfile.write(b"data: [DONE]\n\n")
-            self.wfile.flush()
-        else:
+            return
+        if self.mode == "boom":
             self.send_response(503)
             self.end_headers()
             self.wfile.write(b"upstream down")
             self.wfile.flush()
+            return
+        # "ok", or "flaky" past its first failed post: stream normally
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write(b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n')
+        self.wfile.flush()
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
 
     def log_message(self, format, *args):
         pass
 
 
 def make_sse_server(mode="ok"):
-    """Threaded local SSE (or error) endpoint for transport tests."""
-    handler = type("H", (_SSEHandler,), {"mode": mode})
+    """Threaded local SSE (or error) endpoint for transport tests.
+
+    mode="flaky": first POST answers 503, subsequent POSTs stream normally —
+    used to prove after_provider_response fires once per provider attempt."""
+    handler = type("H", (_SSEHandler,), {"mode": mode, "posts": [0]})
     srv = _HTTPServer(("127.0.0.1", 0), handler)
     _threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 ::py::
+
+
+test "after_provider_response refires per retry attempt through react_loop" {
+    import from .fake_host { register_fake_listener }
+    import from .plugin_bridge { create_bridge, dispose_bridge }
+
+    statuses: list = [];
+    def _cap(data: dict, ctx: any) -> str {
+        statuses.append(int(data.get("status", 0)));
+        return "";
+    }
+
+    server: any = make_sse_server("flaky");
+    bridge = create_bridge("apr-retry");
+    register_fake_listener(bridge, "after_provider_response", _cap);
+    try {
+        t = Transport(
+            base_url=f"http://127.0.0.1:{server.server_port}",
+            model="test-model",
+            hook_bridge=bridge,
+        );
+        _events.clear();
+        answer = react_loop([{"role": "user", "content": "hi"}], [], t, _noop_event, bridge=bridge);
+        assert answer == "hello";
+        # Pi onResponse parity: one hook fire PER PROVIDER ATTEMPT — the
+        # 503 attempt and the successful retry each reported.
+        assert statuses == [503, 200];
+        retries: list = [];
+        for e in _events {
+            if str(e[0]) == "retry" {
+                retries.append(e);
+            }
+        }
+        assert len(retries) == 1;
+    } finally {
+        server.shutdown();
+        dispose_bridge(bridge);
+    }
+}
