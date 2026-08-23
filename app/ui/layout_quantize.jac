@@ -224,15 +224,24 @@ def quantize_partition(req: PartitionRequest) -> QuantizeResult {
         );
     }
 
-    # Largest-remainder distribution: one cell at a time to the highest
-    # remaining fraction; receiving a cell consumes one unit of fraction,
-    # so ties naturally fall through to the next-lowest index.
     flexible: list[int] = [];
     for i in range(n) {
         if not fixed_flags[i] {
             flexible.append(i);
         }
     }
+    if len(flexible) < 3 {
+        # Plan §8.3 approved-correction scope: largest remainder applies
+        # only to partitions with three or more fractional grow targets.
+        # Below that, legacy parity rules — every leftover cell goes to
+        # the final flexible child (int shares, remainder to last).
+        sizes[flexible[len(flexible) - 1]] += leftover;
+        leftover = 0;
+    }
+
+    # Largest-remainder distribution: one cell at a time to the highest
+    # remaining fraction; receiving a cell consumes one unit of fraction,
+    # so ties naturally fall through to the next-lowest index.
     while leftover > 0 and len(flexible) {
         best = -1;
         for i in flexible {

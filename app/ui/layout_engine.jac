@@ -343,22 +343,10 @@ def compute_layout(
 
         # Clip propagation: BFS order guarantees the parent clip exists.
         if scoped.parent_id == "" {
-            if scoped.is_overlay {
-                # No Child parent: overlays clip against the viewport.
-                vw = viewport.columns - l;
-                vh = viewport.rows - t;
-                cw = w if w < vw else vw;
-                chh = h if h < vh else vh;
-                if cw < 0 {
-                    cw = 0;
-                }
-                if chh < 0 {
-                    chh = 0;
-                }
-                clip = Rect(x=l, y=t, width=cw, height=chh);
-            } else {
-                clip = _copy_rect(rect);
-            }
+            # Root and Layer-reached overlays have no Child parent; both
+            # keep clip == rect like the frozen oracle (plan 8.3 strict
+            # parity — the renderer bounds its own paint).
+            clip = _copy_rect(rect);
         } else {
             pclip = clips[scoped.parent_id];
             if pclip.width <= 0 or pclip.height <= 0 or w <= 0 or h <= 0 {

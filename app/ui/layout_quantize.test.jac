@@ -77,6 +77,31 @@ test "largest remainder ties break to the lowest index (rank order)" {
 }
 
 
+test "two flexible children bias leftover to the last (legacy parity)" {
+    # Plan 8.3: LR applies only at three or more fractional targets.
+    # Two equal shares of 5: legacy gives [2, 3], not [3, 2].
+    r = quantize_partition(_req(5, [2.5, 2.5]));
+    assert r.ok;
+    assert r.sizes == [2, 3];
+    assert sum(r.sizes) == 5;
+}
+
+
+test "single flexible child absorbs the whole leftover" {
+    r = quantize_partition(_req(7, [6.5]));
+    assert r.ok;
+    assert r.sizes == [7];
+}
+
+
+test "unequal weights below three still match int-share-then-remainder" {
+    # Legacy: share0 = int(7 * 2/3) = 4, last child gets 7 - 4 = 3.
+    r = quantize_partition(_req(7, [14.0 / 3.0, 7.0 / 3.0]));
+    assert r.ok;
+    assert r.sizes == [4, 3];
+}
+
+
 test "distinct remainders distribute by descending fraction" {
     r = quantize_partition(_req(10, [2.9, 3.6, 3.5]));
     assert r.ok;
@@ -93,11 +118,13 @@ test "second distribution pass when leftover exceeds child count" {
 
 
 test "fixed claims stay fixed during distribution" {
+    # Two flexible children: below the three-target threshold, so the
+    # leftover cell biases to the final flexible child (legacy parity).
     r = quantize_partition(
         _req(10, [3.0, 3.5, 3.5], fixed=[True, False, False])
     );
     assert r.ok;
-    assert r.sizes == [3, 4, 3];
+    assert r.sizes == [3, 3, 4];
 }
 
 

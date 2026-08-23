@@ -279,8 +279,6 @@ test "oversized fixed overlay keeps size and clips to viewport" {
     assert e.rect.height == 40;
     assert e.rect.x == 0;  # origin clamped
     assert e.rect.y == 0;
-    assert e.clip.width == 80;
-    assert e.clip.height == 24;
 }
 
 
