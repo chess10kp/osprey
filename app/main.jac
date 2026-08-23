@@ -21,21 +21,9 @@ import from agent.session {
     get_history,
     restore_history,
     set_current_session_id,
-}
-import os;
-import from agent.session {
-    run_turn,
-    set_model,
-    clear_history,
-    model,
-    json_event,
-    list_commands,
-    run_command,
-    cancel_active_turn,
-    get_history,
-    restore_history,
-    set_current_session_id,
     plugins,
+    session_boot,
+    session_dispose,
 }
 import from agent.sessions {
     list_sessions,
@@ -182,6 +170,10 @@ def handle_command(line: str) -> str | None {
 
 
 with entry:__main__ {
+    # Pi lifecycle: boot loads .jackal/extensions.json and warms the Node
+    # sidecar without blocking the first frame; run_turn awaits extension
+    # readiness before the first model request.
+    session_boot();
     json_mode = "--json" in sys.argv;
     if json_mode {
         json_event("session_ready", {"model": model, "cwd": os.getcwd()});
@@ -189,56 +181,62 @@ with entry:__main__ {
         print_banner();
     }
     ended = False;
-    while True {
-        if json_mode {
-            raw = sys.stdin.readline();
-            if not raw { break; }
-            raw_line: any = raw;
-            text_in: str = str(raw_line).strip();
-            if not text_in { continue; }
-            try {
-                req: any = json.loads(text_in);
-            } except ValueError {
-                json_event("error", {"message": "bad json: " + text_in[:80]});
-                continue;
-            }
-            text = str(req.get("text", ""));
-            kind = str(req.get("type", "user"));
-        } else {
-            try {
-                text = input("\n> ").strip();
-            } except EOFError {
-                print("");
-                break;
-            } except KeyboardInterrupt {
-                print("");
-                continue;
-            }
-            if not text { continue; }
-            kind = "command" if text.startswith("/") else "user";
-        }
-        if kind == "command" {
-            reply = handle_command(text);
-            if reply is None {
-                if json_mode { json_event("session_end", {}); ended = True; }
-                break;
-            }
-            if reply {
-                if json_mode { json_event("info", {"text": reply}); }
-                else { print(reply); }
-            }
-            continue;
-        }
-        try {
+    try {
+        while True {
             if json_mode {
-                run_turn(text, json_event);
+                raw = sys.stdin.readline();
+                if not raw { break; }
+                raw_line: any = raw;
+                text_in: str = str(raw_line).strip();
+                if not text_in { continue; }
+                try {
+                    req: any = json.loads(text_in);
+                } except ValueError {
+                    json_event("error", {"message": "bad json: " + text_in[:80]});
+                    continue;
+                }
+                text = str(req.get("text", ""));
+                kind = str(req.get("type", "user"));
             } else {
-                run_turn(text);
+                try {
+                    text = input("\n> ").strip();
+                } except EOFError {
+                    print("");
+                    break;
+                } except KeyboardInterrupt {
+                    print("");
+                    continue;
+                }
+                if not text { continue; }
+                kind = "command" if text.startswith("/") else "user";
             }
-        } except KeyboardInterrupt {
-            if json_mode { json_event("error", {"message": "interrupted"}); }
-            else { print("\n[interrupted]"); }
+            if kind == "command" {
+                reply = handle_command(text);
+                if reply is None {
+                    if json_mode { json_event("session_end", {}); ended = True; }
+                    break;
+                }
+                if reply {
+                    if json_mode { json_event("info", {"text": reply}); }
+                    else { print(reply); }
+                }
+                continue;
+            }
+            try {
+                if json_mode {
+                    run_turn(text, json_event);
+                } else {
+                    run_turn(text);
+                }
+            } except KeyboardInterrupt {
+                if json_mode { json_event("error", {"message": "interrupted"}); }
+                else { print("\n[interrupted]"); }
+            }
         }
+    } finally {
+        # Every exit path (EOF, /exit, fatal error) shuts extensions down:
+        # session_shutdown hook fires, sidecar is disposed.
+        session_dispose();
     }
     if json_mode {
         if not ended { json_event("session_end", {}); }

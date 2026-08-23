@@ -1,6 +1,6 @@
 """Slash-command routing through builtins and extension commands."""
 
-import from agent.session { plugins }
+import from agent.session { plugins, session_boot, session_dispose }
 import from agent.plugin_bridge {
     create_bridge,
     ensure_host,
@@ -57,6 +57,30 @@ test "handle_command routes slash args into extension commands" {
         plugins.bridge = None;
         dispose_bridge(b);
     }
+}
+
+
+test "session_boot dispose round trip (no extensions)" {
+    import os;
+    import tempfile;
+    import shutil;
+
+    # Empty cwd -> no .jackal/extensions.json -> idle phase, bridge is None.
+    tmp = tempfile.mkdtemp(prefix="jackal-main-boot-");
+    old_cwd = os.getcwd();
+    os.chdir(tmp);
+    try {
+        st = session_boot("main-boot-test", tmp);
+        assert st.total == 0;
+        assert st.phase == "idle";
+        assert plugins.bridge is None;
+    } finally {
+        session_dispose();
+        os.chdir(old_cwd);
+        shutil.rmtree(tmp, ignore_errors=True);
+    }
+    assert plugins.bridge is None;
+    assert plugins.reg is None;
 }
 
 
