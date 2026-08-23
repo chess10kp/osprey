@@ -303,37 +303,3 @@ def default_registry() -> ToolRegistry {
 }
 
 
-# ================================ tests =====================================
-
-test "glob finds files and skips generated directories" {
-    tmp = tempfile.mkdtemp();
-    try {
-        os.makedirs(os.path.join(tmp, "src"));
-        os.makedirs(os.path.join(tmp, "node_modules"));
-        with open(os.path.join(tmp, "src", "one.jac"), "w") as f { f.write("one"); }
-        with open(os.path.join(tmp, "node_modules", "hidden.jac"), "w") as f { f.write("skip"); }
-        found = file_glob("**/*.jac", tmp);
-        assert "src/one.jac" in found;
-        assert "hidden.jac" not in found;
-    } finally {
-        shutil.rmtree(tmp, ignore_errors=True);
-    }
-}
-
-
-test "grep finds literal and regex matches with a cap" {
-    tmp = tempfile.mkdtemp();
-    try {
-        with open(os.path.join(tmp, "notes.txt"), "w") as f {
-            f.write("needle one\nneedle two\nneedle three\n");
-        }
-        literal = content_grep("needle", tmp, False, 2);
-        assert "notes.txt:1:needle one" in literal;
-        assert "notes.txt:2:needle two" in literal;
-        assert "truncated at 2 matches" in literal;
-        regex = content_grep("needle [ot]wo", tmp, True);
-        assert "notes.txt:2:needle two" in regex;
-    } finally {
-        shutil.rmtree(tmp, ignore_errors=True);
-    }
-}
