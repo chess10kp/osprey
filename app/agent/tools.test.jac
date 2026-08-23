@@ -3,6 +3,8 @@ at test time - no import of the own stem). Covers glob and grep search
 behavior including generated-directory skips and result caps.
 """
 
+import from .modes { is_tool_blocked }
+
 test "glob finds files and skips generated directories" {
     tmp = tempfile.mkdtemp();
     try {
@@ -34,4 +36,25 @@ test "grep finds literal and regex matches with a cap" {
     } finally {
         shutil.rmtree(tmp, ignore_errors=True);
     }
+}
+
+
+test "jac_check and jac_format register with correct read-only blocking" {
+    reg = default_registry();
+    names = [spec.name for spec in tool_specs()];
+    assert "jac_check" in names;
+    assert "jac_format" in names;
+    # jac_format mutates files -> blocked in plan/ask; jac_check stays allowed.
+    assert is_tool_blocked("plan", "jac_format") is True;
+    assert is_tool_blocked("ask", "jac_format") is True;
+    assert is_tool_blocked("normal", "jac_format") is False;
+    assert is_tool_blocked("plan", "jac_check") is False;
+}
+
+
+test "jac_check and jac_format reject missing paths without spawning" {
+    res = jac_check("/nonexistent/jackal/path.jac");
+    assert res.startswith("ERROR:");
+    fmt = jac_format("/nonexistent/jackal/path.jac");
+    assert fmt.startswith("ERROR:");
 }

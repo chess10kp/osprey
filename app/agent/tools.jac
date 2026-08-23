@@ -94,6 +94,48 @@ sem run_command.cmd = "The shell command line to execute.";
 sem run_command.timeout_secs = "Seconds before the command is killed (default 120).";
 
 
+"""Run the jac CLI with args and format exit status plus output for the LLM."""
+def _run_jac_cli(args: list[str], timeout_secs: int = 120) -> str {
+    effective = timeout_secs if timeout_secs > 0 else 120;
+    try {
+        r = subprocess.run(
+            ["jac"] + args, capture_output=True, text=True, timeout=effective,
+        );
+    } except FileNotFoundError {
+        return "ERROR: jac CLI not found on PATH";
+    } except subprocess.TimeoutExpired {
+        return f"ERROR: jac {' '.join(args)} timed out after {effective}s";
+    }
+    out = (r.stdout or "") + (r.stderr or "");
+    if len(out) > MAX_TOOL_OUTPUT { out = out[:MAX_TOOL_OUTPUT] + "\n... [truncated]"; }
+    status = "ok" if r.returncode == 0 else f"failed (exit {r.returncode})";
+    body = out.strip() if out.strip() else "(no output)";
+    return f"jac {' '.join(args)} -> {status}\n{body}";
+}
+
+"""Type-check / compile-check Jac files or a whole project via `jac check`."""
+def jac_check(path: str = ".") -> str {
+    full = resolve_path(path);
+    if not os.path.exists(full) {
+        return f"ERROR: no such file or directory: {path}";
+    }
+    return _run_jac_cli(["check", full]);
+}
+sem jac_check = "Check Jac files for syntax/type errors with the Jac toolchain. Read-only; run this after editing .jac files.";
+sem jac_check.path = "File or directory to check (default: project root).";
+
+"""Format Jac files in place via `jac format`. Blocked in plan/ask modes."""
+def jac_format(path: str = ".") -> str {
+    full = resolve_path(path);
+    if not os.path.exists(full) {
+        return f"ERROR: no such file or directory: {path}";
+    }
+    return _run_jac_cli(["format", full]);
+}
+sem jac_format = "Format Jac files in place with the Jac formatter. Modifies files on disk.";
+sem jac_format.path = "File or directory to format (default: project root).";
+
+
 def _skip_walk_dir(name: str) -> bool {
     return name.startswith(".") or name in ["node_modules", ".jac", "__pycache__"];
 }
@@ -259,6 +301,30 @@ def tool_specs() -> list[ToolSpec] {
                 "required": ["cmd"],
             },
             handler=run_command,
+        ),
+        ToolSpec(
+            name="jac_check",
+            description="Check Jac files for syntax and type errors using the Jac toolchain (jac check). Prefer this over run_command for validating .jac edits.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File or directory to check (default: project root)."},
+                },
+                "required": [],
+            },
+            handler=jac_check,
+        ),
+        ToolSpec(
+            name="jac_format",
+            description="Format Jac files in place with the Jac formatter (jac format). Modifies files; blocked in plan/ask modes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File or directory to format (default: project root)."},
+                },
+                "required": [],
+            },
+            handler=jac_format,
         ),
         ToolSpec(
             name="glob",
