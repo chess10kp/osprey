@@ -1206,6 +1206,12 @@ test "node host sends builtins on ext_load and getAllTools sees them" {
     assert data["select_kind"] == "function";
     # Builtins first, extension tools after — one flat catalog.
     assert data["tools"] == ["read_file", "probe_ctx", "probe_ui"];
+    # Every ToolInfo carries Pi-shaped sourceInfo; extension tools point at
+    # the fixture path, builtins at the synthetic jackal://builtin origin.
+    assert data["source_info_count"] == 3;
+    assert data["probe_source"]["scope"] == "project";
+    assert data["probe_source"]["origin"] == "top-level";
+    assert "pi_ctx_probe.mjs" in str(data["probe_source"]["path"]);
 
     dispose_bridge(bridge);
 }

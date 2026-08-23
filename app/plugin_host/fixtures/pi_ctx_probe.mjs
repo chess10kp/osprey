@@ -13,12 +13,18 @@ export default function activate(api) {
     parameters: { type: "object", properties: {} },
     execute: async (_toolCallId, _args, _signal, _onUpdate, ctx) => {
       const tools = api.getAllTools().map((t) => t.name);
+      const withSource = api
+        .getAllTools()
+        .filter((t) => t.sourceInfo && typeof t.sourceInfo.path === "string");
+      const probe = api.getAllTools().find((t) => t.name === "probe_ctx");
       return JSON.stringify({
         has_cwd: typeof ctx?.cwd === "string" && ctx.cwd.length > 0,
         ui_kind: typeof ctx?.ui,
         notify_kind: typeof ctx?.ui?.notify,
         select_kind: typeof ctx?.ui?.select,
         tools,
+        source_info_count: withSource.length,
+        probe_source: probe?.sourceInfo ?? null,
       });
     },
   });

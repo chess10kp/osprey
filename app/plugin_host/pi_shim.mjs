@@ -333,6 +333,10 @@ function makePiApi(state, extensionId) {
         parameters: normalizeParameters(def.parameters),
         run,
         extensionId,
+        promptSnippet: def.promptSnippet,
+        promptGuidelines: Array.isArray(def.promptGuidelines)
+          ? [...def.promptGuidelines]
+          : undefined,
       });
       if (!state.extensions.has(extensionId)) {
         state.extensions.set(extensionId, { tools: [], commands: [], hooks: 0 });
@@ -555,17 +559,35 @@ function makePiApi(state, extensionId) {
     },
     getAllTools() {
       // Builtins first (Jac-side executors), then extension tools in
-      // registration order — one flat Pi-shaped catalog.
+      // registration order — one flat Pi-shaped ToolInfo catalog carrying
+      // sourceInfo (+ label / prompt metadata when present).
       const builtins = state.builtinTools.map((t) => ({
         name: t.name,
         description: t.description,
         parameters: t.parameters,
+        sourceInfo: { ...BUILTIN_SOURCE_INFO },
       }));
-      const ext = [...state.tools.values()].map((t) => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
-      }));
+      const ext = [...state.tools.values()].map((t) => {
+        const info = {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+          sourceInfo: sourceInfoFor(state, t.extensionId),
+        };
+        if (t.promptSnippet) {
+          info.promptSnippet = t.promptSnippet;
+        }
+        if (Array.isArray(t.promptGuidelines) && t.promptGuidelines.length) {
+          info.promptGuidelines = [...t.promptGuidelines];
+        }
+        const label = typeof t.label === "string" && t.label && t.label !== t.name
+          ? t.label
+          : undefined;
+        if (label) {
+          info.label = label;
+        }
+        return info;
+      });
       return [...builtins, ...ext];
     },
   };
@@ -584,6 +606,30 @@ function toolSchemasFor(state, extensionId) {
   });
 }
 
+/** Pi-shaped SourceInfo derived from where an extension was loaded from.
+ * Scope/origin are not carried on ext_load today; project/top-level is the
+ * honest default for locally-configured extensions. */
+function sourceInfoFor(state, extensionId) {
+  const rec = state.extensions.get(extensionId);
+  const path = rec?.path ? String(rec.path) : "<unknown>";
+  return {
+    path,
+    source: extensionId,
+    scope: "project",
+    origin: "top-level",
+    baseDir: path.includes("/") || path.includes("\\")
+      ? path.replace(/[\\/][^\\/]*$/, "")
+      : undefined,
+  };
+}
+
+const BUILTIN_SOURCE_INFO = Object.freeze({
+  path: "jackal://builtin",
+  source: "builtin",
+  scope: "user",
+  origin: "package",
+});
+
 function commandsFor(state, extensionId) {
   return (state.extensions.get(extensionId)?.commands ?? []).map((name) => {
     const c = state.commands.get(name);
@@ -591,8 +637,8 @@ function commandsFor(state, extensionId) {
   });
 }
 
-/** Shortcut bindings registered by one extension (listed, not yet bound —
- * the native shell has no key-binding layer; surfaced so hosts can show them). */
+/** Shortcut bindings registered by one extension (bound to keys by the
+ * native TUI input loop via shortcut_invoke; surfaced here for host UIs). */
 function shortcutsFor(state, extensionId) {
   return state.shortcuts
     .filter((s) => s.extensionId === extensionId)
@@ -769,6 +815,7 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
         commands: [],
         hooks: 0,
         transformers: 0,
+        path,
       });
 
       const href = pathToFileURL(path).href;
