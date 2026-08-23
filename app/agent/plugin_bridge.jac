@@ -797,6 +797,17 @@ def caps_satisfied(bridge: PluginBridge, requires: list) -> list {
 }
 
 
+"""Composite capability gate (P12 slice 5): interactive_ui means the Node
+host can round-trip AND this frontend installed a UI adapter. Line/JSON
+frontends fail loud at ext_load instead of at first ui.select call."""
+def ui_cap_satisfied(bridge: PluginBridge, requires: list, has_ui: bool) -> bool {
+    if "interactive_ui" not in [str(x) for x in requires] {
+        return True;
+    }
+    return has_ui;
+}
+
+
 """Load a real JS module into the Node host and register its tools.
 
 `requires` lists capability names the extension needs (e.g. commands). Missing
@@ -823,6 +834,14 @@ def load_extension_path(
     }
     if not ok_caps {
         detail = f"unsupported requirements for {extension_id}: {', '.join(missing)}";
+        _emit_host_status(bridge, "degraded", detail);
+        raise RuntimeError(detail);
+    }
+    if not ui_cap_satisfied(bridge, requires, has_ui) {
+        detail = (
+            f"requires interactive_ui but this frontend has no UI adapter "
+            f"(line/JSON mode); extension {extension_id} refused"
+        );
         _emit_host_status(bridge, "degraded", detail);
         raise RuntimeError(detail);
     }
