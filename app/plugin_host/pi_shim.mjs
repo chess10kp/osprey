@@ -30,6 +30,7 @@ export const HOST_CAPS = [
   "transformers",
   "providers",
   "renderers",
+  "interactive_ui",
 ];
 export const COMPAT_TIER = "T2-partial";
 
@@ -43,6 +44,12 @@ export function createHostState() {
     listeners: new Map(),
     /** Ordered markdown transformers: [{ fn, extensionId }] in load order. */
     mdTransformers: [],
+    /**
+     * Frontend installed an interactive-UI adapter? Flows from the Jac side
+     * on each ext_load (`has_ui`). Composite cap: Node can do round trips,
+     * but without an adapter ui.select/confirm/input must fail loud.
+     */
+    uiAvailable: false,
     extensions: new Map(),
     cancelled: new Set(),
     /** Extension traffic drains, attached to the next outgoing reply. */
@@ -68,14 +75,23 @@ export function createHostState() {
   };
 }
 
-/** UI context handed to command/hook handlers.
+/**
+ * UI context handed to command/hook handlers.
  * - notify(message, level) collects into `notifications`.
  * - Display methods collect into `uiEvents` — shipped to the Jac side over
  *   the wire, not rendered here.
- * - Interactive methods CANNOT block over the wire — they resolve
- *   immediately: select->undefined, confirm->false, input/editor->"".
+ * - Interactive methods round-trip through `bridge.requestUi` (P12): they
+ *   block until the TUI answers ui_response/ui_cancel or opts.timeout fires.
+ *   Without a bridge (line/JSON frontend, tests) they fail LOUD instead of
+ *   faking values.
+ *
+ * Result mapping (matches Pi semantics):
+ *   select: ok -> chosen string; cancel/timeout -> undefined
+ *   confirm: ok -> boolean;    cancel/timeout -> false
+ *   input:  ok -> string ("" kept distinct); cancelled -> undefined
+ *   editor/custom: explicit unsupported error, never a fake value.
  */
-function makeUi(state, extensionId) {
+function makeUi(state, extensionId, bridge) {
   const bucket = [];
   const uiEvents = [];
   const record = (method, args) => {
@@ -105,22 +121,69 @@ function makeUi(state, extensionId) {
     setHeader(text) {
       record("setHeader", [text]);
     },
-    select(_title, _options) {
-      return Promise.resolve(undefined);
+    select(title, options, callOpts = {}) {
+      const list = Array.isArray(options) ? options.map((o) => String(o)) : [];
+      if (!list.length) {
+        return Promise.reject(new Error("ui.select requires a non-empty options array"));
+      }
+      return requestUi(bridge, "select", {
+        title: String(title ?? ""),
+        options: list,
+      }, callOpts).then((r) => (r.ok ? r.value : undefined));
     },
-    confirm(_message) {
-      return Promise.resolve(false);
+    confirm(message, callOpts = {}) {
+      // One-arg form tolerated (Pi allows confirm(message)).
+      return requestUi(bridge, "confirm", {
+        message: String(message ?? ""),
+      }, callOpts).then((r) => (r.ok ? Boolean(r.value) : false));
     },
-    input(_message, _default) {
-      return Promise.resolve("");
+    input(message, placeholder, callOpts = {}) {
+      return requestUi(bridge, "input", {
+        message: String(message ?? ""),
+        placeholder: placeholder == null ? "" : String(placeholder),
+      }, callOpts).then((r) => (r.ok ? String(r.value ?? "") : undefined));
     },
     editor(_opts) {
-      return Promise.resolve("");
+      return Promise.reject(
+        new Error("ui.editor is not supported by the jackal plugin host"),
+      );
     },
     custom(_component) {
-      return Promise.resolve(undefined);
+      return Promise.reject(
+        new Error("ui.custom is not supported by the jackal plugin host"),
+      );
     },
   };
+}
+
+/** Build a per-handler UI bridge from handleEnvelope opts. parentCorr is the
+ * cmd_invoke/hook_fire correlation; children get their own ids from the
+ * broker so ui_response/ui_cancel never collide with terminal replies. */
+function makeUiBridge(state, opts, parentCorr, extensionId) {
+  const upstream = opts?.uiRequest;
+  if (typeof upstream !== "function") {
+    return null;
+  }
+  return {
+    // Composite cap: Node can round-trip, but without a UI adapter on the
+    // Jac side interactive methods fail loud instead of blocking blind.
+    hasUI: state.uiAvailable === true,
+    requestUi: (method, payload, callOpts) =>
+      upstream(parentCorr, extensionId, method, payload, callOpts),
+  };
+}
+
+/** Route one interactive request through the broker, failing loud when no
+ * UI-capable frontend is attached. callOpts: {timeout, signal}. */
+function requestUi(bridge, method, payload, callOpts) {
+  if (!bridge || typeof bridge.requestUi !== "function" || !bridge.hasUI) {
+    return Promise.reject(
+      new Error(
+        `interactive_ui unavailable: ui.${method} requires a UI-capable frontend`,
+      ),
+    );
+  }
+  return bridge.requestUi(method, payload, callOpts);
 }
 
 /** Normalize TypeBox-ish or JSON-schema parameters to plain JSON schema. */
@@ -577,6 +640,9 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
   if (kind === "ext_load") {
     const id = String(env.payload?.id ?? "");
     const path = String(env.payload?.path ?? "");
+    if (env.payload?.has_ui != null) {
+      state.uiAvailable = env.payload.has_ui === true;
+    }
     const requires = Array.isArray(env.payload?.requires)
       ? env.payload.requires
       : [];
@@ -672,7 +738,11 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
         },
       ];
     }
-    const ui = makeUi(state, cmd.extensionId);
+    const ui = makeUi(
+      state,
+      cmd.extensionId,
+      makeUiBridge(state, ctx, base.correlation_id, cmd.extensionId),
+    );
     try {
       const result = await cmd.handler(args, { ui });
       const payload = {
@@ -732,7 +802,11 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
     const listeners = state.listeners.get(event) ?? [];
     const results = [];
     for (const listener of listeners) {
-      const ui = makeUi(state, listener.extensionId);
+      const ui = makeUi(
+        state,
+        listener.extensionId,
+        makeUiBridge(state, ctx, base.correlation_id, listener.extensionId),
+      );
       let entry = {};
       try {
         const out = await listener.handler(working, { ui });
