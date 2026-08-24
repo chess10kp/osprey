@@ -12,6 +12,7 @@ import fnmatch;
 import re;
 import from core.edit { apply_edit }
 import from .tool_spec { ToolSpec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
+import from .web_tools { tool_specs_web }
 
 glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
      READ_LINE_CAP: int = 2_000;
@@ -355,7 +356,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=content_grep,
         ),
-    ];
+    ] + [ToolSpec(**s) for s in tool_specs_web()];
 }
 
 
