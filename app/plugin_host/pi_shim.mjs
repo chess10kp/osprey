@@ -19,6 +19,13 @@
  * real; UI events and renderers remain stubs. If an extension declares
  * `requires` for a stub surface, load fails loud — never silent success with
  * dead stubs.
+ *
+ * OAuth/login: the reference ExtensionAPI has no top-level `pi.login`; the
+ * only OAuth surface is `registerProvider(name, { oauth })` (types.ts ~1335),
+ * which drives interactive `/login` credential flows the host cannot run.
+ * Registering a provider carrying an `oauth` block therefore fails LOUD with
+ * a capability error (extension load errors out); providers without `oauth`
+ * (apiKey/baseUrl/models) remain fully supported.
  */
 
 import { pathToFileURL } from "node:url";
@@ -466,14 +473,25 @@ function makePiApi(state, extensionId) {
       state.sessionName = String(name ?? "");
     },
     getSessionName() {
-      return state.sessionName;
+      // Pi returns undefined when unset; "" is our storage zero-value.
+      return state.sessionName || undefined;
     },
 
     // ---- stored registrations / typed getters: degrade, never crash ----
     registerShortcut(key, opts) {
       // Listed via the ext_loaded payload; the native TUI input loop matches
       // keypresses against these bindings and fires them via shortcut_invoke.
-      state.shortcuts.push({ key: String(key ?? ""), opts, extensionId });
+      const k = String(key ?? "");
+      const existing = state.shortcuts.find((s) => s.key === k);
+      if (existing) {
+        // Dispatch keeps first-wins semantics (shortcut_invoke uses .find);
+        // the later binding still loads but never fires unless the first
+        // owner unloads. Warn so the collision is visible, not silent.
+        console.warn(
+          `[jackal plugin_host] duplicate shortcut "${k}": extension "${existing.extensionId}" registered it first; binding from "${extensionId}" will be shadowed`,
+        );
+      }
+      state.shortcuts.push({ key: k, opts, extensionId });
     },
     registerFlag(name, opts) {
       state.flags.set(String(name ?? ""), opts ?? {});
@@ -505,6 +523,14 @@ function makePiApi(state, extensionId) {
     registerProvider(cfg) {
       if (!cfg || typeof cfg !== "object" || typeof cfg.name !== "string" || !cfg.name) {
         throw new Error("registerProvider requires a config object with a name");
+      }
+      if (cfg.oauth != null) {
+        // OAuth providers drive interactive /login credential flows the host
+        // cannot provide — fail loud per COMPAT_TIER honesty, never accept a
+        // dead oauth config silently. Re-throwing aborts extension load.
+        throw new Error(
+          `registerProvider(${cfg.name}): oauth login flows are not supported by the jackal plugin host (compat ${COMPAT_TIER}); register the provider with apiKey/baseUrl instead`,
+        );
       }
       const models = Array.isArray(cfg.models)
         ? cfg.models.map((m) => (typeof m === "string" ? { id: m } : m))
