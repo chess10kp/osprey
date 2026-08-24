@@ -135,6 +135,21 @@ import from ui.width {
 
 glob SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+# Built-in slash commands handled by _run_slash locally (name without the
+# leading "/" -> short description for the autocomplete popup).
+glob SLASH_BUILTINS: dict[str, str] = {
+    "exit": "quit jackal",
+    "quit": "quit jackal",
+    "clear": "clear conversation history",
+    "abort": "abort the active turn",
+    "sessions": "list saved sessions",
+    "resume": "resume a saved session",
+    "export": "export transcript to markdown",
+    "model": "show or set the model",
+    "commands": "list extension commands",
+    "shortcuts": "list extension shortcuts",
+};
+
 
 obj LiveShell {
     has session: UiSession,
@@ -169,7 +184,9 @@ obj LiveShell {
         appr_args: any = None,
         ui_modal: any = None,
         picker: any = None,
-        cmd_q: any = None;
+        cmd_q: any = None,
+        slash_sel: int = 0,
+        slash_dismissed: str = "";
 }
 
 # Picker rows come from agent.llm PROVIDER_ROUTES (one header per provider
@@ -838,6 +855,102 @@ def _paint_overlay(app: LiveShell, lines: list[str]) {
 }
 
 
+# ==================== slash-command autocomplete ====================
+
+"""Slash-command candidates for the typed prefix: built-ins plus extension
+commands (list_commands()), deduped, alphabetical, capped at 6. Each entry
+is [name_with_slash, description]. Empty when the draft is not a bare
+command word."""
+def _slash_candidates(draft: str) -> list[list[str]] {
+    text = draft.strip();
+    if not text.startswith("/") or " " in text {
+        return [];
+    }
+    token: str = text;
+    descs: dict[str, str] = {};
+    for bname in SLASH_BUILTINS {
+        full = "/" + str(bname);
+        descs[full] = str(SLASH_BUILTINS[bname]);
+    }
+    try {
+        cmds = list_commands();
+    } except Exception {
+        cmds = {};
+    }
+    if isinstance(cmds, dict) {
+        for cname in cmds {
+            full = "/" + str(cname);
+            if full in descs {
+                continue;  # built-in shadows same-named extension command
+            }
+            meta: dict = cmds[cname] if isinstance(cmds[cname], dict) else {};
+            descs[full] = str(meta.get("description", "") or "");
+        }
+    }
+    out: list[list[str]] = [];
+    for name in sorted(descs) {
+        if name.startswith(token) {
+            out.append([name, descs[name]]);
+            if len(out) >= 6 {
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+
+"""Popup visibility + candidates in one shot: hidden while any modal,
+picker or approval owns the screen, when the draft is not a bare "/word",
+or when the user dismissed this exact draft with esc. Returns the match
+list or None."""
+def _slash_popup_state(app: LiveShell) -> list[list[str]] | None {
+    if app.picker is not None or app.ui_modal is not None or app.shell.approval is not None {
+        return None;
+    }
+    text = app.shell.prompt.draft.strip();
+    if not text.startswith("/") or " " in text {
+        return None;
+    }
+    if text == app.slash_dismissed {
+        return None;
+    }
+    matches = _slash_candidates(text);
+    if not matches {
+        return None;
+    }
+    return matches;
+}
+
+
+""">-cursor rows for the popup (selected entry marked, description
+truncated to the terminal width). Selection clamps into range so stale
+indices from earlier filters never crash the paint."""
+def _slash_popup_rows(app: LiveShell, matches: list[list[str]]) -> list[str] {
+    max_w = max(10, app.columns - 2);
+    sel = int(app.slash_sel);
+    if sel >= len(matches) {
+        sel = len(matches) - 1;
+    }
+    if sel < 0 {
+        sel = 0;
+    }
+    rows: list[str] = [];
+    i = 0;
+    for m in matches {
+        mark = ">" if i == sel else " ";
+        label = str(m[0]);
+        desc = str(m[1]);
+        if desc {
+            label += " — " + desc;
+        }
+        rows.append(truncate_text(mark + " " + label, max_w, ellipsis="…"));
+        i += 1;
+    }
+    return rows;
+}
+
+
 def _transcript_lines(app: LiveShell) -> list[str] {
     win = materialize_visible(app.proj);
     if win.lines {
@@ -861,6 +974,22 @@ def _paint(app: LiveShell) {
     status = _status_line(app);
     prompt_lines = _prompt_lines(app);
 
+    # Slash autocomplete: extra rows painted ABOVE the prompt box inside the
+    # prompt node; its fixed contract grows/shrinks with the popup each frame.
+    popup: list[list[str]] | None = _slash_popup_state(app);
+    popup_rows: list[str] = [];
+    if popup is not None {
+        popup_rows = _slash_popup_rows(app, popup);
+    }
+    set_node_contract(
+        app.renderer,
+        app.shell.prompt,
+        LayoutSpec(
+            width=fill_axis(),
+            height=fixed_axis(3 + len(popup_rows)),
+        ),
+    );
+
     # Shared overlay node: local pickers own it first, then extension modals,
     # then tool approvals.
     overlay: list[str] | None = None;
@@ -878,7 +1007,7 @@ def _paint(app: LiveShell) {
     set_node_content(app.renderer, app.shell.header, header);
     set_node_content(app.renderer, app.shell.transcript, lines);
     set_node_content(app.renderer, app.shell.status, [status]);
-    set_node_content(app.renderer, app.shell.prompt, prompt_lines);
+    set_node_content(app.renderer, app.shell.prompt, popup_rows + prompt_lines);
     mark_semantic_dirty(app.renderer, app.shell.header);
     mark_semantic_dirty(app.renderer, app.shell.transcript);
     mark_semantic_dirty(app.renderer, app.shell.status);
@@ -892,7 +1021,12 @@ def _paint(app: LiveShell) {
     if cursor_col > max_col {
         cursor_col = max_col;
     }
-    request_cursor(app.renderer, app.shell.prompt, row_offset=1, col_offset=cursor_col);
+    request_cursor(
+        app.renderer,
+        app.shell.prompt,
+        row_offset=1 + len(popup_rows),
+        col_offset=cursor_col,
+    );
 }
 
 
@@ -1543,6 +1677,49 @@ def _handle_key(app: LiveShell, key: str) {
         }
         app.dirty = True;
         return;
+    }
+    # Slash-command autocomplete popup: owns up/down/tab/enter/escape while
+    # visible; printable chars and backspace fall through to editing below —
+    # the paint-time filter picks up the new draft automatically. j/k stay
+    # out on purpose: they must keep inserting text for live filtering.
+    popup: list[list[str]] | None = _slash_popup_state(app);
+    if popup is not None {
+        count = len(popup);
+        if key == "up" {
+            app.slash_sel = (int(app.slash_sel) - 1 + count) % count;
+            app.dirty = True;
+            return;
+        }
+        if key == "down" {
+            app.slash_sel = (int(app.slash_sel) + 1) % count;
+            app.dirty = True;
+            return;
+        }
+        if key == "tab" or key == "enter" {
+            idx = int(app.slash_sel);
+            if idx >= count {
+                idx = count - 1;
+            }
+            if idx < 0 {
+                idx = 0;
+            }
+            chosen = str(popup[idx][0]);
+            app.shell.prompt.draft = chosen;
+            app.shell.prompt.caret = len(chosen);
+            app.shell.prompt.history_index = -1;
+            # Dismiss at the completed draft: enter must submit on the next
+            # press, not re-complete.
+            app.slash_dismissed = chosen;
+            app.dirty = True;
+            return;
+        }
+        if key == "escape" {
+            # First esc closes the popup without touching the draft; the
+            # second one (popup now hidden) keeps the existing behavior.
+            app.slash_dismissed = app.shell.prompt.draft.strip();
+            app.dirty = True;
+            return;
+        }
     }
     if key == "page_up" {
         # Scrollback works during streaming too: the frozen view just means
