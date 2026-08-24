@@ -1209,6 +1209,15 @@ test "node host sends builtins on ext_load and getAllTools sees them" {
     # Every ToolInfo carries Pi-shaped sourceInfo; extension tools point at
     # the fixture path, builtins at the synthetic jackal://builtin origin.
     assert data["source_info_count"] == 3;
+    # Builtin coverage by count math: exactly one native builtin (read_file)
+    # plus the two fixture tools are live, and ALL of them pass the fixture's
+    # sourceInfo filter - so the builtin read_file is enriched too. Its own
+    # field values ({path: "jackal://builtin", scope: "user",
+    # origin: "package"} - pi_shim.mjs BUILTIN_SOURCE_INFO) are not exposed
+    # per-tool by probe_ctx; asserting them would need a pi_shim-owned
+    # fixture change, deliberately skipped here.
+    assert len(data["tools"]) == 3;
+    assert data["source_info_count"] == len(data["tools"]);
     assert data["probe_source"]["scope"] == "project";
     assert data["probe_source"]["origin"] == "top-level";
     assert "pi_ctx_probe.mjs" in str(data["probe_source"]["path"]);

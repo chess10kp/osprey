@@ -52,6 +52,30 @@ test "jac_check and jac_format register with correct read-only blocking" {
 }
 
 
+test "jac_check happy path formats real CLI output" {
+    # Happy-path coverage for _run_jac_cli formatting via the public handler.
+    # Runs the REAL jac CLI once (~seconds); skipped when it is not installed.
+    if shutil.which("jac") is None {
+        return;
+    }
+    tmp = tempfile.mkdtemp();
+    try {
+        target = os.path.join(tmp, "probe.jac");
+        with open(target, "w") as f { f.write(""); }
+        out = jac_check(target);
+        # Assert the _run_jac_cli output FORMAT only - toolchain verdicts
+        # belong to the Jac toolchain, not to this adapter layer.
+        # Contract: "jac check <path> -> ok|failed (exit N)\n<body>"
+        assert out.startswith("jac check ");
+        assert " -> " in out;
+        first_line = out.split("\n")[0];
+        assert "ok" in first_line or "failed" in first_line;
+    } finally {
+        shutil.rmtree(tmp, ignore_errors=True);
+    }
+}
+
+
 test "jac_check and jac_format reject missing paths without spawning" {
     res = jac_check("/nonexistent/jackal/path.jac");
     assert res.startswith("ERROR:");
