@@ -28,6 +28,11 @@ import from agent.session {
     list_extension_shortcuts,
     plugins,
     new_session_id,
+    model_preferences,
+}
+import from agent.llm {
+    PROVIDER_ROUTES,
+    credential_error,
 }
 import from agent.modes { requires_approval }
 import from core.edit { compute_unified_diff }
@@ -167,17 +172,42 @@ obj LiveShell {
         cmd_q: any = None;
 }
 
-# Session exposes only set_model(name) — no enumeration capability — so the
-# picker offers a curated list (current model injected if missing) plus a
-# "type name…" row that flips the picker into free-text input.
-glob MODEL_CHOICES: list[str] = [
-    "openrouter/anthropic/claude-sonnet-5",
-    "openrouter/anthropic/claude-opus-4.5",
-    "openrouter/openai/gpt-5",
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/x-ai/grok-4",
-    "openrouter/meta-llama/llama-4-maverick",
-];
+# Picker rows come from agent.llm PROVIDER_ROUTES (one header per provider
+# followed by its advertised models) plus each provider's last-used model
+# from agent.session model_preferences(). Header rows carry the sentinel id
+# __header__ and are skipped on enter.
+def _model_picker_entries() -> dict {
+    rows: list[str] = [];
+    ids: list[str] = [];
+    prefs: dict = {};
+    try {
+        prefs = dict(model_preferences());
+    } except Exception {
+        prefs = {};
+    }
+    for prov in PROVIDER_ROUTES {
+        route = PROVIDER_ROUTES[prov];
+        meta: any = route if isinstance(route, dict) else {};
+        desc = str(meta.get("description", "") or "");
+        header = "── " + str(prov);
+        if desc {
+            header += " — " + desc;
+        }
+        rows.append(header + " ──");
+        ids.append("__header__");
+        for m in (meta.get("models", []) or []) {
+            mname = str(m);
+            rows.append("  " + mname);
+            ids.append(mname);
+        }
+        last = str(prefs.get(str(prov), "") or "");
+        if last {
+            rows.append("  " + last + "  · last");
+            ids.append(last);
+        }
+    }
+    return {"rows": rows, "ids": ids};
+}
 
 
 def _rule(width: int, ch: str = "─") -> str {
@@ -653,23 +683,28 @@ def _close_picker(app: LiveShell) {
 }
 
 
-"""Model picker: curated MODEL_CHOICES (current model injected when missing)
-plus a free-text fallback row; cursor starts on the active model."""
+"""Model picker: provider-grouped rows from PROVIDER_ROUTES (headers,
+advertised models, per-provider "· last" entries), the active model
+injected when missing, plus a free-text fallback row; cursor starts on
+the active model."""
 def _open_model_picker(app: LiveShell) -> str {
-    choices = list(MODEL_CHOICES);
-    if model not in choices {
-        choices.insert(0, model);
+    entries = _model_picker_entries();
+    choices: list[str] = list(entries["rows"]);
+    pick_ids: list[str] = list(entries["ids"]);
+    if model not in pick_ids {
+        choices.insert(0, model + "  · current");
+        pick_ids.insert(0, model);
     }
     sel = 0;
     i = 0;
-    for c in choices {
+    for c in pick_ids {
         if c == model {
             sel = i;
             break;
         }
         i += 1;
     }
-    opened = _open_picker(app, "MODEL", choices, choices, extra_last_input=True);
+    opened = _open_picker(app, "MODEL", choices, pick_ids, extra_last_input=True);
     if not opened {
         return "picker unavailable (overlay busy)";
     }
@@ -731,10 +766,23 @@ def _handle_picker_key(app: LiveShell, key: str) {
             app.dirty = True;
             return;
         }
+        if title == "MODEL" and chosen_id == "__header__" {
+            # Provider header rows are separators, not choices.
+            app.dirty = True;
+            return;
+        }
         _close_picker(app);
         if title == "MODEL" {
-            _push_turn(app, "tool", "model -> " + (chosen_id or chosen));
-            set_model(chosen_id or chosen);
+            mname = chosen_id or chosen;
+            cerr = credential_error(mname);
+            if cerr {
+                # Missing credentials: surface which env var to set instead of
+                # switching (same tool-row path as /command results).
+                _push_turn(app, "tool", cerr);
+            } else {
+                _push_turn(app, "tool", "model -> " + mname);
+                set_model(mname);
+            }
         } elif title == "RESUME SESSION" {
             reply = _resume_session(app, chosen_id);
             if reply {

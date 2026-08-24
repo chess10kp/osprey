@@ -780,3 +780,145 @@ test "after_provider_response refires per retry attempt through react_loop" {
         dispose_bridge(bridge);
     }
 }
+
+
+# ===================== provider-first routing (fx-style) =====================
+
+test "provider_for dispatches by case-sensitive prefix" {
+    # Case-sensitivity is deliberate: prefix matching preserves the exact
+    # startswith semantics make_transport had before PROVIDER_ROUTES existed.
+    assert provider_for("openrouter/vendor/x") == "openrouter";
+    assert provider_for("deepseek/deepseek-chat") == "deepseek";
+    assert provider_for("mock") == "mock";
+    assert provider_for("mockllm") == "mock";
+    assert provider_for("mock/echo") == "mock";
+    assert provider_for("ext/acme/sonnet-x") == "ext";
+    # Bare names, unknown prefixes, and wrong-case spellings all fall through
+    # to the OpenAI-compatible default — exactly as before the table.
+    assert provider_for("gpt-4o-mini") == "openai_compat";
+    assert provider_for("OpenRouter/vendor/x") == "openai_compat";
+    assert provider_for("") == "openai_compat";
+    # Pure: no env reads, same input -> same output.
+    assert provider_for("openrouter/a") == provider_for("openrouter/a");
+}
+
+
+test "credential_error is empty when each routed key is set" {
+    import os;
+    cases = [
+        ["openrouter/vendor/x", "OPENROUTER_API_KEY"],
+        ["deepseek/ds-chat", "DEEPSEEK_API_KEY"],
+        ["gpt-4o-mini", "OPENAI_API_KEY"],
+    ];
+    for pair in cases {
+        m = pair[0];
+        k = pair[1];
+        saved = os.environ.pop(k, None);
+        try {
+            assert credential_error(m) != "";
+            os.environ[k] = "sk-test";
+            assert credential_error(m) == "";
+        } finally {
+            if saved is None { os.environ.pop(k, None); }
+            else { os.environ[k] = saved; }
+        }
+    }
+}
+
+
+test "credential_error names provider, key, and /model escape hatch" {
+    import os;
+    saved = os.environ.pop("OPENROUTER_API_KEY", None);
+    try {
+        msg = credential_error("openrouter/anthropic/claude-sonnet-5");
+        assert "openrouter" in msg;
+        assert "OPENROUTER_API_KEY" in msg;
+        assert "/model" in msg;
+    } finally {
+        if saved is None { os.environ.pop("OPENROUTER_API_KEY", None); }
+        else { os.environ["OPENROUTER_API_KEY"] = saved; }
+    }
+
+    # openai_compat failures also mention OPENAI_COMPAT_BASE.
+    saved2 = os.environ.pop("OPENAI_API_KEY", None);
+    try {
+        msg = credential_error("gpt-4o-mini");
+        assert "OPENAI_API_KEY" in msg;
+        assert "OPENAI_COMPAT_BASE" in msg;
+    } finally {
+        if saved2 is None { os.environ.pop("OPENAI_API_KEY", None); }
+        else { os.environ["OPENAI_API_KEY"] = saved2; }
+    }
+}
+
+
+test "credential_error never fires for keyless or ext providers" {
+    import os;
+    # mock needs no credential; ext ids are validated by their own extension.
+    for m in ["mock", "mockllm", "mock/echo", "ext/acme/sonnet-x"] {
+        assert credential_error(m) == "";
+    }
+    # Never raises even on nonsense input.
+    assert isinstance(credential_error(""), str);
+}
+
+
+test "every provider route declares usable metadata" {
+    import os;
+    for pid in PROVIDER_ROUTES {
+        route = PROVIDER_ROUTES[pid];
+        assert isinstance(route.get("description", ""), str);
+        assert route.get("description", "") != "";
+        base_url = route.get("base_url", "");
+        assert isinstance(base_url, str) and base_url != "";
+        key_env = route.get("key_env", "");
+        assert isinstance(key_env, str);
+        if pid != "mock" {  # mock is the one declared-keyless route
+            assert key_env != "";
+        }
+        assert isinstance(route.get("models", []), list);
+    }
+    # Each keyed route's key_env is exactly what credential_error checks.
+    for pid in ["openrouter", "deepseek", "openai_compat"] {
+        env_name = str(PROVIDER_ROUTES[pid]["key_env"]);
+        saved = os.environ.get(env_name);
+        try {
+            if saved is not None { os.environ.pop(env_name); }
+            assert credential_error(pid + "/probe-model") != "";
+        } finally {
+            if saved is not None { os.environ[env_name] = saved; }
+        }
+    }
+}
+
+
+test "make_transport keeps historical wiring via the table" {
+    import os;
+    saved = os.environ.pop("OPENAI_COMPAT_BASE", None);
+    try {
+        # Prefix stripping still happens for prefixed providers.
+        or_t = make_transport("openrouter/vendor/model-x");
+        assert or_t.model == "vendor/model-x";
+        assert or_t.base_url == PROVIDER_ROUTES["openrouter"]["base_url"];
+        ds_t = make_transport("deepseek/deepseek-chat");
+        assert ds_t.model == "deepseek-chat";
+
+        # Unresolved ext ids keep falling back to openai_compat verbatim
+        # (session resolves ext ids through make_ext_transport first).
+        ext_t = make_transport("ext/acme/sonnet-x");
+        assert ext_t.model == "ext/acme/sonnet-x";
+        assert ext_t.base_url == "https://api.openai.com/v1";
+
+        # OPENAI_COMPAT_BASE override still wins for the fallback route.
+        os.environ["OPENAI_COMPAT_BASE"] = "http://127.0.0.1:9/v1";
+        assert make_transport("gpt-4o").base_url == "http://127.0.0.1:9/v1";
+
+        # mock gets its local marker endpoint and never a credential.
+        mk = make_transport("mockllm");
+        assert mk.base_url == PROVIDER_ROUTES["mock"]["base_url"];
+        assert mk.api_key == "";
+    } finally {
+        if saved is None { os.environ.pop("OPENAI_COMPAT_BASE", None); }
+        else { os.environ["OPENAI_COMPAT_BASE"] = saved; }
+    }
+}

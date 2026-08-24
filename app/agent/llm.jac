@@ -168,36 +168,127 @@ obj Transport {
 }
 
 
+"""fx-style provider-first routing (see ~/notes/fx-model-routing.md).
+
+One table owns every provider fact — endpoint, credential env var, catalog —
+and both routing (`provider_for`) and credential validation
+(`credential_error`) dispatch through it. Prefix matching is CASE-SENSITIVE
+on purpose: it preserves the exact `startswith` semantics make_transport had
+before the table existed ("OpenRouter/..." was never a routed id).
+
+Route fields:
+  description   human-facing provider blurb (/model UI)
+  base_url      default chat-completions endpoint
+  base_url_env  optional env var overriding base_url (openai_compat only)
+  key_env       bearer-token env var; "" = provider needs no credential
+  models        static catalog hints (informational)
+"""
+glob PROVIDER_ROUTES: dict = {
+    "openrouter": {
+        "description": "OpenRouter multi-provider gateway",
+        "base_url": "https://openrouter.ai/api/v1",
+        "base_url_env": "",
+        "key_env": "OPENROUTER_API_KEY",
+        "models": ["anthropic/claude-sonnet-5", "openai/gpt-5"],
+    },
+    "deepseek": {
+        "description": "DeepSeek API",
+        "base_url": "https://api.deepseek.com/v1",
+        "base_url_env": "",
+        "key_env": "DEEPSEEK_API_KEY",
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+    },
+    "openai_compat": {
+        "description": "Any OpenAI-compatible chat-completions endpoint",
+        "base_url": "https://api.openai.com/v1",
+        "base_url_env": "OPENAI_COMPAT_BASE",
+        "key_env": "OPENAI_API_KEY",
+        "models": ["gpt-4o", "gpt-4o-mini"],
+    },
+    "mock": {
+        "description": "Local mockllm (no network, no credential)",
+        "base_url": "local://mockllm",
+        "base_url_env": "",
+        "key_env": "",
+        "models": ["mock"],
+    },
+};
+
+
+"""Map a model id to its provider id (pure function — reads nothing).
+
+Dispatch:
+  "openrouter/<model>"          -> "openrouter"
+  "deepseek/<model>"            -> "deepseek"
+  "mock" | "mockllm" | "mock/*" -> "mock"
+  "ext/<extension>/<model>"     -> "ext" (resolved via plugin bridge)
+  anything else                 -> "openai_compat"
+"""
+def provider_for(model: str) -> str {
+    if model.startswith("openrouter/") { return "openrouter"; }
+    if model.startswith("deepseek/") { return "deepseek"; }
+    if model == "mock" or model == "mockllm" or model.startswith("mock/") {
+        return "mock";
+    }
+    if model.startswith("ext/") { return "ext"; }
+    return "openai_compat";
+}
+
+
+"""fx-style actionable credential check. Returns "" when the model is
+usable; otherwise ONE sentence naming the exact fix. Reads only os.environ
+and never raises.
+"""
+def credential_error(model: str) -> str {
+    try {
+        provider = provider_for(model);
+        if provider == "ext" { return ""; }
+        route: any = PROVIDER_ROUTES.get(provider);
+        if route is None { return ""; }
+        key_env = str(route.get("key_env", ""));
+        if not key_env { return ""; }
+        if os.environ.get(key_env, "") { return ""; }
+        fix = f'set {key_env}';
+        if provider == "openai_compat" {
+            fix += " (or point OPENAI_COMPAT_BASE at your endpoint)";
+        }
+        return (
+            f'model "{model}" routes via {provider} — {fix}'
+            + " or pick another provider (/model for options)."
+        );
+    } except Exception {
+        return "";
+    }
+}
+
+
 """Pick a transport from the model name. Provider table lives here so the
 whole model edge is one swappable module.
 
 `model` is always explicit (callers may override the session default global
 per turn); `thinking` optionally carries a reasoning level
 ("off"|"minimal"|"low"|"medium"|"high", "" = omit from request body).
+
+Historical wiring preserved verbatim: unresolved `ext/` ids still fall back
+to the OpenAI-compatible endpoint (session resolves ext ids through
+make_ext_transport FIRST; this is the native fallback path). `mock` ids get
+the table's local:// marker instead of silently billing a real endpoint.
 """
 def make_transport(model: str = "", thinking: str = "", hook_bridge: any = None) -> Transport {
-    if model.startswith("openrouter/") {
-        return Transport(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-            model=model[len("openrouter/"):],
-            thinking=thinking,
-            hook_bridge=hook_bridge,
-        );
-    }
-    if model.startswith("deepseek/") {
-        return Transport(
-            base_url="https://api.deepseek.com/v1",
-            api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
-            model=model[len("deepseek/"):],
-            thinking=thinking,
-            hook_bridge=hook_bridge,
-        );
-    }
+    provider = provider_for(model);
+    if provider == "ext" { provider = "openai_compat"; }
+    route: dict = PROVIDER_ROUTES[provider];
+    prefix = provider + "/";
+    stripped = model;
+    if model.startswith(prefix) { stripped = model[len(prefix):]; }
+    key_env = str(route.get("key_env", ""));
+    api_key = os.environ.get(key_env, "") if key_env else "";
+    base_url_env = str(route.get("base_url_env", ""));
+    base_url = os.environ.get(base_url_env, str(route["base_url"])) if base_url_env else str(route["base_url"]);
     return Transport(
-        base_url=os.environ.get("OPENAI_COMPAT_BASE", "https://api.openai.com/v1"),
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        model=stripped,
         thinking=thinking,
         hook_bridge=hook_bridge,
     );

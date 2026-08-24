@@ -12,7 +12,15 @@ import time;
 
 import from typing { Callable }
 
-import from .llm { Transport, react_loop, make_transport, make_ext_transport, TurnCancel }
+import from .llm {
+    Transport,
+    react_loop,
+    make_transport,
+    make_ext_transport,
+    TurnCancel,
+    provider_for,
+    credential_error,
+}
 import from .compaction {
     load_project_config,
     resolve_auto_compact_config,
@@ -106,6 +114,12 @@ glob history: list = [],
 
 glob _t0: float = 0.0,
      _n_tools: int = 0;
+
+# Per-provider last-model memory (fx-style), persisted to
+# <cwd>/.jackal/model_prefs.json. Loaded defensively once per process; a
+# missing or corrupt file simply means no remembered preferences.
+glob _model_prefs: dict = {},
+     _model_prefs_loaded: bool = False;
 
 
 # ===================== MCP server attach =====================
@@ -257,11 +271,79 @@ def _attach_mcp_servers(cfg: dict) {
 }
 
 
-"""Switch the active model. Fires Pi's model_select hook best-effort so
+"""Path of the per-project model preference file."""
+def _model_prefs_path() -> str {
+    cwd = plugins.cwd if plugins.cwd else os.getcwd();
+    return os.path.join(cwd, ".jackal", "model_prefs.json");
+}
+
+
+"""One-time defensive load of model_prefs.json (missing/corrupt -> {})."""
+def _load_model_prefs {
+    if _model_prefs_loaded {
+        return;
+    }
+    _model_prefs_loaded = True;
+    path = _model_prefs_path();
+    if not os.path.isfile(path) {
+        return;
+    }
+    try {
+        with open(path, "r") as fh {
+            raw = json.load(fh);
+        }
+        if isinstance(raw, dict) {
+            _model_prefs = raw;
+        }
+    } except (OSError, ValueError) {
+    }
+}
+
+
+"""Record the last model overall ("last") and per provider, then persist
+to <cwd>/.jackal/model_prefs.json best-effort. Never raises — a preference
+write must never break a successful switch."""
+def _record_model_pref(name: str) {
+    try {
+        _load_model_prefs();
+        _model_prefs["last"] = name;
+        _model_prefs[provider_for(name)] = name;
+        prefs_dir = os.path.join(
+            plugins.cwd if plugins.cwd else os.getcwd(), ".jackal"
+        );
+        os.makedirs(prefs_dir, exist_ok=True);
+        path = os.path.join(prefs_dir, "model_prefs.json");
+        with open(path, "w") as fh {
+            json.dump(_model_prefs, fh, indent=2, sort_keys=True);
+            fh.write("\n");
+        }
+    } except Exception {
+    }
+}
+
+
+"""Snapshot of persisted last-model preferences ("last" + provider keys).
+For the TUI /model picker to preselect per-provider defaults."""
+def model_preferences() -> dict {
+    _load_model_prefs();
+    return dict(_model_prefs);
+}
+
+
+"""Switch the active model. Validates credentials fx-style BEFORE applying:
+a model whose provider key is missing is refused and the actionable error
+text is returned instead of the model name (callers render the returned
+string directly). On success fires Pi's model_select hook best-effort so
 listeners see every change regardless of source (/model command or an
-extension's pi.setModel applied via _apply_pending_model_requests)."""
+extension's pi.setModel applied via _apply_pending_model_requests) and
+records the per-provider/overall last-model preference."""
 def set_model(name: str) -> str {
+    err = credential_error(name);
+    if err {
+        return err;
+    }
     model = name;
+    _record_model_pref(name);
     b = plugins.bridge;
     if b is not None {
         try {
@@ -473,6 +555,10 @@ def session_boot(
         _attach_mcp_servers(load_project_config(plugins.cwd));
     } except Exception {
     }
+
+    # Model prefs: cheap defensive read so model_preferences()/set_model see
+    # the project's remembered per-provider models; missing/corrupt is fine.
+    _load_model_prefs();
 
     sidecar = node_sidecar_decls(parsed);
     plugins.total = len(sidecar);

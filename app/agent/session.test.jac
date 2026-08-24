@@ -1,6 +1,7 @@
 """Session plugin boot + dual clocks + bridge wiring (P1/P2)."""
 
 import os;
+import json;
 import time;
 import tempfile;
 
@@ -370,5 +371,45 @@ test "agent_start_gate collects systemPrompt without touching history" {
     plugins.bridge = None;
     dispose_bridge(b as PluginBridge);
     clear_history();
+    session_dispose();
+}
+
+
+test "set_model refuses when provider credential is missing" {
+    session_dispose();
+    st = session_boot("t-model-refusal", tempfile.mkdtemp(), []);
+    # Start from a keyless provider so the unchanged-model assert is meaningful
+    # (the boot default itself is an openrouter model).
+    assert set_model("mock") == "mock";
+    saved: any = os.environ.pop("OPENROUTER_API_KEY", None);
+    try {
+        out = set_model("openrouter/anthropic/claude-sonnet-5");
+        assert "OPENROUTER_API_KEY" in out;
+        assert model == "mock";
+        assert model_preferences().get("last") == "mock";
+    } finally {
+        if saved is not None {
+            os.environ["OPENROUTER_API_KEY"] = str(saved);
+        }
+    }
+    # Keyless providers always pass validation.
+    assert set_model("mock") == "mock";
+    session_dispose();
+}
+
+
+test "set_model persists per-provider last-model prefs to .jackal" {
+    tmp = tempfile.mkdtemp();
+    session_dispose();
+    st = session_boot("t-model-prefs", tmp, []);
+    assert set_model("mock") == "mock";
+    path = os.path.join(tmp, ".jackal", "model_prefs.json");
+    assert os.path.isfile(path);
+    with open(path, "r") as fh {
+        raw = json.load(fh);
+    }
+    assert raw.get("last") == "mock";
+    assert raw.get("mock") == "mock";
+    assert model_preferences().get("last") == "mock";
     session_dispose();
 }
