@@ -1,0 +1,3 @@
+impl baz{
+    print("baz");
+}

@@ -1,0 +1,3 @@
+impl bar{
+    print("bar");
+}

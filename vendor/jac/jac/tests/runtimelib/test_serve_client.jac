@@ -1,0 +1,2513 @@
+"""Tests for JacAPIServer using JacTestClient (port-free).
+
+This file mirrors the tests in test_serve_client.py but uses native Jac test syntax.
+"""
+
+import io;
+import json;
+import logging;
+import os;
+import re;
+import shutil;
+import uuid;
+import from pathlib { Path }
+import from tempfile { TemporaryDirectory }
+import from jaclang.runtimelib.serializer { Serializer }
+import from jaclang.runtimelib.testing { JacTestClient }
+
+glob FIXTURES = str(Path(__file__).parent / "fixtures");
+
+def _as_any(v: any) -> any {
+    return v;
+}
+
+"""Skip a test unless client integration is explicitly enabled.
+
+Rendering a client page now runs the real Vite/Bun pipeline (bun + npm install
++ vite build), so these are integration tests rather than fast unit tests. They
+run only when JAC_CLIENT_INTEGRATION is set (and are covered by jac-client's own
+suite); core CI skips them.
+"""
+def _require_client_integration {
+    if not os.environ.get("JAC_CLIENT_INTEGRATION") {
+        testskip(
+            "client render requires the Vite/Bun toolchain; "
+            "set JAC_CLIENT_INTEGRATION=1 to run"
+        );
+    }
+}
+
+def fixture_abs_path(filename: str) -> str {
+    return str((Path(FIXTURES) / filename).resolve());
+}
+
+def make_client(base_path: str) -> JacTestClient {
+    return JacTestClient.from_file(
+        fixture_abs_path("serve_api.jac"), base_path=base_path
+    );
+}
+
+def make_imports_client(base_path: str) -> JacTestClient {
+    return JacTestClient.from_file(
+        fixture_abs_path("serve_api_with_imports.jac"), base_path=base_path
+    );
+}
+
+def make_access_client(base_path: str) -> JacTestClient {
+    return JacTestClient.from_file(
+        fixture_abs_path("serve_api_access.jac"), base_path=base_path
+    );
+}
+
+def make_imported_access_client(base_path: str) -> JacTestClient {
+    return JacTestClient.from_file(
+        fixture_abs_path("serve_api_with_access_imports.jac"), base_path=base_path
+    );
+}
+
+"""Create test client for client_app.jac with isolated fixtures."""
+def make_client_app_client(tmp_path: str) -> JacTestClient {
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    module_name = f"client_app_{unique_id}";
+    fixtures_dest = Path(tmp_path) / module_name;
+    fixtures_dest.mkdir(parents=True, exist_ok=True);
+    for f in fixtures_src.`glob("*.jac") {
+        if f.is_file() {
+            dest_name = f.name;
+            if f.name == "client_app.jac" {
+                dest_name = f"{module_name}.jac";
+            }
+            shutil.copy(f, fixtures_dest / dest_name);
+        }
+    }
+    return JacTestClient.from_file(
+        str(fixtures_dest / f"{module_name}.jac"),
+        base_path=str(fixtures_dest),
+        module_name=module_name
+    );
+}
+
+def make_fullstack_app_client(base_path: str) -> JacTestClient {
+    return JacTestClient.from_file(
+        fixture_abs_path("client_fullstack_app.jac"), base_path=base_path
+    );
+}
+
+"""Create a client for the multi-file cross-boundary (Path B) app.
+
+The entry module (`crossbound_app.jac`) opens the client but imports no server
+endpoint; the endpoints live in `crossbound_server.jac` and are reached only
+through the client's `sv import`. Copied into an isolated dir so relative
+imports resolve.
+"""
+def make_crossboundary_client(tmp_path: str) -> JacTestClient {
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    # Unique entry module name so repeated runs in one process do not collide in
+    # the program/module cache (mirrors make_client_app_client).
+    module_name = f"crossbound_app_{unique_id}";
+    dest = Path(tmp_path) / module_name;
+    dest.mkdir(parents=True, exist_ok=True);
+    shutil.copy(fixtures_src / "crossbound_app.jac", dest / f"{module_name}.jac");
+    shutil.copy(fixtures_src / "crossbound_server.jac", dest / "crossbound_server.jac");
+    with open(str(dest / "jac.toml"), "w") as tf {
+        tf.write(
+            "[project]\nname = \"crossbound\"\n\n[placement.pins]\n"
+            "\"crossbound_server\" = \"server\"\n"
+        );
+    }
+    shutil.copy(
+        fixtures_src / "crossbound_frontend.jac", dest / "crossbound_frontend.jac"
+    );
+    return JacTestClient.from_file(
+        str(dest / f"{module_name}.jac"), base_path=str(dest), module_name=module_name
+    );
+}
+
+"""Create a client for the cl->sv *dual-role* app (#6507).
+
+`dualrole_guestbook.jac` is reached only through the client's `sv import` (the
+cl->sv load path), AND it is itself a server->server consumer: it does its own
+relative `sv import from .dualrole_analytics`. Before the fix that outgoing
+relative import crashed the guestbook module at load time, silently dropping its
+own `sign_guestbook` / `get_guestbook` endpoints. Copied into an isolated dir so
+the relative imports resolve.
+"""
+def make_dualrole_client(tmp_path: str) -> JacTestClient {
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    module_name = f"dualrole_app_{unique_id}";
+    dest = Path(tmp_path) / module_name;
+    dest.mkdir(parents=True, exist_ok=True);
+    shutil.copy(fixtures_src / "dualrole_app.jac", dest / f"{module_name}.jac");
+    with open(str(dest / "jac.toml"), "w") as tf {
+        tf.write(
+            "[project]\nname = \"dualrole\"\n\n[placement.pins]\n"
+            "\"dualrole_guestbook\" = \"server\"\n"
+            "\"dualrole_analytics\" = \"server\"\n"
+            "\n[scale.microservices.routes]\n"
+            "\"dualrole_analytics\" = \"/analytics\"\n"
+        );
+    }
+    for name in [
+        "dualrole_frontend.jac",
+        "dualrole_guestbook.jac",
+        "dualrole_analytics.jac"
+    ] {
+        shutil.copy(fixtures_src / name, dest / name);
+    }
+    return JacTestClient.from_file(
+        str(dest / f"{module_name}.jac"), base_path=str(dest), module_name=module_name
+    );
+}
+
+"""Create a client whose cl->sv endpoint provider crashes at import (#6507).
+
+The server module behind `do_thing` raises while executing its module body, so
+the serve-side collector cannot resolve the symbol. It must log the failure
+rather than silently drop the endpoint. Copied into an isolated dir.
+"""
+def make_failload_client(tmp_path: str) -> JacTestClient {
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    module_name = f"failload_app_{unique_id}";
+    dest = Path(tmp_path) / module_name;
+    dest.mkdir(parents=True, exist_ok=True);
+    shutil.copy(fixtures_src / "failload_app.jac", dest / f"{module_name}.jac");
+    with open(str(dest / "jac.toml"), "w") as tf {
+        tf.write(
+            "[project]\nname = \"failload\"\n\n[placement.pins]\n"
+            "\"failload_server\" = \"server\"\n"
+        );
+    }
+    for name in ["failload_frontend.jac", "failload_server.jac"] {
+        shutil.copy(fixtures_src / name, dest / name);
+    }
+    return JacTestClient.from_file(
+        str(dest / f"{module_name}.jac"), base_path=str(dest), module_name=module_name
+    );
+}
+
+"""Create a cross-boundary client whose app lives UNDER the jaclang package root.
+
+Same fixtures as `make_crossboundary_client`, but the entry/server/client files
+are copied into a unique dir inside the jaclang package (where `jac ai --ui` and
+other bundled apps live). `JacCompiler._resolve_program` routes any file under
+the package root to the compiler's `internal_program`, so the cross-boundary
+interop facts land in that hub rather than `Jac.program.mod.hub` -- the exact
+condition under which the serve endpoint collector missed them. Returns
+`(client, cleanup_dir)`; the caller must rmtree `cleanup_dir`.
+"""
+def make_bundled_crossboundary_client -> tuple {
+    import jaclang;
+    jaclang_root = Path(jaclang.__file__).resolve().parent;
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    module_name = f"crossbound_bundled_{unique_id}";
+    dest = jaclang_root / f"_bundled_serve_test_{unique_id}";
+    dest.mkdir(parents=True, exist_ok=True);
+    shutil.copy(fixtures_src / "crossbound_app.jac", dest / f"{module_name}.jac");
+    shutil.copy(fixtures_src / "crossbound_server.jac", dest / "crossbound_server.jac");
+    with open(str(dest / "jac.toml"), "w") as tf {
+        tf.write(
+            "[project]\nname = \"crossbound-bundled\"\n\n[placement.pins]\n"
+            "\"crossbound_server\" = \"server\"\n"
+        );
+    }
+    shutil.copy(
+        fixtures_src / "crossbound_frontend.jac", dest / "crossbound_frontend.jac"
+    );
+    client = JacTestClient.from_file(
+        str(dest / f"{module_name}.jac"), base_path=str(dest), module_name=module_name
+    );
+    return (client, str(dest));
+}
+
+"""Create test client with base_route_app configured for SPA catch-all."""
+def make_spa_client(tmp_path: str) -> JacTestClient {
+    import from jaclang.project.config { JacConfig, ServeConfig }
+    fixtures_src = Path(fixture_abs_path("")).resolve();
+    unique_id = uuid.uuid4().hex[:8];
+    module_name = f"spa_app_{unique_id}";
+    fixtures_dest = Path(tmp_path) / module_name;
+    fixtures_dest.mkdir(parents=True, exist_ok=True);
+    for f in fixtures_src.`glob("*.jac") {
+        if f.is_file() {
+            dest_name = f.name;
+            if f.name == "client_app.jac" {
+                dest_name = f"{module_name}.jac";
+            }
+            shutil.copy(f, fixtures_dest / dest_name);
+        }
+    }
+    return JacTestClient.from_file(
+        str(fixtures_dest / f"{module_name}.jac"),
+        base_path=str(fixtures_dest),
+        module_name=module_name,
+        config=JacConfig(serve=ServeConfig(base_route_app="client_page"))
+    );
+}
+
+"""Attach a StringIO handler to logger and return (buf, handler, old_level)."""
+def capture_log_start(logger: logging.Logger, level: int = logging.DEBUG) -> tuple {
+    buf = io.StringIO();
+    handler = logging.StreamHandler(buf);
+    handler.setLevel(level);
+    logger.addHandler(handler);
+    old_level = logger.level;
+    logger.setLevel(level);
+    return (buf, handler, old_level);
+}
+
+"""Remove handler and restore logger level."""
+def capture_log_stop(
+    logger: logging.Logger, handler: logging.StreamHandler, old_level: int
+) {
+    logger.removeHandler(handler);
+    logger.setLevel(old_level);
+}
+
+# =============================================================================
+# TestServerClientMigrated (27 tests)
+# =============================================================================
+test "serve user creation" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "alice"}],
+                "credential": {"type": "password", "password": "secret123"}
+            }
+        );
+        assert response.ok;
+        data = response.data;
+        assert "username" in data;
+        assert "token" in data;
+        assert "root_id" in data;
+        assert data["username"] == "alice";
+        client.close();
+    }
+}
+
+test "serve user login" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        # Create user
+        create_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "bob"}],
+                "credential": {"type": "password", "password": "pass456"}
+            }
+        );
+        create_data = create_response.data;
+        # Login with correct credentials
+        login_response = client.post(
+            "/user/login",
+            json={
+                "identity": {"type": "username", "value": "bob"},
+                "credential": {"type": "password", "password": "pass456"}
+            }
+        );
+        assert login_response.ok;
+        login_data = login_response.data;
+        assert "token" in login_data;
+        assert login_data["username"] == "bob";
+        assert login_data["root_id"] == create_data["root_id"];
+        # Login with wrong password
+        client.clear_auth();
+        fail_response = client.post(
+            "/user/login",
+            json={
+                "identity": {"type": "username", "value": "bob"},
+                "credential": {"type": "password", "password": "wrongpass"}
+            }
+        );
+        assert not fail_response.ok or "error" in fail_response.json();
+        client.close();
+    }
+}
+
+test "serve register rejects legacy payload" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.post(
+            "/user/register", json={"username": "legacy", "password": "pass123"}
+        );
+        assert not response.ok;
+        assert response.status_code == 400;
+        client.close();
+    }
+}
+
+test "serve login rejects email identity" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.post(
+            "/user/login",
+            json={
+                "identity": {"type": "email", "value": "a@b.c"},
+                "credential": {"type": "password", "password": "pass"}
+            }
+        );
+        assert not response.ok;
+        assert response.status_code == 400;
+        body = response.json();
+        assert "username" in body.get("error", "");
+        client.close();
+    }
+}
+
+test "serve get user info success" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        # Register a new user
+        register_response = client.register_user("testuser", "testpass123");
+        assert register_response.ok;
+        assert register_response.status_code == 201;
+        register_data = register_response.data;
+        assert "username" in register_data;
+        assert "token" in register_data;
+        assert "root_id" in register_data;
+        assert register_data["username"] == "testuser";
+        expected_username = register_data["username"];
+        expected_token = register_data["token"];
+        expected_root_id = register_data["root_id"];
+        # Get user info
+        info_response = client.get("/user/info");
+        assert info_response.ok;
+        assert info_response.status_code == 200;
+        info_data = info_response.data;
+        assert "username" in info_data;
+        assert "token" in info_data;
+        assert "root_id" in info_data;
+        assert info_data["username"] == expected_username;
+        assert info_data["token"] == expected_token;
+        assert info_data["root_id"] == expected_root_id;
+        client.close();
+    }
+}
+
+test "serve get user info after login" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        register_response = client.register_user("loginuser", "loginpass456");
+        assert register_response.ok;
+        register_data = register_response.data;
+        expected_username = register_data["username"];
+        expected_root_id = register_data["root_id"];
+        # Clear auth and login again
+        client.clear_auth();
+        login_response = client.login("loginuser", "loginpass456");
+        assert login_response.ok;
+        login_data = login_response.data;
+        # Get user info with the login token
+        info_response = client.get("/user/info");
+        assert info_response.ok;
+        assert info_response.status_code == 200;
+        info_data = info_response.data;
+        assert info_data["username"] == expected_username;
+        assert info_data["username"] == login_data["username"];
+        assert info_data["root_id"] == expected_root_id;
+        assert info_data["root_id"] == login_data["root_id"];
+        assert info_data["token"] == login_data["token"];
+        client.close();
+    }
+}
+
+test "serve get user info requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.clear_auth();
+        response = client.get("/user/info");
+        assert not response.ok;
+        assert response.status_code == 401;
+        if response.data {
+            assert "error" in response.data or "message" in response.data;
+        } else {
+            assert "error" in response.text.lower()
+                or "unauthorized" in response.text.lower();
+        }
+        client.close();
+    }
+}
+
+test "serve get user info invalid token" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.set_auth_token("invalid_token_12345");
+        response = client.get("/user/info");
+        assert not response.ok;
+        assert response.status_code == 401;
+        if response.data {
+            assert "error" in response.data or "message" in response.data;
+        } else {
+            assert "error" in response.text.lower()
+                or "unauthorized" in response.text.lower();
+        }
+        client.close();
+    }
+}
+
+test "serve get user info different users" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        # Register first user
+        client.register_user("user1", "pass1");
+        user1_info_response = client.get("/user/info");
+        assert user1_info_response.ok;
+        user1_info = user1_info_response.data;
+        user1_token = user1_info["token"];
+        # Register second user
+        client.clear_auth();
+        client.register_user("user2", "pass2");
+        user2_info_response = client.get("/user/info");
+        assert user2_info_response.ok;
+        user2_info = user2_info_response.data;
+        # Verify they are different users
+        assert user1_info["username"] == "user1";
+        assert user2_info["username"] == "user2";
+        assert user1_info["root_id"] != user2_info["root_id"];
+        assert user1_info["token"] != user2_info["token"];
+        # Switch back to user1's token
+        client.set_auth_token(user1_token);
+        user1_info_again_response = client.get("/user/info");
+        assert user1_info_again_response.ok;
+        user1_info_again = user1_info_again_response.data;
+        assert user1_info_again["username"] == "user1";
+        assert user1_info_again["root_id"] == user1_info["root_id"];
+        assert user1_info_again["token"] == user1_info["token"];
+        client.close();
+    }
+}
+
+test "serve authentication required" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.get("/protected");
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        client.close();
+    }
+}
+
+test "serve list functions" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("funcuser", "pass");
+        response = client.get("/functions");
+        assert response.ok;
+        data = response.data;
+        assert "functions" in data;
+        assert "add_numbers" in data["functions"];
+        assert "greet" in data["functions"];
+        client.close();
+    }
+}
+
+test "serve get function signature" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("siguser", "pass");
+        response = client.get("/function/add_numbers");
+        assert response.ok;
+        data = response.data;
+        assert "signature" in data;
+        sig = data["signature"];
+        assert "parameters" in sig;
+        assert "a" in sig["parameters"];
+        assert "b" in sig["parameters"];
+        assert sig["parameters"]["a"]["required"] is True;
+        assert sig["parameters"]["b"]["required"] is True;
+        client.close();
+    }
+}
+
+test "serve call function" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("calluser", "pass");
+        # Call add_numbers
+        response = client.post("/function/add_numbers", json={"a": 10, "b": 25});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"] == 35;
+        # Call greet
+        response2 = client.post("/function/greet", json={"name": "World"});
+        assert response2.ok;
+        data2 = response2.data;
+        assert "result" in data2;
+        assert data2["result"] == "Hello, World!";
+        client.close();
+    }
+}
+
+test "serve call function with defaults" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("defuser", "pass");
+        response = client.post("/function/greet", json={});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"] == "Hello, World!";
+        client.close();
+    }
+}
+
+test "serve list walkers" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("walkuser", "pass");
+        response = client.get("/walkers");
+        assert response.ok;
+        data = response.data;
+        assert "walkers" in data;
+        assert "CreateTask" in data["walkers"];
+        assert "ListTasks" in data["walkers"];
+        assert "CompleteTask" in data["walkers"];
+        client.close();
+    }
+}
+
+test "serve get walker info" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("infouser", "pass");
+        response = client.get("/walker/CreateTask");
+        assert response.ok;
+        data = response.data;
+        assert "info" in data;
+        info = data["info"];
+        assert "fields" in info;
+        assert "title" in info["fields"];
+        assert "priority" in info["fields"];
+        assert "_jac_spawn_node" in info["fields"];
+        # Check that priority has a default
+        assert info["fields"]["priority"]["required"] is False;
+        assert info["fields"]["priority"]["default"] is not None;
+        client.close();
+    }
+}
+
+test "serve spawn walker" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("spawnuser", "pass");
+        # Spawn CreateTask walker
+        response = client.post(
+            "/walker/CreateTask", json={"title": "Test Task", "priority": 2}
+        );
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        # Get jid from response for later use
+        jid = _as_any(data).get("reports", [{}])[0].get("_jac_id", "");
+        # Spawn ListTasks walker to verify task was created
+        response2 = client.post("/walker/ListTasks", json={});
+        assert response2.ok;
+        data2 = response2.data;
+        assert "result" in data2 or "reports" in data2;
+        rpt = _as_any(data2).get("reports", "")[0];
+        assert "Test Task" in rpt[0].get("title", "");
+        assert rpt[0].get("completed", False) is True;
+        # Get Task node using GetTask walker
+        if jid {
+            response3 = client.post(f"/walker/GetTask/{jid}", json={});
+            assert response3.ok;
+            data3 = response3.data;
+            assert "result" in data3 or "reports" in data3;
+        }
+        client.close();
+    }
+}
+
+test "serve user isolation" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        # Create two users
+        user1_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user1"}],
+                "credential": {"type": "password", "password": "pass1"}
+            }
+        );
+        user1_data = user1_response.data;
+        client.clear_auth();
+        user2_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user2"}],
+                "credential": {"type": "password", "password": "pass2"}
+            }
+        );
+        user2_data = user2_response.data;
+        # User1 creates a task
+        client.set_auth_token(user1_data["token"]);
+        client.post(
+            "/walker/CreateTask",
+            json={"fields": {"title": "User1 Task", "priority": 1}}
+        );
+        # User2 creates a different task
+        client.set_auth_token(user2_data["token"]);
+        client.post(
+            "/walker/CreateTask",
+            json={"fields": {"title": "User2 Task", "priority": 2}}
+        );
+        # Both users should have different root IDs
+        assert user1_data["root_id"] != user2_data["root_id"];
+        client.close();
+    }
+}
+
+test "serve invalid function" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("invaliduser", "pass");
+        response = client.post("/function/nonexistent", json={});
+        assert not response.ok or "error" in response.json();
+        client.close();
+    }
+}
+
+test "serve invalid walker" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("invalidwalk", "pass");
+        response = client.post("/walker/NonExistentWalker", json={"fields": {}});
+        assert not response.ok or "error" in response.json();
+        client.close();
+    }
+}
+
+test "serve root endpoint" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.get("/");
+        assert response.ok;
+        data = response.data;
+        assert "message" in data;
+        assert "endpoints" in data;
+        assert "POST /user/register" in data["endpoints"];
+        assert "POST /user/login" in data["endpoints"];
+        assert "GET /user/info" in data["endpoints"];
+        assert "GET /functions" in data["endpoints"];
+        assert "GET /walkers" in data["endpoints"];
+        client.close();
+    }
+}
+
+test "serve root app inference follows intent not incidence" {
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    # Explicit config always wins, regardless of what the manifest exports.
+    cfg_intro = ModuleIntrospector("serve_api", FIXTURES);
+    assert cfg_intro.resolve_root_app("dashboard") == "dashboard";
+    # serve_api exports a single, non-conventionally-named cl page
+    # (`client_page`), reachable at /cl/client_page. That is an incidental page,
+    # not a declared entry point, so it must NOT be promoted to / -- the root
+    # path stays the JSON API index.
+    api_intro = ModuleIntrospector("serve_api", FIXTURES);
+    assert api_intro.resolve_root_app() == "";
+    # A conventionally-named entry page (`app`) signals intent and IS inferred.
+    app_intro = ModuleIntrospector("client_fullstack_app", FIXTURES);
+    assert app_intro.resolve_root_app() == "app";
+}
+
+test "serve update username" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        create_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "olduser"}],
+                "credential": {"type": "password", "password": "pass123"}
+            }
+        );
+        assert create_response.ok;
+        token = create_response.data["token"];
+        original_root_id = create_response.data["root_id"];
+        # Update username
+        client.set_auth_token(token);
+        update_response = client.put(
+            "/user/username",
+            json={"current_username": "olduser", "new_username": "newuser"}
+        );
+        assert update_response.ok;
+        assert update_response.data["username"] == "newuser";
+        assert update_response.data["root_id"] == original_root_id;
+        assert "token" in update_response.data;
+        # Login with new username should work
+        client.clear_auth();
+        login_response = client.login("newuser", "pass123");
+        assert login_response.ok;
+        assert login_response.data["username"] == "newuser";
+        # Login with old username should fail
+        client.clear_auth();
+        old_login_response = client.login("olduser", "pass123");
+        assert not old_login_response.ok;
+        client.close();
+    }
+}
+
+test "serve update username requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "authtest"}],
+                "credential": {"type": "password", "password": "pass123"}
+            }
+        );
+        client.clear_auth();
+        response = client.put(
+            "/user/username",
+            json={"current_username": "authtest", "new_username": "newname"}
+        );
+        assert not response.ok;
+        assert response.status_code == 401;
+        client.close();
+    }
+}
+
+test "serve update username cannot update other users" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        user1_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user1"}],
+                "credential": {"type": "password", "password": "pass1"}
+            }
+        );
+        user1_token = user1_response.data["token"];
+        client.clear_auth();
+        client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user2"}],
+                "credential": {"type": "password", "password": "pass2"}
+            }
+        );
+        # User1 tries to update user2's username
+        client.set_auth_token(user1_token);
+        response = client.put(
+            "/user/username",
+            json={"current_username": "user2", "new_username": "hacked"}
+        );
+        assert not response.ok;
+        assert response.status_code == 403;
+        client.close();
+    }
+}
+
+test "serve update username already exists" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response1 = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user_a"}],
+                "credential": {"type": "password", "password": "pass1"}
+            }
+        );
+        token = response1.data["token"];
+        client.clear_auth();
+        client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "user_b"}],
+                "credential": {"type": "password", "password": "pass2"}
+            }
+        );
+        # Try to update user_a to user_b (already exists)
+        client.set_auth_token(token);
+        response = client.put(
+            "/user/username",
+            json={"current_username": "user_a", "new_username": "user_b"}
+        );
+        assert not response.ok;
+        assert response.status_code == 400;
+        client.close();
+    }
+}
+
+test "serve update password" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        create_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "passuser"}],
+                "credential": {"type": "password", "password": "oldpass"}
+            }
+        );
+        assert create_response.ok;
+        token = create_response.data["token"];
+        # Update password
+        client.set_auth_token(token);
+        update_response = client.put(
+            "/user/password",
+            json={
+                "username": "passuser",
+                "current_password": "oldpass",
+                "new_password": "newpass"
+            }
+        );
+        assert update_response.ok;
+        assert update_response.data["username"] == "passuser";
+        assert "message" in update_response.data;
+        # Login with new password should work
+        client.clear_auth();
+        login_response = client.login("passuser", "newpass");
+        assert login_response.ok;
+        # Login with old password should fail
+        client.clear_auth();
+        old_login_response = client.login("passuser", "oldpass");
+        assert not old_login_response.ok;
+        client.close();
+    }
+}
+
+test "serve update password requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "noauthpass"}],
+                "credential": {"type": "password", "password": "pass123"}
+            }
+        );
+        client.clear_auth();
+        response = client.put(
+            "/user/password",
+            json={
+                "username": "noauthpass",
+                "current_password": "pass123",
+                "new_password": "newpass"
+            }
+        );
+        assert not response.ok;
+        assert response.status_code == 401;
+        client.close();
+    }
+}
+
+test "serve update password wrong current" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        create_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "wrongpass"}],
+                "credential": {"type": "password", "password": "correctpass"}
+            }
+        );
+        token = create_response.data["token"];
+        client.set_auth_token(token);
+        response = client.put(
+            "/user/password",
+            json={
+                "username": "wrongpass",
+                "current_password": "wrongpassword",
+                "new_password": "newpass"
+            }
+        );
+        assert not response.ok;
+        assert response.status_code == 400;
+        client.close();
+    }
+}
+
+test "serve update password cannot update other users" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        user1_response = client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "pass_user1"}],
+                "credential": {"type": "password", "password": "pass1"}
+            }
+        );
+        user1_token = user1_response.data["token"];
+        client.clear_auth();
+        client.post(
+            "/user/register",
+            json={
+                "identities": [{"type": "username", "value": "pass_user2"}],
+                "credential": {"type": "password", "password": "pass2"}
+            }
+        );
+        # User1 tries to update user2's password
+        client.set_auth_token(user1_token);
+        response = client.put(
+            "/user/password",
+            json={
+                "username": "pass_user2",
+                "current_password": "pass2",
+                "new_password": "hacked"
+            }
+        );
+        assert not response.ok;
+        assert response.status_code == 403;
+        client.close();
+    }
+}
+
+# =============================================================================
+# TestImportedFunctionsAndWalkers (1 test)
+# =============================================================================
+test "serve imported functions and walkers" {
+    with TemporaryDirectory() as tmpdir {
+        imports_client = make_imports_client(tmpdir);
+        imports_client.register_user("importuser", "pass");
+        # Test listing functions - should include both local and imported
+        functions_response = imports_client.get("/functions");
+        assert functions_response.ok;
+        functions_data = functions_response.data;
+        assert "functions" in functions_data;
+        functions = functions_data["functions"];
+        assert "local_add" in functions , "Local function 'local_add' not found";
+        assert "local_greet" in functions , "Local function 'local_greet' not found";
+        assert "multiply_numbers" in functions , "Imported function 'multiply_numbers' not found";
+        assert "format_message" in functions , "Imported function 'format_message' not found";
+        # Test listing walkers - should include both local and imported
+        walkers_response = imports_client.get("/walkers");
+        assert walkers_response.ok;
+        walkers_data = walkers_response.data;
+        assert "walkers" in walkers_data;
+        wlkrs = walkers_data["walkers"];
+        assert "LocalCreateTask" in wlkrs , "Local walker 'LocalCreateTask' not found";
+        assert "ImportedWalker" in wlkrs , "Imported walker 'ImportedWalker' not found";
+        assert "ImportedCounter" in wlkrs , "Imported walker 'ImportedCounter' not found";
+        # Test calling local function
+        local_add_response = imports_client.post(
+            "/function/local_add", json={"x": 5, "y": 3}
+        );
+        assert local_add_response.ok;
+        local_add_data = local_add_response.data;
+        assert "result" in local_add_data;
+        assert local_add_data["result"] == 8;
+        # Test calling imported function
+        multiply_response = imports_client.post(
+            "/function/multiply_numbers", json={"a": 4, "b": 7}
+        );
+        assert multiply_response.ok;
+        multiply_data = multiply_response.data;
+        assert "result" in multiply_data;
+        assert multiply_data["result"] == 28;
+        # Test calling another imported function
+        format_response = imports_client.post(
+            "/function/format_message", json={"prefix": "INFO", "message": "test"}
+        );
+        assert format_response.ok;
+        format_data = format_response.data;
+        assert "result" in format_data;
+        assert format_data["result"] == "INFO: test";
+        # Test spawning local walker
+        local_walker_response = imports_client.post(
+            "/walker/LocalCreateTask", json={"task_title": "My Local Task"}
+        );
+        assert local_walker_response.ok;
+        local_walker_data = local_walker_response.data;
+        assert "result" in local_walker_data or "reports" in local_walker_data;
+        # Test spawning imported walker
+        imported_walker_response = imports_client.post(
+            "/walker/ImportedWalker", json={"item_name": "Imported Item 1"}
+        );
+        assert imported_walker_response.ok;
+        imported_walker_data = imported_walker_response.data;
+        assert "result" in imported_walker_data or "reports" in imported_walker_data;
+        imports_client.close();
+    }
+}
+
+# =============================================================================
+# TestAccessLevels (13 tests)
+# =============================================================================
+test "serve public function without auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/function/public_function", json={"name": "Test"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"] == "Hello, Test! (public)";
+        ac.close();
+    }
+}
+
+test "serve public function get info without auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.get("/function/public_function");
+        assert response.ok;
+        data = response.data;
+        assert "signature" in data;
+        assert "parameters" in data["signature"];
+        ac.close();
+    }
+}
+
+test "serve protected function requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/function/protected_function", json={"message": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        ac.close();
+    }
+}
+
+test "serve protected function with auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        ac.register_user("authuser", "pass123");
+        response = ac.post("/function/protected_function", json={"message": "secret"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"] == "Protected: secret";
+        ac.close();
+    }
+}
+
+test "serve private function requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/function/private_function", json={"secret": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        ac.close();
+    }
+}
+
+test "serve private function with auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        ac.register_user("privuser", "pass456");
+        response = ac.post("/function/private_function", json={"secret": "topsecret"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"] == "Private: topsecret";
+        ac.close();
+    }
+}
+
+test "serve public walker without auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/walker/PublicWalker", json={"message": "hello"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        ac.close();
+    }
+}
+
+test "serve protected walker requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/walker/ProtectedWalker", json={"data": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        ac.close();
+    }
+}
+
+test "serve protected walker with auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        ac.register_user("walkuser", "pass789");
+        response = ac.post("/walker/ProtectedWalker", json={"data": "mydata"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        ac.close();
+    }
+}
+
+test "serve private walker requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.post("/walker/PrivateWalker", json={"secret": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        ac.close();
+    }
+}
+
+test "serve private walker with auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        ac.register_user("privwalk", "pass000");
+        response = ac.post("/walker/PrivateWalker", json={"secret": "verysecret"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        ac.close();
+    }
+}
+
+test "serve introspection list requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        response = ac.get("/protected");
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        ac.close();
+    }
+}
+
+test "serve mixed access levels" {
+    with TemporaryDirectory() as tmpdir {
+        ac = make_access_client(tmpdir);
+        ac.register_user("mixeduser", "mixedpass");
+        assert ac._auth_token is not None;
+        token = str(ac._auth_token);
+        # Public function without auth - should work
+        ac.clear_auth();
+        result1 = ac.post("/function/public_add", json={"a": 5, "b": 10});
+        data1 = result1.data;
+        assert "result" in data1;
+        assert data1["result"] == 15;
+        # Protected function without auth - should fail
+        result2 = ac.post("/function/protected_function", json={"message": "test"});
+        data2 = result2.data;
+        assert "error" in data2;
+        # Protected function with auth - should work
+        ac.set_auth_token(token);
+        result3 = ac.post("/function/protected_function", json={"message": "test"});
+        data3 = result3.data;
+        assert "result" in data3;
+        # Private function with auth - should work
+        result4 = ac.post("/function/private_function", json={"secret": "test"});
+        data4 = result4.data;
+        assert "result" in data4;
+        ac.close();
+    }
+}
+
+# =============================================================================
+# TestClientRendering (2 tests)
+# =============================================================================
+test "serve render client page returns html" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        client = make_client_app_client(tmpdir);
+        client.register_user("tester", "pass");
+        response = client.get("/cl/client_page");
+        html = response.text;
+        assert "<!DOCTYPE html>" in html;
+        assert '<div id="__jac_root">' in html;
+        assert "/static/client.js?hash=" in html;
+        # Check __jac_init__ script contains expected data
+        init_match = re.search(
+            r'<script id="__jac_init__" type="application/json">([^<]*)</script>', html
+        );
+        assert init_match is not None;
+        payload = json.loads(init_match.group(1)) if init_match else {};
+        assert payload.get("function") == "client_page";
+        assert payload.get("globals", {}).get("API_LABEL") == "Runtime Test";
+        client.close();
+    }
+}
+
+test "serve render unknown page returns error" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client_app_client(tmpdir);
+        client.register_user("tester", "pass");
+        response = client.get("/cl/missing");
+        assert not response.ok or "error" in response.text.lower();
+        client.close();
+    }
+}
+
+# =============================================================================
+# TestFullstackClientApp (1 test)
+# =============================================================================
+test "serve client page html and bundle" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        client = make_fullstack_app_client(tmpdir);
+        response = client.get("/cl/app");
+        html = response.text;
+        # HTML skeleton
+        assert "<!DOCTYPE html>" in html;
+        assert '<div id="__jac_root">' in html;
+        assert "/static/client.js?hash=" in html;
+        # Hydration payload targets the right function
+        init_match = re.search(
+            r'<script id="__jac_init__" type="application/json">([^<]*)</script>', html
+        );
+        assert init_match is not None;
+        payload = json.loads(init_match.group(1));
+        assert payload.get("function") == "app";
+        # Fetch JS bundle
+        hash_match = re.search(r'/static/client\.js\?hash=([a-f0-9]+)', html);
+        assert hash_match is not None;
+        bundle_js = client.get(f"/static/client.js?hash={hash_match.group(1)}").text;
+        # Vite emits a bundled ESM artifact (React resolved from node_modules);
+        # assert the bundle was produced rather than the old inline-concat shape.
+        assert bundle_js.strip();
+        client.close();
+    }
+}
+
+# =============================================================================
+# TestCrossBoundaryEndpoints (Path B / issue 6221) (3 tests)
+# =============================================================================
+test "issue 6221: client-called def:pub endpoint registers without entry re-import" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_crossboundary_client(tmpdir);
+        # cross_pub is def:pub and the client calls it via `sv import`, but it is
+        # NOT imported into the entry module. Whole-program detection (Path B)
+        # must register it anyway, instead of the old silent 404/405.
+        response = client.post("/function/cross_pub", json={});
+        assert response.ok , f"cross_pub should be callable: {response.data}";
+        assert response.data["result"]["msg"] == "pub-ok";
+        client.close();
+    }
+}
+
+test "issue 6221: cross-boundary def:priv endpoint registers but requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_crossboundary_client(tmpdir);
+        # Reached via the same `sv import`, so it registers -- but its own `priv`
+        # access level must still be honored: rejected without auth, callable
+        # with auth (proving it is registered, just gated -- never auto-public).
+        unauth = client.post("/function/cross_priv", json={});
+        assert not unauth.ok , "cross_priv must require auth";
+        client.register_user("cb_user", "pw_12345678");
+        authed = client.post("/function/cross_priv", json={});
+        assert authed.ok , f"cross_priv should be callable with auth: {authed.data}";
+        assert authed.data["result"]["msg"] == "priv-ok";
+        client.close();
+    }
+}
+
+test "issue 6221: uncalled def:pub endpoint is not auto-exposed" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_crossboundary_client(tmpdir);
+        # cross_orphan is def:pub but nothing calls it across the boundary and the
+        # entry never imports it. Path B is call-scoped (not "expose every pub"),
+        # so it must stay unregistered even for an authenticated caller.
+        client.register_user("cb_user2", "pw_12345678");
+        response = client.post("/function/cross_orphan", json={});
+        assert not response.ok , "uncalled cross_orphan should not be registered";
+        client.close();
+    }
+}
+
+test "issue 6507: cl->sv endpoint module keeps its endpoints when it is also an sv consumer" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_dualrole_client(tmpdir);
+        # `dualrole_guestbook` is reached only through the client's `sv import`
+        # and ALSO does its own `sv import from .dualrole_analytics`. That single
+        # outgoing relative import used to crash the module at load time, so its
+        # walkers vanished (POST -> 405). Both must register and run.
+        listing = client.get("/walkers");
+        assert listing.ok , f"/walkers should respond: {listing.data}";
+        names = listing.data["walkers"];
+        assert "get_guestbook" in names , f"get_guestbook missing from {names}";
+        assert "sign_guestbook" in names , f"sign_guestbook missing from {names}";
+        signed = client.post("/walker/sign_guestbook", json={"name": "ada"});
+        assert signed.ok , f"sign_guestbook should be callable: {signed.data}";
+        got = client.post("/walker/get_guestbook", json={});
+        assert got.ok , f"get_guestbook should be callable: {got.data}";
+        client.close();
+    }
+}
+
+test "issue 6507: a cross-boundary endpoint module that fails to import is logged, not silently dropped" {
+    with TemporaryDirectory() as tmpdir {
+        # Capture before building the client: the failing import happens during
+        # endpoint collection at load time (inside from_file).
+        logger = logging.getLogger("jaclang.serve");
+        cap = capture_log_start(logger, logging.WARNING);
+        buf = cap[0];
+        handler = cap[1];
+        old_level = cap[2];
+        try {
+            client = make_failload_client(tmpdir);
+            # The provider module raises at import, so do_thing cannot resolve;
+            # it must not be served...
+            resp = client.post("/function/do_thing", json={});
+            assert not resp.ok , "endpoint from a crashing module must not be callable";
+            # ...and the failure must be surfaced on the log (the #6507 trap was
+            # that it vanished with no error at all).
+            log_text = buf.getvalue();
+            assert "failload_server" in log_text , (
+                f"module-load failure should be logged, got: {log_text!r}"
+            );
+            assert "RuntimeError" in log_text;
+            client.close();
+        } finally {
+            capture_log_stop(logger, handler, old_level);
+        }
+    }
+}
+
+test "bundled app: cross-boundary def:pub endpoint registers for jaclang-bundled app" {
+    # Regression for `jac ai --ui`: when the app lives under the jaclang package
+    # root, its modules route to the compiler's internal_program, so the
+    # cross-boundary bindings land there -- not in `Jac.program.mod.hub`. The
+    # serve collector must span both hubs (`_search_hubs`); before the fix it
+    # scanned only `Jac.program.mod.hub` (empty for a bundled app), so cross_pub
+    # went unregistered and the client got a 404/405 instead of "pub-ok".
+    bundled = make_bundled_crossboundary_client();
+    client = bundled[0];
+    cleanup_dir = bundled[1];
+    try {
+        response = client.post("/function/cross_pub", json={});
+        assert response.ok , f"bundled cross_pub should be callable: {response.data}";
+        assert response.data["result"]["msg"] == "pub-ok";
+    } finally {
+        client.close();
+        shutil.rmtree(cleanup_dir, ignore_errors=True);
+    }
+}
+
+# =============================================================================
+# TestImportedWalkerAccessLevels (7 tests)
+# =============================================================================
+test "serve imported public walker without auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post(
+            "/walker/PublicImportedWalker",
+            json={"message": "test from imported public walker"}
+        );
+        assert response.ok , f"Expected success but got: {response.data}";
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        iac.close();
+    }
+}
+
+test "serve imported protected walker requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/walker/ProtectedImportedWalker", json={"data": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve imported protected walker with auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        iac.register_user("importuser", "pass123");
+        response = iac.post(
+            "/walker/ProtectedImportedWalker", json={"data": "authenticated data"}
+        );
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        iac.close();
+    }
+}
+
+test "serve imported default walker requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/walker/DefaultImportedWalker", json={"value": 100});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve local public walker without auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/walker/LocalPublicWalker", json={"msg": "local test"});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data or "reports" in data;
+        iac.close();
+    }
+}
+
+test "serve local default walker requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/walker/LocalDefaultWalker", json={"msg": "test"});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve mixed local and imported access" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        iac.register_user("mixeduser", "mixedpass");
+        assert iac._auth_token is not None;
+        token = str(iac._auth_token);
+        # Imported public walker without auth - should work
+        iac.clear_auth();
+        result1 = iac.post(
+            "/walker/PublicImportedWalker", json={"message": "public test"}
+        );
+        assert result1.ok , f"Imported public walker should work without auth: {result1.data}";
+        # Local public walker without auth - should work
+        result2 = iac.post(
+            "/walker/LocalPublicWalker", json={"msg": "local public test"}
+        );
+        assert result2.ok , f"Local public walker should work without auth: {result2.data}";
+        # Imported protected walker without auth - should fail
+        result3 = iac.post("/walker/ProtectedImportedWalker", json={"data": "test"});
+        assert not result3.ok , "Imported protected walker should require auth";
+        # Local default walker without auth - should fail
+        result4 = iac.post("/walker/LocalDefaultWalker", json={"msg": "test"});
+        assert not result4.ok , "Local default walker should require auth";
+        # With auth, all walkers should work
+        iac.set_auth_token(token);
+        result5 = iac.post(
+            "/walker/ProtectedImportedWalker", json={"data": "auth test"}
+        );
+        assert result5.ok , f"Imported protected walker should work with auth: {result5.data}";
+        result6 = iac.post("/walker/DefaultImportedWalker", json={"value": 42});
+        assert result6.ok , f"Imported default walker should work with auth: {result6.data}";
+        result7 = iac.post("/walker/LocalDefaultWalker", json={"msg": "auth test"});
+        assert result7.ok , f"Local default walker should work with auth: {result7.data}";
+        iac.close();
+    }
+}
+
+# =============================================================================
+# TestImportedFunctionAccessLevels (7 tests)
+# =============================================================================
+test "serve imported public function without auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/function/publicImportedFunc", json={});
+        assert response.ok , f"Expected success but got: {response.data}";
+        data = response.data;
+        assert "result" in data;
+        assert data["result"]["auth_required"] is False;
+        iac.close();
+    }
+}
+
+test "serve imported protected function requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/function/protectedImportedFunc", json={});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve imported protected function with auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        iac.register_user("importfuncuser", "pass123");
+        response = iac.post("/function/protectedImportedFunc", json={});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        assert data["result"]["auth_required"] is True;
+        iac.close();
+    }
+}
+
+test "serve imported default function requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/function/defaultImportedFunc", json={});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve local public function without auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/function/localPublicFunc", json={});
+        assert response.ok;
+        data = response.data;
+        assert "result" in data;
+        iac.close();
+    }
+}
+
+test "serve local default function requires auth" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        response = iac.post("/function/localDefaultFunc", json={});
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        assert "Unauthorized" in data["error"];
+        iac.close();
+    }
+}
+
+test "serve mixed local and imported function access" {
+    with TemporaryDirectory() as tmpdir {
+        iac = make_imported_access_client(tmpdir);
+        iac.register_user("mixedfuncuser", "mixedpass");
+        assert iac._auth_token is not None;
+        token = str(iac._auth_token);
+        # Imported public function without auth - should work
+        iac.clear_auth();
+        result1 = iac.post("/function/publicImportedFunc", json={});
+        assert result1.ok , f"Imported public function should work without auth: {result1.data}";
+        # Local public function without auth - should work
+        result2 = iac.post("/function/localPublicFunc", json={});
+        assert result2.ok , f"Local public function should work without auth: {result2.data}";
+        # Imported protected function without auth - should fail
+        result3 = iac.post("/function/protectedImportedFunc", json={});
+        assert not result3.ok , "Imported protected function should require auth";
+        # Local default function without auth - should fail
+        result4 = iac.post("/function/localDefaultFunc", json={});
+        assert not result4.ok , "Local default function should require auth";
+        # With auth, all functions should work
+        iac.set_auth_token(token);
+        result5 = iac.post("/function/protectedImportedFunc", json={});
+        assert result5.ok , f"Imported protected function should work with auth: {result5.data}";
+        result6 = iac.post("/function/defaultImportedFunc", json={});
+        assert result6.ok , f"Imported default function should work with auth: {result6.data}";
+        result7 = iac.post("/function/localDefaultFunc", json={});
+        assert result7.ok , f"Local default function should work with auth: {result7.data}";
+        iac.close();
+    }
+}
+
+# =============================================================================
+# TestSPACatchAll (7 tests)
+# =============================================================================
+test "serve spa catchall serves html for clean urls" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        response = spa.get("/about");
+        assert response.ok;
+        assert response.status_code == 200;
+        html = response.text;
+        assert "<!DOCTYPE html>" in html;
+        assert '<div id="__jac_root">' in html;
+        assert "/static/client.js?hash=" in html;
+        spa.close();
+    }
+}
+
+test "serve spa catchall root serves html" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        response = spa.get("/");
+        assert response.ok;
+        html = response.text;
+        assert "<!DOCTYPE html>" in html;
+        assert '<div id="__jac_root">' in html;
+        spa.close();
+    }
+}
+
+test "serve spa catchall nested path" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        response = spa.get("/dashboard/settings");
+        assert response.ok;
+        html = response.text;
+        assert "<!DOCTYPE html>" in html;
+        spa.close();
+    }
+}
+
+test "serve spa catchall api paths unaffected" {
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        functions_response = spa.get("/functions");
+        assert functions_response.ok;
+        data = functions_response.data;
+        assert "functions" in data;
+        walkers_response = spa.get("/walkers");
+        assert walkers_response.ok;
+        data = walkers_response.data;
+        assert "walkers" in data;
+        spa.close();
+    }
+}
+
+test "serve spa catchall cl route still works" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        response = spa.get("/cl/client_page");
+        assert response.ok;
+        html = response.text;
+        assert "<!DOCTYPE html>" in html;
+        assert '<div id="__jac_root">' in html;
+        spa.close();
+    }
+}
+
+test "serve spa catchall static files unaffected" {
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        response = spa.get("/static/nonexistent.js");
+        assert not response.ok;
+        spa.close();
+    }
+}
+
+test "serve unknown path returns 404 without base route app" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        response = client.get("/some-unknown-path");
+        assert not response.ok;
+        data = response.data;
+        assert "error" in data;
+        client.close();
+    }
+}
+
+# =============================================================================
+# TestSyncAccessControl (1 test)
+# =============================================================================
+test "serve sync skips write access check on unchanged anchors" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        client.register_user("syncuser", "pass");
+        # Simulate server-restart conditions
+        import from jaclang.jac0core.runtime { JacRuntimeInterface as Jac }
+        ctx = Jac.get_context();
+        sys_root = ctx.system_root;
+        sys_root.persistent = True;
+        # Simulate a post-restart state: anchor has been through a
+        # serialize/deserialize round-trip, so its hash matches its canonical
+        # form on disk. l3.put() re-persists with the same canonical form,
+        # so a subsequent sync() should detect no drift and skip the
+        # write-access check.
+        import from typing { cast }
+        import from jaclang.runtimelib.session { Session }
+        serialized = cast(dict, Serializer.serialize(sys_root, include_type=True));
+        sys_root_copy = Serializer.deserialize(serialized);
+        if sys_root_copy is not None {
+            sys_root.__dict__.update(sys_root_copy.__dict__);
+        }
+        sys_root.persistent = True;
+        sys_root.hash = Serializer._compute_hash(sys_root);
+        # Seed the session exactly as a load would: identity-mapped, flushed
+        # hash recorded, not dirty -- i.e. an unchanged anchor.
+        sess = cast(Session, ctx.mem);
+        sess.__mem__[sys_root.id] = sys_root;
+        sess._flushed_hash[sys_root.id] = sys_root.hash;
+        sess._dirty.pop(sys_root.id, None);
+        # Capture logs
+        logger = logging.getLogger("jaclang.jac0core.runtime");
+        cap = capture_log_start(logger);
+        buf = cap[0];
+        handler = cap[1];
+        old_level = cap[2];
+        try {
+            client.post(
+                "/walker/CreateTask", json={"title": "Sync Test", "priority": 1}
+            );
+            client.post("/walker/ListTasks", json={});
+        } finally {
+            capture_log_stop(logger, handler, old_level);
+        }
+        assert "Current root doesn't have write access" not in buf.getvalue() , "Session.flush() should not check write access on unchanged anchors";
+        client.close();
+    }
+}
+
+test "serve blocking sync walkers run concurrently via to_thread" {
+    import asyncio;
+    import from time { time }
+    import from jaclang.jac0core.runtime { JacRuntimeInterface as Jac }
+    import from jaclang.runtimelib.server {
+        ExecutionManager,
+        UserManager,
+        ModuleIntrospector
+    }
+
+    with TemporaryDirectory() as tmpdir {
+        # Load the blocking IO fixture
+        jac_file = fixture_abs_path("serve_blocking_io.jac");
+        introspector = ModuleIntrospector(
+            module_name="serve_blocking_io", base_path=str(Path(jac_file).parent)
+        );
+        introspector.load();
+        walkers = introspector.get_walkers();
+        assert "slow_blocking" in walkers , "slow_blocking walker not found";
+        walker_cls = walkers["slow_blocking"];
+        user_mgr = UserManager(base_path=tmpdir);
+        exec_mgr = ExecutionManager(base_path=tmpdir, user_manager=user_mgr);
+        # Create a test user so spawn_walker can resolve a root
+        user_mgr.create_user("testuser", "testpass");
+        # Each walker sleeps for 1 second. Launch 3 concurrently.
+        # If they run in threads (concurrent): ~1s total.
+        # If they run serially on event loop: ~3s total.
+        async def run_concurrent_walkers -> float {
+            start = time();
+            tasks = [
+                exec_mgr.spawn_walker(walker_cls, {"duration": 1.0}, "testuser")
+                for _ in range(3)
+            ];
+            results = await asyncio.gather(*tasks);
+            elapsed = time() - start;
+            # Verify all walkers completed successfully
+            for r in results {
+                assert "error" not in r , f"Walker failed: {r}";
+            }
+            return elapsed;
+        }
+        elapsed = asyncio.run(run_concurrent_walkers());
+        # With to_thread fix: ~1s. Without: ~3s. Use 2.5s as threshold.
+        assert elapsed < 2.5 , f"Blocking walkers took {elapsed:.2f}s (expected < 2.5s for concurrent execution)";
+    }
+}
+
+test "endpoint effect classifier follows helper calls" {
+    # A walker whose only graph mutation happens inside a plain `def` helper
+    # must still be classified as a writer -- otherwise the client cache is
+    # never invalidated after the mutation. The classifier has to follow the
+    # call into the helper to see the write.
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+
+    jac_file = fixture_abs_path("serve_helper_effects.jac");
+    introspector = ModuleIntrospector(
+        module_name="serve_helper_effects", base_path=str(Path(jac_file).parent)
+    );
+    introspector.load();
+    effects = introspector._client_manifest.get("endpoint_effects", {});
+
+    assert "walker:tag_item" in effects , "tag_item should be classified";
+    assert effects["walker:tag_item"]["is_writer"] , "tag_item mutates the graph via the _add_tag helper -- must be a writer";
+
+    assert "walker:list_items" in effects , "list_items should be classified";
+    assert not effects["walker:list_items"]["is_writer"] , "list_items only reports -- must be a reader";
+}
+
+test "spawn_walker_sync and spawn_walker_async dispatch to explicit paths" {
+    # Verifies the explicit sync/async entrypoints on ExecutionManager work
+    # standalone (not via the back-compat dispatcher). The handler seam
+    # picks between these based on walker metadata.
+    import asyncio;
+    import from time { time }
+    import from jaclang.runtimelib.server {
+        ExecutionManager,
+        UserManager,
+        ModuleIntrospector
+    }
+
+    with TemporaryDirectory() as tmpdir {
+        jac_file = fixture_abs_path("serve_blocking_io.jac");
+        introspector = ModuleIntrospector(
+            module_name="serve_blocking_io", base_path=str(Path(jac_file).parent)
+        );
+        introspector.load();
+        walker_cls = introspector.get_walkers()["slow_blocking"];
+        user_mgr = UserManager(base_path=tmpdir);
+        exec_mgr = ExecutionManager(base_path=tmpdir, user_manager=user_mgr);
+        user_mgr.create_user("testuser", "testpass");
+        async def run -> tuple {
+            # Explicit sync path: must still run concurrently via to_thread.
+            start = time();
+            tasks = [
+                exec_mgr.spawn_walker_sync(walker_cls, {"duration": 0.5}, "testuser")
+                for _ in range(3)
+            ];
+            results = await asyncio.gather(*tasks);
+            sync_elapsed = time() - start;
+            for r in results {
+                assert "error" not in r , f"sync walker failed: {r}";
+            }
+            return (sync_elapsed, results);
+        }
+        (sync_elapsed, results) = asyncio.run(run());
+        assert sync_elapsed < 1.5 , f"spawn_walker_sync not concurrent: {sync_elapsed:.2f}s";
+        assert len(results) == 3 , "expected 3 results";
+    }
+}
+
+test "concurrent async walkers run concurrently end-to-end" {
+    # Direct response to amadolid's `async_long_cpu_process` observation:
+    # before end-to-end async wiring, concurrent async walkers all returned
+    # at the same time because the post-walker Jac.commit() ran sync on the
+    # event loop. With Jac.acommit + async context setup, they interleave
+    # through their awaits (asyncio.sleep) and finish concurrently.
+    import asyncio;
+    import from time { time }
+    import from jaclang.runtimelib.server {
+        ExecutionManager,
+        UserManager,
+        ModuleIntrospector
+    }
+
+    with TemporaryDirectory() as tmpdir {
+        jac_file = fixture_abs_path("serve_blocking_io.jac");
+        introspector = ModuleIntrospector(
+            module_name="serve_blocking_io", base_path=str(Path(jac_file).parent)
+        );
+        introspector.load();
+        walker_cls = introspector.get_walkers()["slow_async"];
+        assert getattr(walker_cls, "__jac_async__", False) , "slow_async walker must be async";
+        user_mgr = UserManager(base_path=tmpdir);
+        exec_mgr = ExecutionManager(base_path=tmpdir, user_manager=user_mgr);
+        user_mgr.create_user("testuser", "testpass");
+        async def run -> float {
+            start = time();
+            tasks = [
+                exec_mgr.spawn_walker_async(walker_cls, {"duration": 0.5}, "testuser")
+                for _ in range(3)
+            ];
+            results = await asyncio.gather(*tasks);
+            for r in results {
+                assert "error" not in r , f"async walker failed: {r}";
+            }
+            return time() - start;
+        }
+        elapsed = asyncio.run(run());
+        # 3 concurrent sleep(0.5) async walkers on the event loop: ~0.5s.
+        # If commit or context setup blocked the loop: 3*0.5 = ~1.5s.
+        assert elapsed < 1.2 , f"async walkers serialized on commit/setup: {elapsed:.2f}s (expected < 1.2s)";
+    }
+}
+
+test "Session async mirrors (aget/aput/adelete/ahas/acommit) work" {
+    # Every Memory backend gets async mirrors by default.
+    # This verifies the impls round-trip correctly for both the volatile
+    # (store-less) and Postgres-backed session.
+    import asyncio;
+    import from jaclang.jac0core.archetype { NodeAnchor, Root }
+    import from jaclang.runtimelib.session { Session }
+    import from uuid { uuid4 }
+
+    with TemporaryDirectory() as tmpdir {
+        # Store-less session (pure in-memory).
+        vol = Session();
+        anchor = NodeAnchor(id=uuid4(), archetype=Root(), edges=[]);
+        async def exercise_volatile -> bool {
+            await vol.aput(anchor);
+            assert await vol.ahas(anchor.id);
+            got = await vol.aget(anchor.id);
+            assert got is anchor;
+            await vol.acommit(anchor);
+            await vol.adelete(anchor.id);
+            assert not await vol.ahas(anchor.id);
+            return True;
+        }
+        assert asyncio.run(exercise_volatile());
+        # Postgres-backed session on the project database.
+        sess = Session(base_path=tmpdir);
+        persist_anchor = NodeAnchor(id=uuid4(), archetype=Root(), edges=[]);
+        persist_anchor.persistent = True;
+        async def exercise_store -> bool {
+            await sess.aput(persist_anchor);
+            assert await sess.ahas(persist_anchor.id);
+            got = await sess.aget(persist_anchor.id);
+            assert got is not None;
+            assert got.id == persist_anchor.id;
+            await sess.acommit(persist_anchor);
+            await sess.adelete(persist_anchor.id);
+            return True;
+        }
+        assert asyncio.run(exercise_store());
+        sess.close();
+    }
+}
+
+test "Session concurrent commits from worker threads do not race" {
+    # Regression guard for racing commits on one shared session.
+    #
+    # When sync walkers finish, Jac.acommit offloads Session.commit()
+    # to a worker thread. Multiple concurrent walker calls from one user
+    # can share one Session and therefore one store connection; two
+    # racing flush/commit cycles must not interleave on it. The
+    # session-level RLock serializes put/flush/commit; this test drives
+    # many concurrent commits and asserts both (a) no exceptions
+    # propagate and (b) every anchor reads back cleanly from a fresh
+    # session over the same project database.
+    import asyncio;
+    import os;
+    import from uuid { uuid4 }
+    import from jaclang.jac0core.archetype { NodeAnchor, Root }
+    import from jaclang.runtimelib.session { Session }
+
+    with TemporaryDirectory() as tmpdir {
+        mem = Session(base_path=tmpdir);
+        n_threads = 32;
+        # Pre-build anchor ids on the main thread so the assertion loop
+        # below knows exactly what to expect.
+        anchor_ids = [uuid4() for _ in range(n_threads)];
+        def worker(idx: int) {
+            a = NodeAnchor(id=anchor_ids[idx], archetype=Root(), edges=[]);
+            a.persistent = True;
+            mem.put(a);
+            mem.commit(a);
+        }
+        async def run_concurrent {
+            await asyncio.gather(
+                *[asyncio.to_thread(worker, i) for i in range(n_threads)]
+            );
+        }
+        asyncio.run(run_concurrent());
+        # A fresh session reads through the store, bypassing the writer's
+        # identity map, so this genuinely exercises the committed rows.
+        reader = Session(base_path=tmpdir);
+        for id in anchor_ids {
+            got = reader.get(id);
+            assert got is not None , f"anchor {id} missing after concurrent commit";
+        }
+        reader.close();
+        mem.close();
+    }
+}
+
+test "CallState.reports is thread-safe (sync walker worker threads put safely)" {
+    # Sync walkers run inside asyncio.to_thread; their `report` statements
+    # call log_report from a worker thread, which calls put_nowait on
+    # CallState.reports. asyncio.Queue.put_nowait is not safe to call from
+    # a non-event-loop thread (its internal Future wakeup path relies on
+    # loop-affine state). The production flow "works" only because the
+    # drain runs strictly after the walker joins, so no getter is ever
+    # waiting - but that is a latent invariant. Use a thread-safe queue
+    # so the type itself documents and enforces cross-thread put.
+    import asyncio;
+    import from jaclang.runtimelib.context { CallState }
+
+    call_state = CallState();
+
+    # Type guard - fails today (asyncio.Queue), passes after fix.
+    assert not isinstance(call_state.reports, asyncio.Queue) , (
+        "CallState.reports must not be an asyncio.Queue: put_nowait from "
+        "a worker thread is thread-unsafe. Use queue.Queue (or another "
+        "thread-safe primitive) so sync-walker log_report calls are correct "
+        "by construction, not by relying on drain-after-join ordering."
+    );
+
+    # Behavioral guard - the invariant we want preserved after the fix:
+    # many worker threads put concurrently, event loop drains afterward,
+    # no lost or duplicated reports.
+    total_threads = 50;
+    items_per_thread = 100;
+    expected_count = total_threads * items_per_thread;
+
+    received: list = [];
+
+    def worker(tid: int) {
+        for i in range(items_per_thread) {
+            call_state.reports.put_nowait((tid, i));
+        }
+    }
+
+    async def run_and_drain -> int {
+        tasks = [asyncio.to_thread(worker, tid) for tid in range(total_threads)];
+        await asyncio.gather(*tasks);
+        call_state.reports.put_nowait(call_state._sentinel);
+        while True {
+            try {
+                item = call_state.reports.get_nowait();
+            } except Exception {
+                break;
+            }
+            if item is call_state._sentinel {
+                break;
+            }
+            received.append(item);
+        }
+        return len(received);
+    }
+
+    count = asyncio.run(run_and_drain());
+    assert count == expected_count , (
+        f"Expected {expected_count} reports from {total_threads} concurrent "
+        f"worker threads, got {count}"
+    );
+    expected_set = {
+        (t, i) for t in range(total_threads) for i in range(items_per_thread)
+    };
+    missing = len(expected_set - set(received));
+    extra = len(set(received) - expected_set);
+    assert set(received) == expected_set , (
+        f"Report set mismatch. Missing: {missing}, extra: {extra}"
+    );
+}
+
+test "concurrent multi-user requests do not race on ctx.user_root" {
+    # Regression guard for per-request ExecutionContext isolation.
+    #
+    # Before the fix, the server mutated `ctx.user_root` directly on the
+    # process-global ExecutionContext. Under N concurrent requests from
+    # *different* users, the `await ctx.aset_user_root(...)` calls
+    # interleave on the event loop and the last writer wins - so an
+    # in-flight walker launched by user A could end up executing against
+    # user B's root. This test would fail in that world.
+    #
+    # With per-request context forking (each request pushes its own
+    # ExecutionContext into the `_request_context` ContextVar), each
+    # asyncio Task gets a task-local view, so the start/end user_root
+    # observed inside a walker must match the user that spawned it.
+    import asyncio;
+    import from jaclang.runtimelib.server {
+        ExecutionManager,
+        UserManager,
+        ModuleIntrospector
+    }
+
+    with TemporaryDirectory() as tmpdir {
+        jac_file = fixture_abs_path("serve_blocking_io.jac");
+        introspector = ModuleIntrospector(
+            module_name="serve_blocking_io", base_path=str(Path(jac_file).parent)
+        );
+        introspector.load();
+        walkers = introspector.get_walkers();
+        async_walker = walkers["whoami_async"];
+        sync_walker = walkers["whoami_sync"];
+        user_mgr = UserManager(base_path=tmpdir);
+        exec_mgr = ExecutionManager(base_path=tmpdir, user_manager=user_mgr);
+        # Three distinct users with distinct roots.
+        users = [f"user_{i}" for i in range(3)];
+        root_ids = {};
+        for uname in users {
+            info = user_mgr.create_user(uname, "pw");
+            root_ids[uname] = info["root_id"];
+        }
+        # Sanity: each user got a unique root.
+        assert len(set(root_ids.values())) == 3;
+        async def run_probe(walker_cls: any) -> list {
+            tasks = [
+                exec_mgr.spawn_walker(walker_cls, {"sleep_s": 0.1}, uname)
+                for uname in users
+            ];
+            gathered = await asyncio.gather(*tasks);
+            return _as_any(gathered);
+        }
+        # Async walker path - most sensitive: the await inside the walker
+        # guarantees interleaving at the point a shared-ctx bug would
+        # manifest. Each task must still observe its own user_root.
+        async_results = _as_any(asyncio.run(run_probe(async_walker)));
+        for (uname, result) in zip(users, async_results) {
+            assert "error" not in result , f"async whoami failed for {uname}: {result}";
+            reports = result["reports"];
+            assert len(reports) == 1 , f"expected 1 report, got {reports}";
+            got = reports[0];
+            expected = root_ids[uname];
+            assert got["start_root_id"] == expected , (
+                f"async: {uname} saw start_root_id={got['start_root_id']}, "
+                f"expected {expected} - ctx.user_root race regression"
+            );
+            assert got["end_root_id"] == expected , (
+                f"async: {uname} saw end_root_id={got['end_root_id']} after "
+                f"await, expected {expected} - another request overwrote "
+                f"user_root during the await"
+            );
+        }
+        # Sync walker path - proves isolation propagates across the
+        # asyncio.to_thread boundary (ContextVars copy into the worker).
+        sync_results = _as_any(asyncio.run(run_probe(sync_walker)));
+        for (uname, result) in zip(users, sync_results) {
+            assert "error" not in result , f"sync whoami failed for {uname}: {result}";
+            reports = result["reports"];
+            assert len(reports) == 1;
+            got = reports[0];
+            expected = root_ids[uname];
+            assert got["start_root_id"] == expected , (
+                f"sync: {uname} saw start_root_id={got['start_root_id']}, "
+                f"expected {expected}"
+            );
+            assert got["end_root_id"] == expected , (
+                f"sync: {uname} saw end_root_id={got['end_root_id']}, "
+                f"expected {expected}"
+            );
+        }
+    }
+}
+
+"""A request whose setup raises outside the walker-execution envelope (here:
+the user's persisted root anchor is gone from the anchor store, e.g. stale
+state written by an older runtime) must surface as a 500 JSON error response
+- never as a silently dropped connection with no HTTP response at all."""
+test "orphaned user root returns 500 json instead of dropping the connection" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        reg = client.register_user("orphan_user", "pw12345");
+        assert reg.ok , f"register should succeed: {reg.text}";
+        # Point the users row at a root anchor id that does not exist in the
+        # anchor store, simulating a store that was reset or migrated out from
+        # under the users db.
+        um = client.user_manager;
+        um._ensure_connection();
+        um._conn.execute(
+            "UPDATE users SET root_id = ? WHERE username = ?",
+            ("deadbeefdeadbeefdeadbeefdeadbeef", "orphan_user")
+        );
+        um._conn.commit();
+        resp = client.post("/walker/CreateTask", json={"title": "x"});
+        assert resp.status_code == 500 , f"expected a 500 error envelope, got {resp.status_code}: {resp.text}";
+        body = resp.json();
+        assert "error" in body , f"500 body should carry an error: {resp.text}";
+        # Registered users are NOT healed: silently minting a new root would
+        # mask real data loss. The error names the problem instead.
+        assert "does not exist in the anchor store" in str(body.get("error")) , f"error should explain the missing root anchor: {resp.text}";
+        client.close();
+    }
+}
+
+"""The guest account is anonymous: when its persisted root anchor is gone
+from the anchor store (stale state from an older runtime), the server heals
+it in place by minting a fresh guest root instead of failing every
+unauthenticated request."""
+test "missing guest root anchor is healed with a fresh root" {
+    with TemporaryDirectory() as tmpdir {
+        client = JacTestClient.from_file(
+            fixture_abs_path("serve_shared_root.jac"), base_path=tmpdir
+        );
+        # Anonymous call creates the __guest__ user with a valid root.
+        first = client.post("/walker/whereami", json={});
+        assert first.ok , f"anonymous walker call should work: {first.text}";
+        # Point the guest row at a root anchor that does not exist.
+        um = client.user_manager;
+        um._ensure_connection();
+        um._conn.execute(
+            "UPDATE users SET root_id = ? WHERE username = ?",
+            ("feedfacefeedfacefeedfacefeedface", "__guest__")
+        );
+        um._conn.commit();
+        healed = client.post("/walker/whereami", json={});
+        assert healed.ok , f"guest request should heal, got {healed.status_code}: {healed.text}";
+        row = um._conn.execute(
+            "SELECT root_id FROM users WHERE username = ?", ("__guest__", )
+        ).fetchone();
+        assert row[0] != "feedfacefeedfacefeedfacefeedface" , "guest root_id should have been replaced by the heal";
+        # And the healed root keeps working on subsequent requests.
+        again = client.post("/walker/whereami", json={});
+        assert again.ok , f"healed guest root should persist: {again.text}";
+        client.close();
+    }
+}
+
+"""/healthz must answer on the stdlib server: the sv sibling orchestration
+polls it to decide a spawned service is up, and on k8s it doubles as the
+liveness/readiness probe surface."""
+test "stdlib server answers health endpoints" {
+    with TemporaryDirectory() as tmpdir {
+        client = make_client(tmpdir);
+        for path in ["/healthz", "/healthz/live", "/healthz/ready"] {
+            resp = client.get(path);
+            assert resp.status_code == 200 , f"{path} should be 200: {resp.text}";
+            assert resp.json().get("status") == "ok" , f"{path} body: {resp.text}";
+        }
+        client.close();
+    }
+}
+
+"""A missing bun is an environmental precondition, cheap to re-check - the
+bundle layer must retry it on every request (so fetching bun fixes serving
+without a restart), while genuine build failures stay memoized."""
+test "ensure_bundle retries a missing-bun failure and a build error alike" {
+    import from unittest.mock { MagicMock }
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    import from jaclang.runtimelib.client_bundle { ClientBundleError, MissingBunError }
+    intro = ModuleIntrospector("serve_api", FIXTURES);
+    intro._module = object();
+    bun_missing = MagicMock();
+    bun_missing.build.side_effect = MissingBunError("bun is not available");
+    intro._bundle_builder = bun_missing;
+    for _ in range(2) {
+        try {
+            intro.ensure_bundle();
+            assert False , "ensure_bundle should raise while bun is missing";
+        } except ClientBundleError { }
+    }
+    assert bun_missing.build.call_count == 2 , "missing bun must be re-checked on every call, not memoized";
+
+    intro2 = ModuleIntrospector("serve_api", FIXTURES);
+    intro2._module = object();
+    broken = MagicMock();
+    broken.build.side_effect = RuntimeError("vite exploded");
+    intro2._bundle_builder = broken;
+    for _ in range(2) {
+        try {
+            intro2.ensure_bundle();
+            assert False , "ensure_bundle should raise for a broken build";
+        } except ClientBundleError { }
+    }
+    assert broken.build.call_count == 2 , (
+        "a build failure must be retried on the next call: the serving core builds "
+        "at boot and keeps serving when that fails, so memoizing the error left "
+        "every client page 503 until the process restarted"
+    );
+}
+
+"""A deliberately slow real builder: holds each build open long enough for
+other threads to pile in, then returns a distinct real bundle per call."""
+obj _SlowRealBuilder {
+    has hold: float = 0.4,
+        calls: int = 0;
+
+    def build(module: object, force: bool = False) -> object {
+        import time;
+        import from jaclang.runtimelib.client_bundle { ClientBundle }
+        self.calls += 1;
+        mine = self.calls;
+        time.sleep(self.hold);
+        return ClientBundle(
+            module_name="race_probe",
+            code=f"export const page = {mine};",
+            client_functions=[],
+            client_globals=[],
+            hash=f"hash-{mine}"
+        );
+    }
+}
+
+test "concurrent ensure_bundle callers share one build instead of each running their own" {
+    import from concurrent.futures { ThreadPoolExecutor }
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    intro = ModuleIntrospector("serve_api", FIXTURES);
+    intro._module = object();
+    builder = _SlowRealBuilder();
+    intro._bundle_builder = builder;
+
+    def _one(_i: int) -> str {
+        return intro.ensure_bundle();
+    }
+    executor = ThreadPoolExecutor(max_workers=6);
+    try {
+        results = list(executor.map(_one, range(6)));
+    } finally {
+        executor.shutdown(`wait=True);
+    }
+    assert builder.calls == 1 , (
+        f"the bundle was built {builder.calls} times for 6 concurrent callers; "
+        "unlocked entry runs parallel builds into the same client tree"
+    );
+    assert set(results) == {"hash-1"} , (
+        f"concurrent callers got different bundles: {sorted(set(results))}"
+    );
+}
+
+test "a module reload during a build wins over the build's result" {
+    import threading;
+    import time;
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    intro = ModuleIntrospector("serve_api", FIXTURES);
+    intro._module = object();
+    builder = _SlowRealBuilder();
+    intro._bundle_builder = builder;
+
+    build_thread = threading.Thread(target=intro.ensure_bundle);
+    build_thread.start();
+    time.sleep(0.1);
+    # A reload arriving mid-build (load()/_check_module_freshness path) must not
+    # be overwritten when the in-flight build lands: it queues on the lock and
+    # then clears, so the next request rebuilds from the new module.
+    intro._invalidate_bundle();
+    build_thread.join(timeout=30);
+    assert not build_thread.is_alive() , "build thread never finished";
+
+    assert intro._bundle is None , (
+        "a bundle compiled from the pre-reload module survived the reload; "
+        "stale client code would be served until the next restart"
+    );
+    assert intro.ensure_bundle() == "hash-2" , (
+        "the request after the reload did not rebuild"
+    );
+}
+
+"""/graph, /graph/data and /docs must be served by the stdlib server too -
+previously they existed only on the scale (FastAPI) server, so apps embedding
+them 404'd whenever serving fell back to the zero-dependency stack."""
+test "stdlib server serves graph visualizer and docs" {
+    with TemporaryDirectory() as tmpdir {
+        client = JacTestClient.from_file(
+            fixture_abs_path("serve_shared_root.jac"), base_path=tmpdir
+        );
+        page = client.get("/graph");
+        assert page.status_code == 200 , f"/graph: {page.status_code}";
+        assert "<html" in page.text.lower() , "/graph should serve the visualizer html";
+        seeded = client.post("/walker/leave_note", json={"text": "hi"});
+        assert seeded.ok , f"seed walker failed: {seeded.text}";
+        data = client.get("/graph/data");
+        assert data.status_code == 200 , f"/graph/data: {data.text}";
+        payload = data.json();
+        assert "nodes" in payload and "edges" in payload , f"payload: {data.text}";
+        assert len(payload["nodes"]) >= 1 , "graph data should include the root node";
+        docs = client.get("/docs");
+        assert docs.status_code == 200 , f"/docs: {docs.status_code}";
+        assert "swagger-ui" in docs.text.lower() , "/docs should serve the API explorer";
+        spec = client.get("/openapi.json");
+        assert spec.status_code == 200 , f"/openapi.json: {spec.status_code}";
+        paths = spec.json()["paths"];
+        assert "/walker/leave_note" in paths , "openapi should list the module's walkers";
+        assert "/user/login" in paths , "openapi should list auth endpoints";
+        client.close();
+    }
+}
+
+# =============================================================================
+# Route-aware SPA fallback (honest 404s for paths no client route serves)
+# =============================================================================
+"""Write a minimal file-based routing tree into `dest`/pages for fallback tests."""
+def write_routed_pages(dest: Path) {
+    page_src = "def:pub View() -> JsxPage {\n    return <div>page</div>;\n}\n";
+    pages = dest / "pages";
+    (pages / "posts").mkdir(parents=True, exist_ok=True);
+    (pages / "(auth)").mkdir(parents=True, exist_ok=True);
+    (pages / "docs").mkdir(parents=True, exist_ok=True);
+    (pages / "index.jac").write_text(page_src);
+    (pages / "about.jac").write_text(page_src);
+    (pages / "posts" / "[slug].jac").write_text(page_src);
+    (pages / "(auth)" / "dashboard.jac").write_text(page_src);
+    (pages / "docs" / "[...rest].jac").write_text(page_src);
+    (pages / "[...notFound].jac").write_text(page_src);
+}
+
+"""The fallback answers 200 only for paths a scanned client route can serve;
+everything else is an honest 404. A stale long-poll client (e.g. a docs-site
+livereload tab) previously got 200 in ~3ms and busy-looped at ~300 req/s -
+non-200 is what flips such clients into their backoff path."""
+test "spa fallback status is route aware when pages exist" {
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    with TemporaryDirectory() as tmpdir {
+        proj = Path(tmpdir);
+        shutil.copy(fixture_abs_path("client_app.jac"), proj / "routed_app.jac");
+        write_routed_pages(proj);
+        intro = ModuleIntrospector("routed_app", str(proj));
+        assert intro.spa_fallback_status("/") == 200;
+        assert intro.spa_fallback_status("/about") == 200;
+        assert intro.spa_fallback_status("/about/") == 200;
+        assert intro.spa_fallback_status("/posts/anything") == 200;
+        assert intro.spa_fallback_status("/dashboard") == 200;
+        assert intro.spa_fallback_status("/docs/a/b/c") == 200;
+        assert intro.spa_fallback_status("/livereload/179920204/179926361") == 404 , f"patterns={intro._load_spa_routes()}";
+        assert intro.spa_fallback_status("/no/such/route") == 404;
+        assert intro.spa_fallback_status("/posts") == 404;
+        assert intro.spa_fallback_status("/posts/a/b") == 404;
+        assert intro.spa_fallback_status("/wp-admin") == 404;
+    }
+}
+
+"""Without a pages/ directory the route table is unknowable (manual <Router>
+apps declare routes in JSX), so the fallback must stay permissive."""
+test "spa fallback status stays permissive without pages dir" {
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    intro = ModuleIntrospector("client_app", FIXTURES);
+    assert intro.spa_fallback_status("/anything/at/all") == 200;
+    assert intro.spa_fallback_status("/livereload/1/2") == 200;
+}
+
+"""End-to-end: the fallback handler must pass the route-aware status through
+to the HTTP response while still serving the app shell (so the client-side 404
+page renders). Route patterns are pinned on the introspector directly - adding
+a real pages/ tree would flip the test fixture into the full project bundle
+pipeline, which this suite's lightweight fixtures cannot build."""
+def pin_routes(spa: JacTestClient) {
+    intro = spa.server.introspector;
+    intro._spa_route_patterns = ["/", "/about", "/posts/:slug"];
+    intro._spa_routes_loaded = True;
+}
+
+test "serve spa fallback 404s unknown paths but still serves the app html" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        pin_routes(spa);
+        response = spa.get("/livereload/179920204/179926361");
+        assert response.status_code == 404 , f"expected 404, got {response.status_code}";
+        html = response.text;
+        assert "<!DOCTYPE html>" in html , "404 should still serve the app shell";
+        assert '<div id="__jac_root">' in html;
+        spa.server.introspector._spa_route_patterns = ["/about"];
+        response = spa.get("/");
+        assert response.status_code == 404 , f"index-less root: expected 404, got {response.status_code}";
+        assert "<!DOCTYPE html>" in response.text;
+        spa.close();
+    }
+}
+
+test "serve spa fallback keeps 200 for known page routes" {
+    _require_client_integration();
+    with TemporaryDirectory() as tmpdir {
+        spa = make_spa_client(tmpdir);
+        pin_routes(spa);
+        response = spa.get("/posts/hello-world");
+        assert response.status_code == 200 , f"expected 200, got {response.status_code}";
+        assert "<!DOCTYPE html>" in response.text;
+        response = spa.get("/");
+        assert response.status_code == 200 , f"root with index route: expected 200, got {response.status_code}";
+        response = spa.get("/nope");
+        assert response.status_code == 404 , f"expected 404, got {response.status_code}";
+        spa.close();
+    }
+}
+
+"""The route table must follow the app across reloads: every reload path goes
+through _load_manifest, which clears the cached patterns so the next fallback
+request rescans pages/. Without the reset, a page added after first request
+404s until restart and a deleted page keeps answering 200."""
+test "spa fallback route table refreshes on manifest reload" {
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    with TemporaryDirectory() as tmpdir {
+        proj = Path(tmpdir);
+        shutil.copy(fixture_abs_path("client_app.jac"), proj / "routed_app.jac");
+        write_routed_pages(proj);
+        intro = ModuleIntrospector("routed_app", str(proj));
+        assert intro.spa_fallback_status("/pricing") == 404;
+        page_src = "def:pub View() -> JsxPage {\n    return <div>p</div>;\n}\n";
+        (proj / "pages" / "pricing.jac").write_text(page_src);
+        assert intro.spa_fallback_status("/pricing") == 404 , "table is cached until a reload";
+        intro._load_manifest();
+        assert intro.spa_fallback_status("/pricing") == 200 , f"patterns={intro._load_spa_routes()}";
+        (proj / "pages" / "about.jac").unlink();
+        intro._load_manifest();
+        assert intro.spa_fallback_status("/about") == 404;
+        assert intro.spa_fallback_status("/pricing") == 200;
+    }
+}
+
+"""A pages-routed project with no index page has no client route for '/', so
+the root must be an honest 404 too (the client renders its catch-all there)."""
+test "spa fallback root is route aware without an index page" {
+    import from jaclang.runtimelib.server { ModuleIntrospector }
+    with TemporaryDirectory() as tmpdir {
+        proj = Path(tmpdir);
+        pages = proj / "pages";
+        pages.mkdir(parents=True, exist_ok=True);
+        page_src = "def:pub View() -> JsxPage {\n    return <div>p</div>;\n}\n";
+        (pages / "dashboard.jac").write_text(page_src);
+        intro = ModuleIntrospector("routed_app", str(proj));
+        assert intro.spa_fallback_status("/") == 404;
+        assert intro.spa_fallback_status("/dashboard") == 200;
+    }
+}
