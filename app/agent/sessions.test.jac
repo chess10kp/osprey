@@ -15,6 +15,7 @@ import json;
 import re;
 import tempfile;
 import shutil;
+import time;
 
 
 def _make_tmp() -> str {
@@ -419,6 +420,134 @@ test "export_session writes readable markdown from a transcript" {
         # Unknown id and unwritable target both fail cleanly.
         assert not export_session(tmp, "sess_987654321", out_path);
         assert not export_session(tmp, str(meta["id"]), "/proc/nope/out.md");
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+# ============================== retention prune ==============================
+
+
+def _backdate_transcript(tmp: str, session_id: str, updated_iso: str) {
+    # Rewrite a saved transcript's updatedAt to an arbitrary ISO stamp.
+    path = os.path.join(tmp, ".jackal", "sessions", session_id + ".json");
+    raw: any = _read_raw(path);
+    raw["updatedAt"] = updated_iso;
+    fh = open(path, "w");
+    try {
+        json.dump(raw, fh, indent=2);
+        fh.write("\n");
+    } finally {
+        fh.close();
+    }
+    ipath = os.path.join(tmp, ".jackal", "sessions", "index.json");
+    idx: any = _read_raw(ipath);
+    pos = 0;
+    while pos < len(idx) {
+        entry: dict = idx[pos];
+        if str(entry.get("id")) == session_id {
+            entry["updatedAt"] = updated_iso;
+        }
+        pos += 1;
+    }
+    fh = open(ipath, "w");
+    try {
+        json.dump(idx, fh, indent=2);
+        fh.write("\n");
+    } finally {
+        fh.close();
+    }
+}
+
+
+test "prune_sessions is disabled when both limits are zero" {
+    tmp = _make_tmp();
+    try {
+        save_session(tmp, _hist("a"));
+        assert prune_sessions(tmp, max_count=0, retention_days=0) == 0;
+        assert len(list_sessions(tmp)) == 1;
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+test "prune_sessions keeps newest N and rewrites the index" {
+    tmp = _make_tmp();
+    try {
+        ids: list = [];
+        for text in ["one", "two", "three"] {
+            meta = save_session(tmp, _hist(text));
+            ids.append(str(meta["id"]));
+            time.sleep(0.01);  # distinct millisecond stamps
+        }
+        pruned = prune_sessions(tmp, max_count=1);
+        assert pruned == 2;
+        remaining = list_sessions(tmp);
+        assert [str(e["id"]) for e in remaining] == [ids[2]];
+        # Index must agree with the surviving transcripts.
+        idx = _read_raw(os.path.join(_sessions_dir(tmp), "index.json"));
+        assert [str(e["id"]) for e in idx] == [ids[2]];
+        for sid in ids[:2] {
+            assert not os.path.exists(
+                os.path.join(_sessions_dir(tmp), sid + ".json")
+            );
+        }
+        assert os.path.exists(os.path.join(_sessions_dir(tmp), ids[2] + ".json"));
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+test "prune_sessions deletes sessions older than retention_days" {
+    tmp = _make_tmp();
+    try {
+        old_meta = save_session(tmp, _hist("ancient"));
+        new_meta = save_session(tmp, _hist("fresh"));
+        old_id = str(old_meta["id"]);
+        new_id = str(new_meta["id"]);
+        _backdate_transcript(tmp, old_id, "2020-01-01T00:00:00.000Z");
+
+        assert prune_sessions(tmp, retention_days=30) == 1;
+        remaining = list_sessions(tmp);
+        assert [str(e["id"]) for e in remaining] == [new_id];
+        assert not os.path.exists(
+            os.path.join(_sessions_dir(tmp), old_id + ".json")
+        );
+        assert os.path.exists(
+            os.path.join(_sessions_dir(tmp), new_id + ".json")
+        );
+    } finally {
+        _cleanup(tmp);
+    }
+}
+
+
+test "prune_sessions combines age and count limits safely on junk timestamps" {
+    tmp = _make_tmp();
+    try {
+        a = save_session(tmp, _hist("a"));
+        b = save_session(tmp, _hist("b"));
+        c = save_session(tmp, _hist("c"));
+        time.sleep(0.01);
+        # Corrupt one timestamp; pruning must still work (count rule applies).
+        path = os.path.join(_sessions_dir(tmp), str(a["id"]) + ".json");
+        raw: any = _read_raw(path);
+        raw["updatedAt"] = "";
+        fh = open(path, "w");
+        try {
+            json.dump(raw, fh, indent=2);
+            fh.write("\n");
+        } finally {
+            fh.close();
+        }
+        assert prune_sessions(tmp, max_count=2) == 1;
+        remaining = list_sessions(tmp);
+        assert len(remaining) == 2;
+        kept_ids: set[str] = set(str(e["id"]) for e in remaining);
+        assert str(b["id"]) in kept_ids and str(c["id"]) in kept_ids;
     } finally {
         _cleanup(tmp);
     }

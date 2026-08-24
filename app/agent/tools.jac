@@ -15,7 +15,8 @@ import from .tool_spec { ToolSpec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
 import from .web_tools { tool_specs_web }
 
 glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
-     READ_LINE_CAP: int = 2_000;
+     READ_LINE_CAP: int = 2_000,
+     user_bash_fire: Callable[[str, str], None] | None = None;
 
 """Resolve a path against the process cwd; reject empty paths."""
 def resolve_path(path: str) -> str {
@@ -87,6 +88,14 @@ def run_command(cmd: str, timeout_secs: int = 120) -> str {
         return f"ERROR: command timed out after {timeout_secs}s";
     }
     out = (r.stdout or "") + (r.stderr or "");
+    # Fire the user_bash plugin hook (best-effort). tools cannot import
+    # agent/session (session imports tools), so session boot assigns this
+    # callback: `tools.user_bash_fire = lambda cmd, res: fire_user_bash(plugins, cmd, res)`.
+    if user_bash_fire is not None {
+        try {
+            user_bash_fire(cmd, out);
+        } except Exception {}
+    }
     if len(out) > MAX_TOOL_OUTPUT { out = out[:MAX_TOOL_OUTPUT] + "\n... [truncated]"; }
     return f"exit={r.returncode}\n{out.strip()}";
 }
