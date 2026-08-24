@@ -892,8 +892,12 @@ async function handleEnvelopeInner(state, env, ctx = {}) {
       makeUiBridge(state, ctx, base.correlation_id, sc.extensionId),
     );
     try {
-      await handler({ ui });
-      const payload = { ok: true, notifications: ui.notifications };
+      const ret = await handler({ ui });
+      const payload = {
+        ok: true,
+        result: ret == null ? "" : String(ret),
+        notifications: ui.notifications,
+      };
       if (ui.uiEvents.length) {
         payload.ui_events = ui.uiEvents;
       }
