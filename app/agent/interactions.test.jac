@@ -3,7 +3,7 @@
 import time;
 
 
-def _req(method: str = "select", parent: str = "corr-1", **extra) -> dict {
+def _req(method: str = "select", parent: str = "corr-1", **extra: any) -> dict {
     req: dict = {
         "method": method,
         "parent_corr": parent,

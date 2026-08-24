@@ -18,7 +18,7 @@ test "deliver routes to correct targets" {
     subscribe(registry, "session.events", "other-id", "TranscriptChanged");
     subscribe(registry, "session.phase", "status-id", "PhaseChanged");
 
-    results = deliver(registry, "session.events", "TranscriptChanged");
+    results: list[DeliveryResult] = deliver(registry, "session.events", "TranscriptChanged");
     assert len(results) == 2;
     assert results[0].target_id == "other-id";
     assert results[0].event_type == "TranscriptChanged";
