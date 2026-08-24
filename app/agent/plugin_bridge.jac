@@ -1165,8 +1165,8 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
 # ======================= T2-partial: shortcuts =======================
 
 """Invoke an extension keyboard shortcut by key. Returns the shortcut_result
-payload dict: {ok, notifications?, ui_events?, error?}. Raises TimeoutError on
-Node silence."""
+payload dict: {ok, notifications?, ui_events?, error?}; failures (including
+Node silence/timeout) come back as {ok: False, error: ...}, never raised."""
 def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> dict {
     if bridge.host_kind == "node" {
         if not _node_alive(bridge) {
@@ -1872,6 +1872,46 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
     _absorb_pending_fake(bridge, h);
     _absorb_hook_results(bridge, results);
     return results;
+}
+
+
+# ===================== cheap lifecycle events (name-pinned helpers) =====================
+
+"""Fire the Pi `user_bash` hook when the agent runs a shell command.
+
+Payload mirrors Pi: {command, result?}. Session-side call site (one-liner
+when wired): relay_tool_hooks in agent/session.jac — fire where tool ==
+"run_command". Best-effort: no host or transport failure returns []."""
+def fire_user_bash(
+    bridge: PluginBridge | None, command: str, result: str = ""
+) -> list {
+    if bridge is None {
+        return [];
+    }
+    data: dict = {"command": str(command)};
+    if result {
+        data["result"] = str(result)[:2000];
+    }
+    try {
+        return fire_hook(bridge, "user_bash", data);
+    } except Exception {
+        return [];
+    }
+}
+
+
+"""Fire the Pi `project_trust` hook when a project directory is first
+trusted. Payload: {path}. Best-effort: no host or transport failure
+returns []."""
+def fire_project_trust(bridge: PluginBridge | None, path: str) -> list {
+    if bridge is None {
+        return [];
+    }
+    try {
+        return fire_hook(bridge, "project_trust", {"path": str(path)});
+    } except Exception {
+        return [];
+    }
 }
 
 
