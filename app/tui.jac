@@ -38,7 +38,6 @@ import from agent.plugin_bridge {
 }
 import from agent.sessions {
     list_sessions,
-    latest_session_id,
     get_session_record,
     export_session,
     save_session,
@@ -50,6 +49,10 @@ import from ui.runtime {
     UiSession,
     create_session,
     dispose_session,
+}
+
+import from ui.model {
+    UiNode,
 }
 
 import from ui.screen {
@@ -77,6 +80,7 @@ import from ui.transcript {
     bind_transcript,
     apply_transcript_revision,
     materialize_visible,
+    measure_message_height,
     set_follow_tail,
 }
 
@@ -89,6 +93,7 @@ import from ui.layout {
 
 import from ui.renderer {
     Renderer,
+    UiNode,
     create_renderer,
     render_frame,
     set_node_content,
@@ -158,8 +163,21 @@ obj LiveShell {
         appr_tool_name: str = "",
         appr_args: any = None,
         ui_modal: any = None,
+        picker: any = None,
         cmd_q: any = None;
 }
+
+# Session exposes only set_model(name) — no enumeration capability — so the
+# picker offers a curated list (current model injected if missing) plus a
+# "type name…" row that flips the picker into free-text input.
+glob MODEL_CHOICES: list[str] = [
+    "openrouter/anthropic/claude-sonnet-5",
+    "openrouter/anthropic/claude-opus-4.5",
+    "openrouter/openai/gpt-5",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/x-ai/grok-4",
+    "openrouter/meta-llama/llama-4-maverick",
+];
 
 
 def _rule(width: int, ch: str = "─") -> str {
@@ -339,6 +357,54 @@ def _prompt_lines(app: LiveShell) -> list[str] {
 }
 
 
+"""Total wrapped-line height of the transcript (local copy of the private
+projection helper — keeps this file free of underscore imports)."""
+def _transcript_total_height(app: LiveShell) -> int {
+    total = 0;
+    for message in app.proj.messages {
+        total += measure_message_height(
+            app.proj,
+            message,
+            app.proj.viewport_width,
+        );
+    }
+    return total;
+}
+
+
+"""Scroll the transcript viewport by delta lines (negative = up).
+
+Leaves follow_tail on the first upward scroll so streaming chunks append
+offscreen while the view is frozen; re-enters tail automatically once the
+bottom is reached (End behaves the same via set_follow_tail(True))."""
+def _scroll_transcript(app: LiveShell, delta: int) {
+    proj = app.proj;
+    if delta == 0 {
+        return;
+    }
+    vh = max(1, proj.viewport_height);
+    if delta > 0 and proj.view.follow_tail {
+        return;  # already pinned to newest content
+    }
+    if delta < 0 and proj.view.follow_tail {
+        set_follow_tail(proj, False);
+    }
+    total = _transcript_total_height(app);
+    max_off = max(0, total - vh);
+    off = min(max(0, proj.view.scroll_offset + delta), max_off);
+    proj.view.scroll_offset = off;
+    if off >= max_off and not proj.view.follow_tail {
+        set_follow_tail(proj, True);
+        app.status_hint = "enter · ↑↓ history · esc quit";
+    } else {
+        app.status_hint = (
+            "scrollback " + str(off) + "/" + str(max_off) + " · end/pgdn = live"
+        );
+    }
+    app.dirty = True;
+}
+
+
 """Unified-diff preview lines for a pending write_file/edit_file approval.
 Capped at 20 diff lines with a trailing truncation marker; returns [] when
 no old/new text pair can be assembled (missing args, unreadable baseline)."""
@@ -492,6 +558,238 @@ def _ui_modal_lines(app: LiveShell) -> list[str] {
 }
 
 
+"""Generic list-picker overlay body (model chooser / resume chooser).
+Mirrors the extension-modal box styling; select mode shows rows with a
+">" cursor, input mode shows an editable draft line."""
+def _picker_lines(app: LiveShell) -> list[str] {
+    p: any = app.picker;
+    inner = 46;
+    head = "? " + str(p.get("title", ""));
+    body: list[str] = [];
+    if str(p.get("mode", "select")) == "input" {
+        draft = str(p.get("draft", ""));
+        shown = draft if draft else "(type a model id)";
+        body.append("  > " + shown[:inner - 8] + "▌");
+    } else {
+        options: list = list(p.get("options", []));
+        sel = int(p.get("selected", 0));
+        i = 0;
+        for opt in options[:8] {
+            mark = ">" if i == sel else " ";
+            body.append(mark + " " + str(opt)[:inner - 6]);
+            i += 1;
+        }
+        more = len(options) - 8;
+        if more > 0 {
+            body.append("… " + str(more) + " more");
+        }
+    }
+    body.append("");
+    if str(p.get("mode", "select")) == "input" {
+        body.append("  type id · [enter] submit   [esc] cancel");
+    } else {
+        body.append("  [↑↓] move   [enter] choose   [esc] cancel");
+    }
+    lines: list[str] = [
+        "╭" + _rule(inner, "─") + "╮",
+        "│" + _pad_to("  " + head, inner) + "│",
+    ];
+    for ln in body {
+        lines.append("│" + _pad_to("  " + ln, inner) + "│");
+    }
+    lines.append("╰" + _rule(inner, "─") + "╯");
+    return lines;
+}
+
+
+"""Open a generic list-picker on the shared overlay node (one at a time).
+rows are display labels; ids map 1:1 onto action payloads. When
+extra_last_input is set, a trailing "type name…" row flips the picker into
+free-text input mode on enter."""
+def _open_picker(
+    app: LiveShell,
+    title: str,
+    rows: list[str],
+    ids: list[str],
+    extra_last_input: bool = False,
+) -> bool {
+    if app.picker is not None or app.ui_modal is not None or app.shell.approval is not None {
+        return False;
+    }
+    options = list(rows);
+    full_ids = list(ids);
+    if extra_last_input {
+        options.append("type name…");
+        full_ids.append("__type__");
+    }
+    if not options {
+        return False;
+    }
+    app.picker = {
+        "title": title,
+        "options": options,
+        "ids": full_ids,
+        "selected": 0,
+        "mode": "select",
+        "draft": "",
+        "prev_hint": app.status_hint,
+    };
+    shell_open_approval(app.session, app.shell);
+    app.status_hint = "↑↓ move · enter choose · esc cancel";
+    app.dirty = True;
+    return True;
+}
+
+
+"""Dismiss the picker and restore the pre-open status hint."""
+def _close_picker(app: LiveShell) {
+    p: any = app.picker;
+    app.picker = None;
+    shell_close_approval(app.session, app.shell);
+    if p is not None {
+        app.status_hint = str(p.get("prev_hint", app.status_hint));
+    }
+    app.dirty = True;
+}
+
+
+"""Model picker: curated MODEL_CHOICES (current model injected when missing)
+plus a free-text fallback row; cursor starts on the active model."""
+def _open_model_picker(app: LiveShell) -> str {
+    choices = list(MODEL_CHOICES);
+    if model not in choices {
+        choices.insert(0, model);
+    }
+    sel = 0;
+    i = 0;
+    for c in choices {
+        if c == model {
+            sel = i;
+            break;
+        }
+        i += 1;
+    }
+    opened = _open_picker(app, "MODEL", choices, choices, extra_last_input=True);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    p: any = app.picker;
+    if p is not None {
+        p["selected"] = sel;
+    }
+    return "";
+}
+
+
+def _handle_picker_key(app: LiveShell, key: str) {
+    p: any = app.picker;
+    if p is None {
+        return;
+    }
+    title = str(p.get("title", ""));
+    if key == "escape" {
+        _close_picker(app);
+        return;
+    }
+    if str(p.get("mode", "select")) == "input" {
+        draft = str(p.get("draft", ""));
+        if key == "enter" {
+            name = draft.strip();
+            _close_picker(app);
+            if name {
+                _push_turn(app, "tool", "model -> " + set_model(name));
+                app.dirty = True;
+            }
+        } elif key == "backspace" or key == "\x7f" {
+            if draft {
+                p["draft"] = draft[:-1];
+                app.dirty = True;
+            }
+        } elif len(key) == 1 and key >= " " {
+            p["draft"] = draft + key;
+            app.dirty = True;
+        }
+        return;
+    }
+    options: list = list(p.get("options", []));
+    ids: list = list(p.get("ids", []));
+    sel = int(p.get("selected", 0));
+    if (key == "up" or key == "k") and len(options) > 0 {
+        p["selected"] = (sel - 1) % len(options);
+        app.dirty = True;
+    } elif (key == "down" or key == "j") and len(options) > 0 {
+        p["selected"] = (sel + 1) % len(options);
+        app.dirty = True;
+    } elif key == "enter" and len(options) > 0 {
+        idx = min(sel, len(options) - 1);
+        chosen_id = str(ids[idx]) if idx < len(ids) else "";
+        chosen = str(options[idx]);
+        if chosen_id == "__type__" {
+            p["mode"] = "input";
+            p["draft"] = "";
+            app.status_hint = "type model id · enter submit · esc cancel";
+            app.dirty = True;
+            return;
+        }
+        _close_picker(app);
+        if title == "MODEL" {
+            _push_turn(app, "tool", "model -> " + (chosen_id or chosen));
+            set_model(chosen_id or chosen);
+        } elif title == "RESUME SESSION" {
+            reply = _resume_session(app, chosen_id);
+            if reply {
+                _push_turn(app, "tool", reply);
+            }
+        }
+        app.dirty = True;
+    }
+}
+
+
+"""Resume-picker rows from list_sessions(cwd): label "id  name", payload id."""
+def _open_resume_picker(app: LiveShell) -> str {
+    rows = list_sessions(os.getcwd());
+    if not rows {
+        return "no saved sessions";
+    }
+    labels: list[str] = [];
+    ids: list[str] = [];
+    for row in rows[:20] {
+        sid = str(row.get("id", ""));
+        sname = str(row.get("name", ""));
+        labels.append(sid[:18] + "  " + sname[:38]);
+        ids.append(sid);
+    }
+    opened = _open_picker(app, "RESUME SESSION", labels, ids);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
+}
+
+
+"""Paint lines into the shared overlay node (picker/modal/approval owner).
+The caller has already decided ownership; this just guards the optional node."""
+def _paint_overlay(app: LiveShell, lines: list[str]) {
+    ov: UiNode | None = app.shell.approval;
+    if ov is None {
+        return;
+    }
+    set_node_contract(
+        app.renderer,
+        ov,
+        LayoutSpec(
+            width=fixed_axis(48),
+            height=fixed_axis(len(lines)),
+            overlay_anchor=OverlayAnchor.CENTER,
+        ),
+    );
+    set_node_content(app.renderer, ov, lines);
+    mark_semantic_dirty(app.renderer, ov);
+    mark_layout_dirty(app.renderer, ov);
+}
+
+
 def _transcript_lines(app: LiveShell) -> list[str] {
     win = materialize_visible(app.proj);
     if win.lines {
@@ -515,35 +813,18 @@ def _paint(app: LiveShell) {
     status = _status_line(app);
     prompt_lines = _prompt_lines(app);
 
-    if app.ui_modal is not None {
-        # Extension modal owns the shared overlay node while open.
-        overlay2 = _ui_modal_lines(app);
-        set_node_contract(
-            app.renderer,
-            app.shell.approval,
-            LayoutSpec(
-                width=fixed_axis(48),
-                height=fixed_axis(len(overlay2)),
-                overlay_anchor=OverlayAnchor.CENTER,
-            ),
-        );
-        set_node_content(app.renderer, app.shell.approval, overlay2);
-        mark_semantic_dirty(app.renderer, app.shell.approval);
-        mark_layout_dirty(app.renderer, app.shell.approval);
+    # Shared overlay node: local pickers own it first, then extension modals,
+    # then tool approvals.
+    overlay: list[str] | None = None;
+    if app.picker is not None {
+        overlay = _picker_lines(app);
+    } elif app.ui_modal is not None {
+        overlay = _ui_modal_lines(app);
     } elif app.shell.approval is not None {
         overlay = _approval_lines(app);
-        set_node_contract(
-            app.renderer,
-            app.shell.approval,
-            LayoutSpec(
-                width=fixed_axis(48),
-                height=fixed_axis(len(overlay)),
-                overlay_anchor=OverlayAnchor.CENTER,
-            ),
-        );
-        set_node_content(app.renderer, app.shell.approval, overlay);
-        mark_semantic_dirty(app.renderer, app.shell.approval);
-        mark_layout_dirty(app.renderer, app.shell.approval);
+    }
+    if overlay is not None {
+        _paint_overlay(app, overlay);
     }
 
     set_node_content(app.renderer, app.shell.header, header);
@@ -824,6 +1105,33 @@ def _history_down(app: LiveShell) {
 }
 
 
+"""Restore a saved session by id and repaint the transcript from it.
+Shared by /resume NAME and the resume picker's enter action."""
+def _resume_session(app: LiveShell, sid: str) -> str {
+    cwd = os.getcwd();
+    rec = get_session_record(cwd, sid);
+    if rec is None {
+        return "unknown session: " + sid;
+    }
+    msgs: any = rec.get("messages", []);
+    if not isinstance(msgs, list) or not msgs {
+        return "session has no transcript: " + sid;
+    }
+    restore_history(msgs as list);
+    # Repaint transcript from restored messages (skip system prompt).
+    app.messages = [];
+    app.rev = 0;
+    apply_transcript_revision(app.proj, 0, app.messages);
+    for m in msgs as list {
+        if isinstance(m, dict) and str(m.get("role", "")) != "system" {
+            _push_turn(app, str(m.get("role", "")), str(m.get("content", "")));
+        }
+    }
+    app.dirty = True;
+    return "resumed " + sid + " (" + str(len(msgs)) + " messages)";
+}
+
+
 """Slash commands handled locally by the TUI (same set as the line REPL).
 Returns a display string; "" when the command produced no output."""
 def _run_slash(app: LiveShell, line: str) -> str {
@@ -855,33 +1163,12 @@ def _run_slash(app: LiveShell, line: str) -> str {
     }
     if line.startswith("/resume") {
         arg = line[len("/resume"):].strip();
-        sid: str = arg;
-        if not sid {
-            got = latest_session_id(cwd);
-            if got is None {
-                return "no saved sessions to resume";
-            }
-            sid = got;
+        if not arg {
+            # No argument: open an interactive session picker instead of
+            # silently resuming the latest session.
+            return _open_resume_picker(app);
         }
-        rec = get_session_record(cwd, sid);
-        if rec is None {
-            return "unknown session: " + sid;
-        }
-        msgs: any = rec.get("messages", []);
-        if not isinstance(msgs, list) or not msgs {
-            return "session has no transcript: " + sid;
-        }
-        restore_history(msgs as list);
-        # Repaint transcript from restored messages (skip system prompt).
-        app.messages = [];
-        app.rev = 0;
-        apply_transcript_revision(app.proj, 0, app.messages);
-        for m in msgs as list {
-            if isinstance(m, dict) and str(m.get("role", "")) != "system" {
-                _push_turn(app, str(m.get("role", "")), str(m.get("content", "")));
-            }
-        }
-        return "resumed " + sid + " (" + str(len(msgs)) + " messages)";
+        return _resume_session(app, arg);
     }
     if line.startswith("/export") {
         arg = line[len("/export"):].strip();
@@ -934,12 +1221,13 @@ def _run_slash(app: LiveShell, line: str) -> str {
         }
         return "\n".join(lines);
     }
-    if line.startswith("/model ") {
-        name = line[len("/model "):].strip();
-        if name {
-            return "model -> " + set_model(name);
+    if line == "/model" or line.startswith("/model ") {
+        name = line[len("/model"):].strip();
+        if not name {
+            # No argument: interactive picker (curated list + free-text row).
+            return _open_model_picker(app);
         }
-        return "usage: /model NAME";
+        return "model -> " + set_model(name);
     }
     if line.startswith("/") {
         parts = line[1:].split(None, 1);
@@ -1174,6 +1462,10 @@ def _handle_key(app: LiveShell, key: str) {
         _handle_ui_modal_key(app, key);
         return;
     }
+    if app.picker is not None {
+        _handle_picker_key(app, key);
+        return;
+    }
     if app.shell.approval is not None {
         if key == "a" or key == "y" or key == "enter" {
             _accept_approval(app);
@@ -1201,6 +1493,29 @@ def _handle_key(app: LiveShell, key: str) {
         if reply {
             _push_turn(app, "tool", reply);
         }
+        app.dirty = True;
+        return;
+    }
+    if key == "page_up" {
+        # Scrollback works during streaming too: the frozen view just means
+        # new chunks append offscreen until tail is re-entered.
+        _scroll_transcript(app, -(max(1, app.proj.viewport_height) - 1));
+        return;
+    }
+    if key == "page_down" {
+        _scroll_transcript(app, max(1, app.proj.viewport_height) - 1);
+        return;
+    }
+    if key == "home" {
+        set_follow_tail(app.proj, False);
+        app.proj.view.scroll_offset = 0;
+        app.status_hint = "scrollback top · end/pgdn = live";
+        app.dirty = True;
+        return;
+    }
+    if key == "end" {
+        set_follow_tail(app.proj, True);
+        app.status_hint = "enter · ↑↓ history · esc quit";
         app.dirty = True;
         return;
     }
@@ -1275,6 +1590,13 @@ def _handle_key(app: LiveShell, key: str) {
 def _handle_host_events(app: LiveShell, events: list[HostEvent]) {
     for event in coalesce_events(events) {
         if isinstance(event, TextEvent) {
+            if app.picker is not None {
+                # Picker input mode owns typed characters while open.
+                for ch in event.text {
+                    _handle_picker_key(app, ch);
+                }
+                continue;
+            }
             if app.shell.approval is not None {
                 if event.text in ["a", "y", "r", "n"] {
                     _handle_key(app, event.text);
@@ -1289,7 +1611,7 @@ def _handle_host_events(app: LiveShell, events: list[HostEvent]) {
         } elif isinstance(event, KeyEvent) {
             _handle_key(app, event.key);
         } elif isinstance(event, PasteEvent) {
-            if app.shell.approval is None and app.phase != "streaming" {
+            if app.shell.approval is None and app.phase != "streaming" and app.picker is None {
                 shell_insert_text(app.session, app.shell, event.text);
                 app.dirty = True;
             }
