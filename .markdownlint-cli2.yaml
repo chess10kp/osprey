@@ -1,0 +1,67 @@
+# Markdown linting configuration with auto-fixing support
+
+# Default state for all rules
+default: true
+
+# Rule configurations
+config:
+
+  # MD013/line-length - Allow lines up to 200 characters
+  MD013: false
+    # line_length: 200
+    # heading_line_length: 200
+    # code_block_line_length: 200
+    # stern: false  # More lenient with tables and long URLs
+
+  # MD033/no-inline-html - Allow inline HTML elements
+  MD033: false
+
+  # table style
+  MD060: false
+
+  # MD041/first-line-heading - Don't require first line to be h1
+  MD041: false
+
+  # code blocks should have a language specified
+  MD040:  false
+    # style: fenced
+
+  # no alt text for images
+  MD045:  false
+
+  # code block style, fenced or indented
+  MD046:  false
+    # style: fenced
+
+  # MD024/no-duplicate-heading - Allow duplicate headings if nested differently
+  MD024: false
+    # allow_different_nesting: true
+
+  # MD025/single-title/single-h1 - Allow multiple top-level headings
+  MD025: false
+
+  # MD034/no-bare-urls - Allow bare URLs without angle brackets
+  MD034: false
+
+  # MD036/no-emphasis-as-heading - Allow emphasis to be used as heading
+  MD036: false
+
+  # MD026/no-trailing-punctuation - Allow punctuation in headings
+  MD026: false
+
+
+  # MD001/heading-increment - Allow skipping heading levels (e.g., h1 to h3)
+  MD001: false
+
+  MD056: false
+
+  # link text should be descriptive
+  MD059: false
+
+# Files and directories to ignore
+ignores:
+  - "node_modules/**"
+  - "vendor/**"
+  - ".git/**"
+  - "**/*.min.md"
+  - "CHANGELOG.md"  # Often has duplicate headings by design

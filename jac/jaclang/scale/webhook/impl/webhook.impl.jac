@@ -1,0 +1,274 @@
+impl WebhookUtils.generate_signature(payload: bytes, secret: str) -> str {
+    return hmac.new(secret.encode('utf-8'), payload, hashlib.sha256).hexdigest();
+}
+
+impl WebhookUtils.verify_signature(
+    payload: bytes, signature: str, secret: str
+) -> bool {
+    expected_signature = WebhookUtils.generate_signature(payload, secret);
+
+    provided = signature.lower().encode('utf-8');
+    expected = expected_signature.lower().encode('utf-8');
+    return hmac.compare_digest(provided, expected);
+}
+
+impl WebhookUtils.generate_api_key -> str {
+    return secrets.token_hex(32);
+}
+
+
+impl WebhookUtils.create_api_key_token(
+    api_key_id: str, user_id: str, name: str, expiry_days: int | None = None
+) -> str {
+    jwt_config = get_scale_config().get_jwt_config();
+    default_expiry = int(
+        get_scale_config().get_webhook_config()['api_key_expiry_days']
+    );
+    payload: dict[str, any] = {
+        'type': 'api_key',
+        'api_key_id': api_key_id,
+        'sub': user_id,
+        'name': name,
+        'iat': datetime.now(UTC)
+    };
+
+    current_time = datetime.now(UTC);
+    if expiry_days is not None {
+        payload['exp'] = current_time + timedelta(days=int(expiry_days));
+    } elif default_expiry > 0 {
+        payload['exp'] = current_time + timedelta(days=int(default_expiry));
+    }
+
+    return jwt_encode(payload, jwt_config['secret'], algorithm=jwt_config['algorithm']);
+}
+
+impl WebhookUtils.validate_api_key(api_key: str) -> dict[str, str] | None {
+    try {
+        jwt_config = get_scale_config().get_jwt_config();
+        payload = jwt_decode(
+            api_key, jwt_config['secret'], algorithms=[jwt_config['algorithm']]
+        );
+
+        if payload.get('type') != 'api_key' {
+            return None;
+        }
+
+        return {
+            'user_id': payload.get('sub', ''),
+            'api_key_id': payload.get('api_key_id', ''),
+            'name': payload.get('name', '')
+        };
+    } except JWTExpiredError {
+        return None;
+    } except JWTError {
+        return None;
+    }
+}
+
+impl WebhookUtils.extract_signature(header_value: str) -> str {
+    value = header_value.strip();
+    if value.lower().startswith('sha256=') {
+        return value[7:];
+    }
+    return value;
+}
+
+impl ApiKeyManager.postinit -> None {
+    if self._db is not None {
+        try {
+            self._ensure_indexes();
+        } except Exception as e {
+            logger.warning(f"webhook_api_keys index setup skipped: {e}");
+        }
+    } else {
+        logger.warning(
+            "Webhook API keys are stored in memory (no database available). "
+            "Keys and revocations are NOT durable: every restart invalidates "
+            "all keys. Ensure the shared database is reachable for "
+            "production webhook use."
+        );
+    }
+}
+
+impl ApiKeyManager._ensure_indexes -> None {
+    db = self._db;
+    if db is None {
+        return;
+    }
+    db.rows(
+        'CREATE INDEX IF NOT EXISTS jac_docs_user_id_idx ON jac_docs '
+        "(collection, (doc->>'user_id'))",
+        {}
+    );
+}
+
+impl ApiKeyManager.create_api_key(
+    user_id: str,
+    name: str,
+    expiry_days: int | None = None,
+    allowed_walkers: list[str] | None = None
+) -> TransportResponse {
+    api_key_id = secrets.token_hex(16);
+
+    api_key = WebhookUtils.create_api_key_token(
+        api_key_id=api_key_id, user_id=user_id, name=name, expiry_days=expiry_days
+    );
+    key_created_at: datetime = datetime.now(UTC);
+    expires_at: datetime | None = None;
+    default_expiry = int(
+        get_scale_config().get_webhook_config()['api_key_expiry_days']
+    );
+    if expiry_days is not None and expiry_days > 0 {
+        expires_at = key_created_at + timedelta(days=int(expiry_days));
+    } elif default_expiry > 0 {
+        expires_at = key_created_at + timedelta(days=int(default_expiry));
+    }
+    signing_secret = secrets.token_hex(32);
+    key_doc = {
+        'user_id': user_id,
+        'name': name,
+        'created_at': key_created_at.isoformat(),
+        'expires_at': expires_at.isoformat() if expires_at else None,
+        'revoked': False,
+        'signing_secret': signing_secret,
+        'allowed_walkers': allowed_walkers or []
+    };
+    if self._db is not None {
+        self._db.rows(
+            'INSERT INTO jac_docs (collection, id, doc) '
+            'VALUES (:c, :i, CAST(:d AS jsonb)) '
+            'ON CONFLICT (collection, id) DO UPDATE SET doc = EXCLUDED.doc',
+            {'c': self._collection, 'i': api_key_id, 'd': json.dumps(key_doc)}
+        );
+    } else {
+        self._inmemory_store[api_key_id] = dict(key_doc);
+    }
+    return TransportResponse.success(
+        data={
+            'api_key': api_key,
+            'api_key_id': api_key_id,
+            'name': name,
+            'created_at': key_created_at.isoformat(),
+            'expires_at': expires_at.isoformat() if expires_at else None,
+            'signing_secret': signing_secret
+        },
+        meta=Meta(extra={'http_status': 201})
+    );
+}
+
+def _key_summary(api_key_id: str, doc: dict) -> dict {
+    return {
+        'api_key_id': api_key_id,
+        'name': doc.get('name', ''),
+        'created_at': doc.get('created_at'),
+        'expires_at': doc.get('expires_at'),
+        'active': True
+    };
+}
+
+impl ApiKeyManager.list_api_keys(user_id: str) -> TransportResponse {
+    keys: list[dict[str, any]] = [];
+    if self._db is not None {
+        rows = self._db.rows(
+            "SELECT id, doc FROM jac_docs WHERE collection = :c "
+            "AND doc->>'user_id' = :u AND doc->>'revoked' = 'false' ORDER BY id",
+            {'c': self._collection, 'u': user_id}
+        );
+        for (kid, raw) in rows {
+            doc = raw if isinstance(raw, dict) else json.loads(str(raw));
+            keys.append(_key_summary(str(kid), doc));
+        }
+    } else {
+        for (kid, doc) in self._inmemory_store.items() {
+            if doc.get('user_id') == user_id and not doc.get('revoked', False) {
+                keys.append(_key_summary(str(kid), doc));
+            }
+        }
+    }
+    return TransportResponse.success(
+        data={'api_keys': keys}, meta=Meta(extra={'http_status': 200})
+    );
+}
+
+impl ApiKeyManager.revoke_api_key(user_id: str, api_key_id: str) -> TransportResponse {
+    key_info = self._get_key_doc(api_key_id);
+    if not key_info {
+        return TransportResponse.fail(
+            code='NOT_FOUND',
+            message=f"API key '{api_key_id}' not found",
+            meta=Meta(extra={'http_status': 404})
+        );
+    }
+
+    if key_info.get('user_id') != user_id {
+        return TransportResponse.fail(
+            code='FORBIDDEN',
+            message='Cannot revoke API key owned by another user',
+            meta=Meta(extra={'http_status': 403})
+        );
+    }
+
+    if self._db is not None {
+        self._db.rows(
+            "UPDATE jac_docs SET doc = doc || '{\"revoked\": true}'::jsonb "
+            'WHERE collection = :c AND id = :i',
+            {'c': self._collection, 'i': api_key_id}
+        );
+    } else {
+        self._inmemory_store[api_key_id]['revoked'] = True;
+    }
+    return TransportResponse.success(
+        data={'message': f"API key '{api_key_id}' has been revoked"},
+        meta=Meta(extra={'http_status': 200})
+    );
+}
+
+impl ApiKeyManager._get_key_doc(api_key_id: str) -> dict | None {
+    doc: dict | None = None;
+    if self._db is not None {
+        rows = self._db.rows(
+            'SELECT doc FROM jac_docs WHERE collection = :c AND id = :i',
+            {'c': self._collection, 'i': api_key_id}
+        );
+        if rows {
+            raw = rows[0][0];
+            doc = raw if isinstance(raw, dict) else json.loads(str(raw));
+        }
+    } else {
+        got = self._inmemory_store.get(api_key_id);
+        doc = dict(got) if got is not None else None;
+    }
+    if doc is not None {
+        doc['api_key_id'] = api_key_id;
+    }
+    return doc;
+}
+
+impl ApiKeyManager.resolve_key(api_key: str) -> dict | None {
+    key_info = WebhookUtils.validate_api_key(api_key);
+    if not key_info {
+        return None;
+    }
+    key_doc = self._get_key_doc(key_info.get('api_key_id', ''));
+    if not key_doc or key_doc.get('revoked', False) {
+        return None;
+    }
+    return key_doc;
+}
+
+impl ApiKeyManager.check_rate_limit(api_key_id: str, limit_per_minute: int) -> bool {
+    if limit_per_minute <= 0 {
+        return True;
+    }
+    window_id = int(datetime.now(UTC).timestamp() // 60);
+    `entry = self._rate_window.get(api_key_id);
+    if not `entry or `entry[0] != window_id {
+        self._rate_window[api_key_id] = [window_id, 1];
+        return True;
+    }
+    if `entry[1] >= limit_per_minute {
+        return False;
+    }
+    `entry[1] += 1;
+    return True;
+}

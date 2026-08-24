@@ -1,0 +1,3 @@
+impl foo{
+    print("foo");
+}

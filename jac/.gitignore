@@ -1,0 +1,101 @@
+# Django #
+*.log
+*.pot
+*.pyc
+__pycache__
+db.sqlite3
+media
+migrations
+venv
+
+# Jac build & cache artifacts
+.jac/
+*.jir
+*.jbc
+# legacy native IR cache (superseded by .jac/cache/native)
+.jac_ir/
+
+# Distribution / packaging
+.Python
+play/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Others #
+.coverage
+.session
+*.session.db
+.DS_Store
+.vscode
+build
+*Zone.Identifier
+.DS_Store
+parser.out
+codegen_output*
+
+*.rdb
+node_modules
+out.dot
+out.txt
+
+# Mypy files #
+.mypy_cache*
+
+
+
+# Jaclang session files
+*.session
+
+
+# session files
+*.bak
+*.dat
+*.dir
+*.log
+
+# Zig build
+.zig-cache/
+zig-out/
+dist/
+.pbs-build/
+# Pinned bun fetched per target by the fetch-bun step of launcher/payload.zig
+# and bundled into the payload (never committed). See build.zig.
+.bun-build/
+jaclang/runtimelib/client/_bun/
+
+# Vendored typeshed stdlib stubs are fetched at the pinned commit by the
+# fetch-typeshed step of launcher/payload.zig, not committed -- only the PIN /
+# TARBALL_SHA256 / LICENSE / PROVENANCE.md beside the stubs are tracked.
+jaclang/vendor/typeshed/stdlib
+.llvm-build/
+# CI staging dir for a cache-restored prebuilt shim (setup-jac -Dshim-bin).
+.shim-build/
+# Persistent JIR precompile cache: mkpayload seeds site/_precompiled from it
+# and writes the refreshed tree back (see build.zig --precompiled-cache).
+.precompiled-build/
+# Persistent deps-layer frame cache: mkpayload reuses the payload's compressed
+# dependency layer across builds (see build.zig --layer-cache).
+.payload-layers/
+# Zig-built LLVMPY_* shim, placed in-tree per host platform (see build.zig).
+libjacllvm.so
+libjacllvm.dylib
+jacllvm.dll
+# Zig-built libjacpyembed desktop shim, placed in-tree per host platform.
+libjacpyembed.so
+libjacpyembed.dylib
+jacpyembed.dll

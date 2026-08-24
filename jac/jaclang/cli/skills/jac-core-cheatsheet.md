@@ -1,0 +1,162 @@
+---
+name: jac-core-cheatsheet
+description: Jac-language baseline - Reading this skill is a must. imports, control flow, match statements, enums, lambdas, glob, entry points, reserved keywords, null-safe operators, string formatting, error handling. Load for basic-syntax questions no specific skill covers.
+---
+
+**Jac is strict-typed.** Every `def` parameter and return, every `has` field needs an explicit type; the escape hatch is lowercase `any` plus the `as` cast - full rules, narrowing patterns, and error codes in `jac-types`. Syntax-wise: Python-flavored, every statement ends with `;`, every block is `{ }`-braced - **except `match`/`case` bodies, which use Python indentation** (see below). One deliberate `;` exception: the final expression of a `def`/ability/lambda body may drop its `;` to become the **implicit return** value (Rust-style tail expression); anywhere else a missing `;` is an error (`E2084`/`E0002`). Top-level code runs inside `with entry { ... }`.
+
+```jac
+import os;
+import from math { pi }
+
+
+def double(x: int) -> int {
+    return x * 2;
+}
+
+def triple(x: int) -> int {
+    x * 3    # implicit return: final expression without ';' is the return value
+}
+
+
+with entry {
+    name: str = "alice";
+    age: int = 30;
+    tags: list[str] = ["a", "b"];
+    manager: str | None = None;
+
+    doubled: list[int] = [n * 2 for n in [1, 2, 3]];
+    label: str = "adult" if age >= 18 else "minor";   # ternary: A if cond else B
+
+    inc = lambda (x: int) { x + 1; };                    # typed lambda, implicit return
+    square = lambda (x: int) -> int { return x * x; };   # optional return type, explicit return
+    print(inc(4), square(5));
+
+    greeting = f"hello {name}, {len(tags)} tags";
+    print(greeting, label, manager);
+
+    for n in doubled {
+        if n > 4 { print(f"big: {n}"); }
+        elif n > 2 { print(f"mid: {n}"); }
+        else { print(f"small: {n}"); }
+    }
+
+    try {
+        _ = int("not-a-number");      # discard with `_` - unread names warn W2003
+    } except ValueError as e {
+        print(f"parse error: {str(e)}");
+    }
+}
+```
+
+## Match statements - the ONE indentation-sensitive construct
+
+`case` arms take a **colon + indented body**, NOT braces. `case 0 { ... }` is a parse error (E0001 `Expected ':', got '{'`). Guards (`case x if cond:`) and destructuring work as in Python:
+
+```jac
+obj Point { has x: int = 0; has y: int = 0; }
+
+def describe(value: any) -> str {
+    match value {
+        case 0:
+            return "zero";
+        case int() as n if n < 0:           # guard clause
+            return f"negative: {n}";
+        case [x, y]:                        # sequence destructure
+            return f"pair: {x}, {y}";
+        case {"kind": k}:                   # dict pattern
+            return f"kind={k}";
+        case Point(x=px, y=py):             # class pattern
+            return f"point {px},{py}";
+        case _:
+            return "other";
+    }
+}
+```
+
+There is also a C-style `switch value { case 1: ... default: ... }` - it **falls through** like C; end each case with `break;`.
+
+## Globals and entry points
+
+```jac
+glob counter: int = 0;          # module-level variable - `glob`, not bare assignment
+
+def increment {
+    counter += 1;               # assigns the glob directly - no `global` statement
+}
+
+with entry { print("runs on EVERY import of this module"); }
+with entry:__main__ { increment(); }   # only when run directly (= Python __main__)
+```
+
+**Scoping - there is no `global` or `nonlocal` statement.** A bare assignment (including `+=`) inside a function assigns to the nearest *enclosing* binding - an enclosing function's local, or a `glob`-declared module variable; a new local is created only when no such binding exists. (Python's classic gotcha - `x += 1` on a global raising `UnboundLocalError` - doesn't exist.) To *shadow* an outer binding instead, write a typed declaration (`x: int = 5;`) before any use or assignment of that name in the scope; a typed declaration after the name has already been rebound there is an error (E0064). Loop targets, `except ... as`, and `with ... as` targets always bind fresh locals. Only `glob`-declared module variables are implicitly rebindable - assigning the name of an import, function, or class creates a local.
+
+**Pitfall for importable libraries:** plain `with entry` executes every time the module is imported. Put demo/CLI code in `with entry:__main__` or importing your module will run it.
+
+## Import forms
+
+**Plain `.jac` file imports:**
+
+```
+import os;                              # module - takes `;`
+import numpy as np;                     # aliased - full PyPI access (see jac-python-interop)
+import from jaclang.byllm.lib { Model }         # selective - NO `;`
+import type from billing { Invoice }    # annotation-only - breaks circular imports (see jac-types)
+import ".styles/global.css";            # file - takes `;`
+```
+
+**Client imports (in code inferred client - it carries JSX or an npm import):**
+
+```
+import from .button { Button }                        # relative (dots)
+import from "@jac/runtime" { Router, Routes, Route }  # npm (quoted)
+```
+
+**Codespaces are inferred - there is no placement syntax.** JSX and string-path npm imports mark a declaration client, and the helpers/`glob`s/imports client code references join the client bundle (scope-aware propagation, across modules); python imports and graph archetypes anchor code server, which is also the default; `def:pub` endpoints and walkers in server-anchored modules stay server (client calls become auto-RPC); extern C-decl imports (`import from lib { def f(x: f64) -> f64; }`) mark a declaration native and its users follow (consuming a native module is not a signal; a whole anchor-free module compiles native under the default codespace when it can lower, else server with a note; pure code in mixed modules stays server). Overrides live in `jac.toml`: `[placement.pins] "mod.name" = "server"` pins a declaration server-side (or `"client"`/`"native"`). See `jac-codespaces`.
+
+**`main.jac` mixes both sides.** Server imports go at the top (server is the default placement). The client section - CSS import, top-level component, `def:pub app` (no-arg for manual routing; `app(children)` that renders `children` for file-based routing - see `jac-cl-routing`) - is inferred client from its JSX and string-path imports; no wrapper syntax exists or is needed.
+
+**No-dot imports are project-root absolute.** In server/native code, `import from engine.math.vec3 { Vec3 }` resolves against the **project root** (the nearest `jac.toml` dir) from *anywhere* in the project - the importing file may sit at the root, under `tests/`, or any depth, and the import is identical. This is the idiomatic form; prefer it over dot-counting. A test in `tests/` imports the modules it exercises with the same no-dot path it would use at the root.
+
+**Relative (dotted) imports** walk up from the importing file's own directory - each leading `.` is one folder. They are mainly needed in **client** code (inferred client from JSX or npm imports), where the bundler resolves them. Imports of server modules from client code carry the same dot semantics.
+
+| Dots | Meaning | Use when |
+|---|---|---|
+| `shared.X`     | project-root absolute  | **default** - resolves from any depth in the project (server/native) |
+| `.store`       | same folder            | `store` is a sibling module in this same folder |
+| `..shared.X`   | one folder up          | importing file is one level deep (`recipes/X.jac`) |
+| `...shared.X`  | two folders up         | importing file is two levels deep (`recipes/parts/X.jac`) |
+
+A no-dot import is depth-independent: moving a file between directories never changes it. Dot-counted forms (`..`, `...`) DO break when a file moves to a different depth - wrong dot count = silent resolution failure = imported names become `<Unknown>` → cascading type errors.
+
+**Server modules should prefer the no-dot form, and a `..` that climbs out of a package is a bug waiting to happen.** `import from ..shared.github { fetch }` resolves fine under `jac start` but fails `jac test <file>` with `attempted relative import beyond top-level package`, because the test runner roots the package at the target file's own directory. `import from shared.github { fetch }` works in both. Client modules keep the dotted form - that is what the bundler resolves.
+
+## Also available (Python semantics, brace bodies)
+
+Generators (`yield` / `yield from`), decorators (`@deco` above `def`), walrus `(n := len(items))`, context managers (`with open(f) as fh { ... }`), C-style loops `for i = 0 while i < 10 with i += 1 { }`, null-safe access `user?.profile?.name`, `cfg?["key"]` (returns `None` instead of raising - even for missing keys/out-of-range indices), and the default idiom `name = user?.name or "Anonymous";`.
+
+## Pitfalls
+
+- **Reserved keywords cannot be used as variable or parameter names** - declaration words (`node`, `edge`, `walker`, `obj`, `def`, `impl`), OSP / control words (`visit`, `disengage`, `report`, `spawn`, `flow`, `wait`, `skip`, `del`), module words (`include`), and `with`, `can`, `has`. (`entry` and `exit` are *not* reserved - fine as identifiers.) Escape with a single **leading** backtick: `` `visit `` (no closing backtick; `` `visit` `` is a lexer error).
+- **Python reserved words can't name `has` fields or parameters - even backtick-escaped.** `` has `class: str; `` fails `jac check` with **E0067**: the generated Python uses the name as a real identifier, so escaping can't help. Pick a non-reserved name (`kind`, `cls`). Jac-only keywords that aren't Python keywords (`visit`, `node`, ...) escape fine everywhere.
+- **`` `any `` vs `any`:** bare `any` is the gradual *type*; backticked `` `any(...) `` calls the builtin truthiness *function*.
+- `import from X { Y };` fails with E0030. **Brace imports take NO trailing semicolon.** Plain module form `import X;` does.
+- **There is no `pass` statement** (`E0010`). For an intentionally empty block write empty braces: `{}`.
+- **Tuple unpacking in `for` needs parens.** `for (k, v) in d.items() { ... }` works; the Python spelling `for k, v in d.items()` is a parse error. Same in comprehensions.
+- **Unused names warn (`W2003`).** Prefix intentionally-unused names with `_`, or for unread exception bindings drop the clause: `except ValueError { ... }`, not `except ValueError as e`. A value bound only to *validate* still counts as unused - discard with `_ = int(s);`. This is the #1 reason otherwise-correct parsing/validation code fails `jac check`.
+- **Booleans are `True`/`False`, null is `None` - capitalized.** Lowercase `false` parses as an undefined name, so `return false;` fails with the *misleading* `E1002: Cannot return <Unknown>, expected bool`.
+- **Docstrings go immediately before a declaration, never inside its body** (`W0060`, often + `E0002`).
+- **Lambdas have ONE form: `lambda (params) { body }`.** Params always parenthesized and annotated - zero-arg `lambda { onSign(); }`, single param `lambda (v: str) { gbName = v; }` (in client code also `lambda (e: ChangeEvent) { ... }`), multi-param `lambda (exports: any, fps: int) { ... }` - with an optional return type: `lambda (x: int) -> int { return x * x; }`. A body that is exactly one expression statement IS the implicit return (`lambda (x: int) { x + 1; }` returns `x + 1`); multi-statement bodies need an explicit `return ...;` or a semicolon-less tail expression (`lambda (x: int) { y = x + 1; y * 10 }` returns `y * 10`), otherwise the lambda returns `None` (fine for event handlers). Multi-statement lambdas work in every expression position - decorator args, default params, `has` defaults, callbacks (`sorted(xs, key=lambda { ... })`), compound-statement conditions (`if (lambda { ... })(x) { ... }`, `while`), and method/function bodies - not only assignment RHS. A param annotation may be omitted only where the type is inferable from context; otherwise it's E1119. The Python colon forms (`lambda x: x`, `lambda x: int : x + 1`) and any paren-less form that carries a parameter (`lambda x { ... }`, `lambda v: str { ... }`) are parse errors - only a zero-parameter lambda may drop the parens (`lambda { ... }`).
+- Ternary is **Python-style**: `A if cond else B`. NOT `cond ? A : B` - parse error.
+- Boolean operators are **`and`/`or`/`not`** - C-style `&&`/`||` do not exist (parse error).
+- **Python stdlib needs explicit import - Jac auto-imports nothing.** `datetime.now()` without `import from datetime { datetime }` = runtime `NameError`.
+- **Client calls to server functions are `async` - always `await` them.** `items = fetch_items()` assigns a `Promise`, not the data.
+- **`import:py` does not exist** - LLMs hallucinate it; use `import json;` / `import from datetime { datetime }`.
+- **Enums use Jac form, NOT Python `class X(Enum)`.** Write `enum Color { RED, GREEN }`. When members must BE `int`/`str` instances (JSON, wire formats), use typed-base `enum HttpStatus: int { OK = 200 }` (desugars to `IntEnum`) or `enum Tag: str { OPEN = "open" }` (`StrEnum`) - then **do NOT add `.value`**, members already are the base type.
+- Concatenating a string with an Exception fails - wrap with `str(e)`.
+
+## See also
+
+`jac-types` (type system, `as` casts, `any` boundaries) · `jac-has-fields` (fields) · `jac-impl-files` (file layout) · `jac-codespaces` (inferred client/server/native placement) · `jac-python-interop` (PyPI, `::py::`, calling Jac from Python) · `jac-concurrency` (`flow`/`wait`, async)
+
+Deep dives bundled with the CLI: `jac guide reference/language/syntax-cheatsheet` (complete syntax reference), `jac guide reference` (lists the full language/CLI/config reference set).
