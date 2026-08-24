@@ -2,6 +2,7 @@
 
 import from agent.session { plugins, session_boot, session_dispose }
 import from agent.plugin_bridge {
+    PluginBridge,
     create_bridge,
     dispose_bridge,
 }
@@ -18,7 +19,7 @@ def _upper(args: str, ctx: any) -> str {
 }
 
 
-def _with_fake_bridge {
+def _with_fake_bridge -> PluginBridge {
     b = create_bridge("main-cmd-test");
     plugins.bridge = b;
     ensure_host(b);
@@ -41,15 +42,18 @@ test "handle_command routes slash args into extension commands" {
     b = _with_fake_bridge();
     try {
         reply = handle_command("/upper hello main");
+        assert reply is not None;
         assert "UPPER:HELLO MAIN" in reply;
         assert "HELLO MAIN" in reply;
 
         listing = handle_command("/commands");
+        assert listing is not None;
         assert "extension commands:" in listing;
         assert "/upper  Uppercase args" in listing;
 
         # Unknown names still fail loud, now with the /commands hint.
         miss = handle_command("/nope");
+        assert miss is not None;
         assert miss.startswith("unknown command:");
         assert "/commands" in miss;
 
@@ -107,6 +111,7 @@ test "handle_command sessions resume export round-trip" {
         sid = str(meta["id"]);
 
         listing = handle_command("/sessions");
+        assert listing is not None;
         checks.append("listing-has-sid=" + str(sid in listing));
         checks.append("listing-has-name=" + str("round trip" in listing));
 
