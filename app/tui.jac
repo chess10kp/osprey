@@ -30,6 +30,7 @@ import from agent.session {
     new_session_id,
 }
 import from agent.modes { requires_approval }
+import from core.edit { compute_unified_diff }
 import from agent.plugin_bridge {
     poll_ui_request,
     respond_ui,
@@ -154,6 +155,8 @@ obj LiveShell {
         appr_event: any = None,
         appr_approved: bool = False,
         appr_tool: str = "",
+        appr_tool_name: str = "",
+        appr_args: any = None,
         ui_modal: any = None,
         cmd_q: any = None;
 }
@@ -336,19 +339,108 @@ def _prompt_lines(app: LiveShell) -> list[str] {
 }
 
 
+"""Unified-diff preview lines for a pending write_file/edit_file approval.
+Capped at 20 diff lines with a trailing truncation marker; returns [] when
+no old/new text pair can be assembled (missing args, unreadable baseline)."""
+def _approval_diff_preview(name: str, args: dict[str, any]) -> list[str] {
+    old_text = "";
+    new_text = "";
+    if name == "edit_file" {
+        old_text = str(args.get("old_text", ""));
+        new_text = str(args.get("new_text", ""));
+    } elif name == "write_file" {
+        new_text = str(args.get("content", ""));
+        path = str(args.get("path", ""));
+        if path {
+            full = path if os.path.isabs(path) else os.path.join(os.getcwd(), path);
+            # Baseline is read from disk at render time (preview only);
+            # a missing file means every line is an addition.
+            if os.path.isfile(full) {
+                try {
+                    fh = open(full);
+                    old_text = fh.read();
+                    fh.close();
+                } except Exception {
+                    return [];
+                }
+            }
+        } else {
+            return [];
+        }
+    } else {
+        return [];
+    }
+    diff = compute_unified_diff(old_text, new_text);
+    if not diff or diff.startswith("ERROR") {
+        return [];
+    }
+    raw: list[str] = diff.split("\n");
+    cap = 20;
+    shown: list[str] = raw[:cap];
+    out: list[str] = ["diff:"];
+    for ln in shown {
+        prefix = " ";
+        if ln.startswith("+") or ln.startswith("-") or ln.startswith("@") {
+            prefix = "";
+        }
+        out.append(prefix + ln);
+    }
+    more = len(raw) - cap;
+    if more > 0 {
+        out.append("… " + str(more) + " more lines");
+    }
+    return out;
+}
+
+
+"""Approval overlay body — REAL pending-approval data: tool name plus cmd
+(run_command), target path and old/new char counts (write_file/edit_file)
+or generic key=value pairs, then a capped unified-diff preview."""
 def _approval_lines(app: LiveShell) -> list[str] {
-    _ = app;
     inner = 46;
-    return [
+    head = "TOOL APPROVAL · " + app.appr_tool_name;
+    body: list[str] = [];
+    args: any = app.appr_args;
+    if isinstance(args, dict) {
+        if app.appr_tool_name == "run_command" {
+            body.append("$ " + str(args.get("cmd", "")));
+            timeout_secs = str(args.get("timeout_secs", ""));
+            if timeout_secs {
+                body.append("timeout " + timeout_secs + "s");
+            }
+        } elif app.appr_tool_name == "write_file" {
+            body.append(str(args.get("path", "")));
+            body.append("+ " + str(len(str(args.get("content", "")))) + " chars");
+        } elif app.appr_tool_name == "edit_file" {
+            body.append(str(args.get("path", "")));
+            body.append(
+                "- " + str(len(str(args.get("old_text", ""))))
+                + " / + " + str(len(str(args.get("new_text", "")))) + " chars"
+            );
+        } else {
+            parts: list[str] = [];
+            for pair in args.items() {
+                parts.append(str(pair[0]) + "=" + str(pair[1])[:40]);
+            }
+            body.append((", ".join(parts))[:inner - 6]);
+        }
+        body.extend(_approval_diff_preview(app.appr_tool_name, args));
+    }
+    if not body {
+        body.append("(no details available)");
+    }
+    lines: list[str] = [
         "╭" + _rule(inner, "─") + "╮",
-        "│" + _pad_to("  TOOL APPROVAL", inner) + "│",
+        "│" + _pad_to("  " + head, inner) + "│",
         "│" + _pad_to("", inner) + "│",
-        "│" + _pad_to("  jac check  app/ui/renderer.jac", inner) + "│",
-        "│" + _pad_to("  mode       read-only verify", inner) + "│",
-        "│" + _pad_to("", inner) + "│",
-        "│" + _pad_to("  [a] Accept    [r] Reject    [esc]", inner) + "│",
-        "╰" + _rule(inner, "─") + "╯",
     ];
+    for ln in body {
+        lines.append("│" + _pad_to("  " + ln, inner) + "│");
+    }
+    lines.append("│" + _pad_to("", inner) + "│");
+    lines.append("│" + _pad_to("  [a] Accept    [r] Reject    [esc]", inner) + "│");
+    lines.append("╰" + _rule(inner, "─") + "╯");
+    return lines;
 }
 
 
@@ -661,6 +753,8 @@ def _tick_stream(app: LiveShell) {
                 }
             }
             app.appr_tool = tool_name + "(" + (", ".join(parts))[:160] + ")";
+            app.appr_tool_name = tool_name;
+            app.appr_args = args if isinstance(args, dict) else {};
             app.phase = "approval";
             app.shell.status.phase = "approval";
             shell_open_approval(app.session, app.shell);
