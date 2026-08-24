@@ -11,7 +11,7 @@ The repository does **not** use the legacy Pi extension shell (`pi/extensions/` 
 ## Rules for agents working in this repo
 
 1. **Commit** after each feature or bugfix (unless the user says otherwise).
-2. **Do not modify** `jac-ink`, `jaclang`, or `jac-client`. Do **not** write or edit compile-pipeline shims in jac-tui.
+2. **Do not modify** `jac-ink` or `jac-client`. **Exception — vendored compiler:** `vendor/jac/` (subtree of jaseci-labs/jac, see [`docs/VENDOR-JAC.md`](docs/VENDOR-JAC.md)) is ours to fix: native-path fixes land there first so product work never waits on upstream PR latency. Keep vendor changes upstream-able and sync them back. Never hand-patch `lib/jac/` or the installed toolchain as a substitute for a vendor fix. Do **not** write or edit compile-pipeline shims in jac-tui.
 3. **Do not edit** `templates/jackal_agent_facade.mjs` as a long-term fix — it is copied into `.jac/tui/` by `jackal.sh`; real hook naming belongs in jac-ink upstream. Short-term Jackal-only facade tweaks in-repo are acceptable when the human agrees.
 4. **Framework/plugin gaps** → stop, document symptom + owning repo + minimal recommended fix for the **human** (see [Human handoff](#human-handoff-jac-ink--jaclang)).
 5. **Forward product work:** `app/`, its tests, and docs. **Legacy-reference fixes only:** `src/`, `templates/`, `jackal.sh`, and TUI postprocess scripts. Shared package data remains under `pi/`.
@@ -537,6 +537,7 @@ Hot paths with coverage: `bridgeEvents`, store, dev-mode, permissions, smoke boo
 | `ROADMAP.md` | Product direction |
 | `docs/decisions.org` | Architecture decision log (decision/context/options/tradeoff/reversal) |
 | [`docs/PLUGIN-HOST-PLAN.md`](docs/PLUGIN-HOST-PLAN.md) | Parallel Node sidecar; JS must not block first frame (D11/D13/D21); §14 lessons from P0–P5 |
+| [`docs/VENDOR-JAC.md`](docs/VENDOR-JAC.md) | Vendored Jac compiler subtree — build, edit, sync, push-back rules |
 | `lib/jac/README.md` | lib/jac structure and conventions |
 | `reference/pi-lsp-extension/` | Legacy reference only |
 
