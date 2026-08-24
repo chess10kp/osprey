@@ -10,6 +10,8 @@ import os;
 import json;
 import time;
 
+import from typing { Callable }
+
 import from .llm { Transport, react_loop, make_transport, make_ext_transport, TurnCancel }
 import from .compaction {
     load_project_config,
@@ -30,6 +32,7 @@ import from .plugin_bridge {
     load_extension_path,
     invoke_command,
     invoke_shortcut,
+    fire_user_bash,
     fire_hook,
     transform_markdown,
     drain_extension_traffic,
@@ -39,8 +42,16 @@ import from .plugin_bridge {
     list_shortcuts,
     list_labels,
     drain_model_requests,
+    fire_project_trust,
 }
-import from .registry { ToolRegistry }
+import from .registry { ToolRegistry, register_native, get_tool }
+import from .mcp {
+    McpClient,
+    create_mcp_client,
+    mcp_start,
+    mcp_list_tools,
+    mcp_stop,
+}
 import from .extensions {
     ExtensionDecl,
     ExtensionStatus,
@@ -81,7 +92,9 @@ obj SessionPlugins {
         wait_budget_s: float = 5.0,
         commands: dict = {},
         interactive_ui: bool = False,
-        active_cancel: any = None;
+        active_cancel: any = None,
+        mcp_clients: dict = {},
+        mcp_tools: int = 0;
 }
 
 
@@ -93,6 +106,155 @@ glob history: list = [],
 
 glob _t0: float = 0.0,
      _n_tools: int = 0;
+
+
+# ===================== MCP server attach =====================
+#
+# Config convention (read defensively from the walk-up .jackal JSON that
+# load_project_config already resolves):
+#
+#   "mcp": {"servers": {"<name>": {"command": ["jac", "mcp"], "args": []}}}
+#
+# "command" may also be a single string; "args" is optional. Servers spawn
+# lazily in background flows right after boot registration so the first frame
+# is never blocked (D21); each server is failure-isolated — a dead or slow
+# server logs and skips, never breaking boot.
+
+"""Sanitize one name chunk for registry naming (mcp_<server>_<tool>)."""
+def _mcp_name_chunk(raw: any) -> str {
+    s = str(raw);
+    out = "".join([c if (c.isalnum() or c == "_") else "_" for c in s]);
+    return out if out else "srv";
+}
+
+
+"""Extract {name: argv} MCP server specs from a parsed .jackal config.
+Malformed entries are skipped silently."""
+def _mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
+    out: dict[str, list[str]] = {};
+    raw: any = cfg.get("mcp") if isinstance(cfg, dict) else None;
+    if not isinstance(raw, dict) {
+        return out;
+    }
+    servers: any = raw.get("servers");
+    if not isinstance(servers, dict) {
+        return out;
+    }
+    for (name, entry) in servers.items() {
+        if not isinstance(entry, dict) or not str(name) {
+            continue;
+        }
+        cmd: any = entry.get("command");
+        if isinstance(cmd, str) {
+            cmd = [cmd];
+        }
+        if not isinstance(cmd, list) or not cmd {
+            continue;
+        }
+        parts: list[str] = [str(c) for c in cmd];
+        extra: any = entry.get("args");
+        if isinstance(extra, list) {
+            parts.extend([str(a) for a in extra]);
+        }
+        out[str(name)] = parts;
+    }
+    return out;
+}
+
+
+"""Handler factory closing over one client/server/tool triple.
+
+Returns a native-tool handler whose string result mirrors the registry's
+resultToString convention (invoke does str(handler(**args))): tool text on
+success, ERROR-prefixed strings on transport or MCP-level failures."""
+def _make_mcp_handler(client: McpClient, server_name: str, tool_name: str) -> Callable {
+    def handle(**args: any) -> str {
+        res: dict = client.call_tool(tool_name, args);
+        if res.get("ok") {
+            if res.get("is_error") {
+                return (
+                    "ERROR: mcp tool " + tool_name + " on " + server_name
+                    + " failed: " + str(res.get("result", ""))
+                );
+            }
+            return str(res.get("result", ""));
+        }
+        return "ERROR: " + str(res.get("error", "mcp call failed"));
+    }
+    return handle as Callable;
+}
+
+
+"""Spawn + initialize one MCP server, then seed namespaced tools into the
+live registry. Runs inside a background flow — never raises."""
+def _attach_one_mcp_server(server_name: str, cmd: list[str]) {
+    try {
+        reg = plugins.reg;
+        if reg is None {
+            return;
+        }
+        client = create_mcp_client();
+        # Register the client before connecting so dispose can stop it even
+        # mid-handshake.
+        plugins.mcp_clients[server_name] = client;
+        started = mcp_start(client, cmd);
+        if not started.get("ok") {
+            print(
+                "[mcp] server " + server_name + " unavailable, skipping: "
+                + str(started.get("error", ""))
+            );
+            return;
+        }
+        listed = mcp_list_tools(client);
+        if not listed.get("ok") {
+            print("[mcp] server " + server_name + " tools/list failed: " + str(listed.get("error", "")));
+            return;
+        }
+        raw_tools: any = listed.get("tools", []);
+        if not isinstance(raw_tools, list) {
+            return;
+        }
+        sprefix = _mcp_name_chunk(server_name);
+        registered = 0;
+        for t in raw_tools {
+            if not isinstance(t, dict) {
+                continue;
+            }
+            raw_tool: str = str(t.get("name", ""));
+            tname = _mcp_name_chunk(raw_tool);
+            if not tname {
+                continue;
+            }
+            schema: any = t.get("inputSchema");
+            if not isinstance(schema, dict) or not schema {
+                schema = {"type": "object", "properties": {}, "required": []};
+            }
+            try {
+                register_native(
+                    reg,
+                    "mcp_" + sprefix + "_" + tname,
+                    str(t.get("description", "")),
+                    schema,
+                    _make_mcp_handler(client, server_name, raw_tool),
+                );
+                registered += 1;
+            } except Exception {
+            }
+        }
+        plugins.mcp_tools += registered;
+    } except Exception as e {
+        print("[mcp] server " + server_name + " attach failed, skipping: " + str(e));
+    }
+}
+
+
+"""Parse .jackal mcp config and background-spawn each declared server."""
+def _attach_mcp_servers(cfg: dict) {
+    specs = _mcp_server_specs(cfg);
+    for (name, cmd) in specs.items() {
+        flow _attach_one_mcp_server(name, cmd);
+    }
+}
 
 
 """Switch the active model. Fires Pi's model_select hook best-effort so
@@ -220,6 +382,12 @@ def _warm_sidecar(decls: list[ExtensionDecl], base_cwd: str) {
         fire_hook(bridge as PluginBridge, "session_start", {
             "session_id": plugins.session_id,
         });
+        # Pi lifecycle: project_trust fires once per boot right after
+        # session_start. Best-effort — fire_project_trust never raises.
+        try {
+            fire_project_trust(bridge as PluginBridge, base_cwd);
+        } except Exception {
+        }
         # Lifecycle hook: surface discovered resource dirs once after load
         # (skills/prompts conventions; absent dirs are simply not listed).
         res_paths: list[str] = [];
@@ -285,6 +453,26 @@ def session_boot(
     }
     plugins.decls = parsed;
     plugins.reg = default_registry();
+    # user_bash hook: tools.jac cannot import the bridge (import cycle), so
+    # boot wraps the registered run_command handler; fire_user_bash never
+    # raises and tolerates bridge=None.
+    rt = get_tool(plugins.reg, "run_command");
+    if rt is not None and rt.handler is not None {
+        cell: dict = {"fn": rt.handler};
+
+        def _run_command_hooked(cmd: str, timeout_secs: int = 120) -> str {
+            res = str(cell["fn"](cmd, timeout_secs));
+            fire_user_bash(plugins.bridge as PluginBridge | None, cmd, res);
+            return res;
+        }
+        rt.handler = _run_command_hooked;
+    }
+    # MCP attach (D21): config parse is a cheap sync file read; server spawns
+    # run in background flows so boot/first frame is never blocked.
+    try {
+        _attach_mcp_servers(load_project_config(plugins.cwd));
+    } except Exception {
+    }
 
     sidecar = node_sidecar_decls(parsed);
     plugins.total = len(sidecar);
@@ -368,6 +556,15 @@ def session_dispose {
         }
         plugins.warm_future = None;
     }
+    # Stop any MCP server subprocesses (including ones mid-handshake).
+    for (_mc_name, mc) in plugins.mcp_clients.items() {
+        try {
+            mcp_stop(mc);
+        } except Exception {
+        }
+    }
+    plugins.mcp_clients.clear();
+    plugins.mcp_tools = 0;
     b = plugins.bridge;
     if b is not None {
         # Pi lifecycle: extensions get session_shutdown before teardown.
