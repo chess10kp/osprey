@@ -26,7 +26,6 @@ default_codespace = "native"
 "ui.mutation" = "server"
 "ui.runtime" = "server"
 "ui.events" = "server"
-"ui.layout" = "server"
 
 "ui.renderer" = "server"
 "ui.screen" = "server"
