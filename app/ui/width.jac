@@ -5,6 +5,23 @@ East-Asian tables are vendored. ANSI CSI/OSC sequences contribute zero
 display width. Wide grapheme clusters (CJK, emoji, regional indicators)
 count as two columns; combining marks and other non-printing code points
 count as zero.
+
+VENDOR NA_STDLIB FLOOR REQUEST (blocks native lowering, error E5090 on
+'unicodedata'): this module needs exactly two Unicode lookups, with a
+narrow consumer surface:
+
+1. `unicodedata.east_asian_width(ch) -> str` — callers only test the
+   result against {"W", "F"} (see `_char_east_asian_cols`). A floor
+   equivalent returning just W/F vs Other would suffice. Hand-rolling
+   the W/F range table app-side was rejected: ~120 ranges, version-
+   sensitive per Unicode release, silent-drift risk on CJK rendering.
+2. `unicodedata.category(ch) -> str` — callers only test membership in
+   {Mn, Mc, Me} (combining marks) and {Cc, Cf, Cs} (non-printing); see
+   `_is_mark` / `_is_non_printing`. This one is NOT hand-rollable: Mn/
+   Mc/Me span thousands of code points across dozens of blocks and are
+   Unicode-version sensitive, so predicate-level support
+   (is_combining_mark / is_non_printing) or full category() is required
+   from the native stdlib.
 """
 
 import from unicodedata { east_asian_width, category }
