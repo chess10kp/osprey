@@ -560,7 +560,7 @@ def session_boot(
     # the project's remembered per-provider models; missing/corrupt is fine.
     _load_model_prefs();
 
-    sidecar = node_sidecar_decls(parsed);
+    sidecar: own list[ExtensionDecl] = node_sidecar_decls(parsed);
     plugins.total = len(sidecar);
     if plugins.total == 0 {
         plugins.bridge = None;
@@ -574,7 +574,8 @@ def session_boot(
     plugins.ready = False;
     plugins.phase = "starting";
     # Parallel warm — does not block the caller (first frame).
-    plugins.warm_future = flow _warm_sidecar(sidecar, plugins.cwd);
+    warm_cwd: str = plugins.cwd;
+    plugins.warm_future = flow _warm_sidecar(sidecar, warm_cwd);
     return extensions_status();
 }
 
@@ -709,12 +710,14 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
         return;
     }
     try {
-        traffic = drain_extension_traffic(bridge);
-        for m in traffic["messages"] {
+        traffic: dict = drain_extension_traffic(bridge);
+        msgs: list[dict] = traffic["messages"];
+        for m in msgs {
             history.append({"role": str(m.get("role", "user")), "content": str(m.get("content", ""))});
         }
-        for e in traffic["entries"] {
-            entry = dict(e);
+        raw_entries: list[dict] = traffic["entries"];
+        for e in raw_entries {
+            entry: dict = dict(e);
             # P11: an entry renderer matching this type upgrades the entry
             # with native content lines (app/ui paints them via
             # set_node_content); unmatched entries pass through untouched.

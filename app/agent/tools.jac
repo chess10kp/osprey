@@ -18,6 +18,12 @@ glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
      READ_LINE_CAP: int = 2_000,
      user_bash_fire: Callable[[str, str], None] | None = None;
 
+# os.path.dirname/relpath and fnmatch.fnmatch demand PathLike/LiteralString
+# params under native checking; any-typed aliases keep call sites str-based.
+glob _os_dirname: any = os.path.dirname,
+     _os_relpath: any = os.path.relpath,
+     _fnmatch: any = fnmatch.fnmatch;
+
 """Resolve a path against the process cwd; reject empty paths."""
 def resolve_path(path: str) -> str {
     if not path { raise ValueError("path must not be empty"); }
@@ -41,8 +47,8 @@ sem read_file = "Read a text file and return its contents. Use this before editi
 sem read_file.path = "Filesystem path to read, relative to the project root.";
 
 def write_file(path: str, content: str) -> str {
-    full = resolve_path(path);
-    d = os.path.dirname(full);
+    full: str = resolve_path(path);
+    d: str = _os_dirname(full);
     if d { os.makedirs(d, exist_ok=True); }
     with open(full, "w") as f { f.write(content); }
     return f"Wrote {len(content)} bytes to {path}";
@@ -171,8 +177,8 @@ def file_glob(pattern: str, base_dir: str = ".", max_results: int = MAX_SEARCH_R
         for name in files {
             if name.startswith(".") { continue; }
             full = os.path.join(current, name);
-            rel = os.path.relpath(full, base_path).replace(os.sep, "/");
-            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern) {
+            rel: str = str(_os_relpath(str(full), str(base_path))).replace(os.sep, "/");
+            if _fnmatch(rel, pattern) or _fnmatch(name, pattern) {
                 matches.append(rel);
             }
         }
@@ -180,7 +186,7 @@ def file_glob(pattern: str, base_dir: str = ".", max_results: int = MAX_SEARCH_R
     matches.sort();
     truncated = len(matches) > cap;
     visible = matches[:cap];
-    out = "\n".join(visible);
+    out: str = "\n".join(visible);
     if truncated { out += ("\n" if out else "") + f"... [truncated at {cap} results]"; }
     return out;
 }
@@ -209,7 +215,7 @@ def content_grep(pattern: str, base_dir: str = ".", regex: bool = False, max_res
         for name in files {
             if name.startswith(".") { continue; }
             full = os.path.join(current, name);
-            rel = os.path.relpath(full, base_path).replace(os.sep, "/");
+            rel: str = str(_os_relpath(str(full), str(base_path))).replace(os.sep, "/");
             try {
                 with open(full, "r", errors="replace") as f { lines = f.readlines(); }
             } except (OSError, UnicodeError) { continue; }
@@ -227,7 +233,7 @@ def content_grep(pattern: str, base_dir: str = ".", regex: bool = False, max_res
     matches.sort();
     truncated = len(matches) > cap;
     visible = matches[:cap];
-    out = "\n".join(visible);
+    out: str = "\n".join(visible);
     if truncated { out += ("\n" if out else "") + f"... [truncated at {cap} matches]"; }
     return out;
 }

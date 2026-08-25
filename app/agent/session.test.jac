@@ -318,7 +318,7 @@ test "run_turn short-circuits on handled input verdict" {
         ensure_host(b);
     }
 
-    def _handle_ping(data: dict, ctx: any) -> dict {
+    def _handle_ping(data: dict, ctx: any) -> dict | None {
         if data.get("text") == "!ping" {
             return {"action": "handled"};
         }
