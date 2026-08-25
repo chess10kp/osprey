@@ -33,6 +33,7 @@ import from agent.session {
 import from agent.llm {
     PROVIDER_ROUTES,
     credential_error,
+    provider_for,
 }
 import from agent.modes { requires_approval }
 import from core.edit { compute_unified_diff }
@@ -47,6 +48,18 @@ import from agent.sessions {
     export_session,
     save_session,
     is_valid_session_id,
+}
+import from agent.tasks {
+    load_tasks,
+    format_tasks_list,
+    task_counts,
+}
+import from agent.checkpoints {
+    create_checkpoint,
+    list_checkpoints,
+    load_checkpoint,
+    restore_checkpoint_files,
+    format_checkpoint_overlay_row,
 }
 import os;
 
@@ -148,6 +161,9 @@ glob SLASH_BUILTINS: dict[str, str] = {
     "model": "show or set the model",
     "commands": "list extension commands",
     "shortcuts": "list extension shortcuts",
+    "tasks": "list project tasks",
+    "checkpoint": "create a checkpoint (/checkpoint NAME)",
+    "checkpoints": "browse and restore checkpoints",
 };
 
 
@@ -783,8 +799,9 @@ def _handle_picker_key(app: LiveShell, key: str) {
             app.dirty = True;
             return;
         }
-        if title == "MODEL" and chosen_id == "__header__" {
-            # Provider header rows are separators, not choices.
+        if chosen_id == "__header__" {
+            # Header/divider/summary rows are separators, not choices
+            # (provider headers in MODEL, board furniture in TASKS).
             app.dirty = True;
             return;
         }
@@ -802,6 +819,15 @@ def _handle_picker_key(app: LiveShell, key: str) {
             }
         } elif title == "RESUME SESSION" {
             reply = _resume_session(app, chosen_id);
+            if reply {
+                _push_turn(app, "tool", reply);
+            }
+        } elif title == "TASKS" {
+            # Read-only overlay: echo the full rendered board into the
+            # transcript so long lists survive past the 8-row overlay cap.
+            _push_turn(app, "tool", format_tasks_list(load_tasks(os.getcwd())));
+        } elif title == "CHECKPOINTS" {
+            reply = _restore_checkpoint(app, chosen_id);
             if reply {
                 _push_turn(app, "tool", reply);
             }
@@ -830,6 +856,147 @@ def _open_resume_picker(app: LiveShell) -> str {
         return "picker unavailable (overlay busy)";
     }
     return "";
+}
+
+
+"""TASKS picker rows: a completion-meter summary line, then the rendered
+board from format_tasks_list (counts header, divider rule, one row per
+task). Row ids: "__header__" for non-selectable lines, the task index as
+a string otherwise. Pure over cwd — replicated in tui_overlays.test.jac
+(tui.jac cannot be imported headless; keep in sync with the replica)."""
+def _task_picker_entries(cwd: str) -> dict {
+    tasks = load_tasks(cwd);
+    if not tasks {
+        return {"rows": ["No tasks yet."], "ids": ["__header__"]};
+    }
+    counts = task_counts(tasks);
+    total: int = int(counts["pending"]) + int(counts["in_progress"]) + int(counts["completed"]);
+    ratio: float = float(counts["completed"]) / float(total) if total else 0.0;
+    rows: list[str] = [
+        str(total) + " tasks  " + _meter(ratio, 14) + "  "
+        + str(counts["completed"]) + "/" + str(total) + " done"
+    ];
+    ids: list[str] = ["__header__"];
+    idx = 0;
+    for ln in format_tasks_list(tasks).split("\n") {
+        rows.append(ln);
+        # First two board lines are the counts header and divider rule;
+        # everything after maps back onto its task index for enter.
+        if idx >= 2 {
+            ids.append(str(idx - 2));
+        } else {
+            ids.append("__header__");
+        }
+        idx += 1;
+    }
+    return {"rows": rows, "ids": ids};
+}
+
+
+"""CHECKPOINTS picker rows via list_checkpoints (newest first), one
+format_checkpoint_overlay_row line per checkpoint; ids are names. Pure
+over cwd — replicated in tui_overlays.test.jac (keep in sync)."""
+def _checkpoint_picker_entries(cwd: str) -> dict {
+    items = list_checkpoints(cwd);
+    rows: list[str] = [];
+    ids: list[str] = [];
+    for item in items[:20] {
+        rows.append(format_checkpoint_overlay_row(item));
+        ids.append(str(item.get("name", "")));
+    }
+    return {"rows": rows, "ids": ids};
+}
+
+
+"""Open the read-only tasks overlay; enter on a task echoes the full
+rendered board into the transcript."""
+def _open_tasks_picker(app: LiveShell) -> str {
+    entries = _task_picker_entries(os.getcwd());
+    opened = _open_picker(app, "TASKS", entries["rows"], entries["ids"]);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
+}
+
+
+"""Open the checkpoints overlay for browse/restore."""
+def _open_checkpoints_picker(app: LiveShell) -> str {
+    entries = _checkpoint_picker_entries(os.getcwd());
+    if not entries["rows"] {
+        return "no checkpoints yet (/checkpoint NAME to create one)";
+    }
+    opened = _open_picker(app, "CHECKPOINTS", entries["rows"], entries["ids"]);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
+}
+
+
+"""Snapshot the current conversation plus working-tree changes into a new
+named checkpoint (/checkpoint NAME). Provider/model come from the active
+session model via provider_for."""
+def _create_checkpoint_now(app: LiveShell, name: str) -> str {
+    cwd = os.getcwd();
+    hist = get_history();
+    try {
+        meta = create_checkpoint(cwd, hist, provider_for(model), model, name=name);
+    } except Exception as e {
+        return "ERROR: checkpoint failed: " + str(e);
+    }
+    files_changed: any = meta.get("filesChanged", []);
+    n_files = len(files_changed) if isinstance(files_changed, list) else 0;
+    app.dirty = True;
+    return (
+        "checkpoint '" + str(meta.get("name", name)) + "' saved ("
+        + str(len(hist)) + " msgs, " + str(n_files) + " files)"
+    );
+}
+
+
+"""Restore a checkpoint: write its file snapshots back under cwd, swap the
+agent history for the stored conversation, and repaint the transcript.
+
+Known gaps (honest scope of this pass):
+- The on-disk session record (.jackal/sessions) is NOT rewritten; it still
+  reflects pre-restore turns until the next save/export.
+- Transcript rows are rebuilt from raw conversation roles only, so tool-
+  call formatting is approximated (same tradeoff as /resume)."""
+def _restore_checkpoint(app: LiveShell, name: str) -> str {
+    cwd = os.getcwd();
+    try {
+        payload: any = load_checkpoint(cwd, name);
+    } except Exception as e {
+        return "ERROR: cannot load checkpoint '" + name + "': " + str(e);
+    }
+    conv: any = payload.get("conversation") if isinstance(payload, dict) else None;
+    msgs: any = conv.get("messages", []) if isinstance(conv, dict) else [];
+    if not isinstance(msgs, list) {
+        msgs = [];
+    }
+    note = "";
+    files: any = payload.get("fileSnapshots", {}) if isinstance(payload, dict) else {};
+    if isinstance(files, dict) and files {
+        try {
+            restore_checkpoint_files(cwd, files);
+            note = ", " + str(len(files)) + " files restored";
+        } except Exception as e {
+            note = ", FILE RESTORE FAILED: " + str(e).split("\n")[0][:80];
+        }
+    }
+    # Swap agent memory and repaint from the snapshot conversation.
+    restore_history(msgs as list);
+    app.messages = [];
+    app.rev = 0;
+    apply_transcript_revision(app.proj, 0, app.messages);
+    for m in msgs as list {
+        if isinstance(m, dict) and str(m.get("role", "")) != "system" {
+            _push_turn(app, str(m.get("role", "")), str(m.get("content", "")));
+        }
+    }
+    app.dirty = True;
+    return "checkpoint '" + name + "' restored (" + str(len(msgs)) + " msgs" + note + ")";
 }
 
 
@@ -1410,6 +1577,20 @@ def _run_slash(app: LiveShell, line: str) -> str {
             return _open_model_picker(app);
         }
         return "model -> " + set_model(name);
+    }
+    if line == "/tasks" {
+        return _open_tasks_picker(app);
+    }
+    if line == "/checkpoints" {
+        return _open_checkpoints_picker(app);
+    }
+    if line == "/checkpoint" or line.startswith("/checkpoint ") {
+        arg = line[len("/checkpoint"):].strip();
+        if not arg {
+            # No argument: browse/restore instead of creating a nameless one.
+            return _open_checkpoints_picker(app);
+        }
+        return _create_checkpoint_now(app, arg);
     }
     if line.startswith("/") {
         parts = line[1:].split(None, 1);
