@@ -22,6 +22,33 @@ default_codespace = "native"
 "constraints.solver" = "server"
 "constraints.layout_relations" = "server"
 "core.edit" = "native"
+
+# Verified-lowering UI modules pinned native (2026-08-25 probe): each lowers
+# with zero fallback notes under default_codespace=native, but the seal only
+# RECORDS/places natively modules with explicit pins — unpinned modules are
+# sealed "server" even when they compiled natively. Pin them so the manifest
+# matches reality. Modules whose deps are server-pinned stay "server"
+# (placement overrides their pins) and are annotated below.
+"ui.width" = "native"
+"ui.markup" = "native"
+# ui.gates / ui.focus: BLOCKED native — import server-pinned ui.runtime
+# (E5093 boundary); placement resolves the native pin back to server.
+"ui.gates" = "server"
+"ui.progress_bar" = "native"
+"ui.focus" = "server"
+"ui.terminal" = "native"
+"ui.virtual_terminal" = "native"
+"ui.input" = "native"
+"ui.bindings" = "native"
+"ui.screen" = "native"
+"ui.transcript" = "native"
+"ui.renderer" = "native"
+"ui.layout" = "native"
+"ui.layout_measure" = "native"
+"ui.layout_quantize" = "native"
+# ui.layout_compile: BLOCKED native — imports server-pinned
+# constraints.algebra/solver; placement resolves the native pin to server.
+"ui.layout_compile" = "server"
 "ui.model" = "server"
 "ui.mutation" = "server"
 "ui.events" = "server"
