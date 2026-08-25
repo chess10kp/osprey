@@ -11,8 +11,15 @@ Agent-side seam only - painting/layout belong to ui/demo_live_shell.jac
 """
 
 import sys;
+import re;
 import threading;
 import queue;
+import from agent.context_input {
+    expand_context_input,
+    is_valid_file_path,
+    parse_line_range,
+    _load_file_slice,
+}
 import from agent.session {
     run_turn,
     session_boot,
@@ -35,13 +42,19 @@ import from agent.llm {
     credential_error,
     provider_for,
 }
-import from agent.modes { requires_approval }
+import from agent.modes {
+    requires_approval,
+    cycle_mode,
+    is_read_only_mode,
+    read_only_mode_block_reason,
+}
 import from core.edit { compute_unified_diff }
 import from agent.plugin_bridge {
     poll_ui_request,
     respond_ui,
     cancel_ui,
 }
+import from agent.compaction { load_project_config }
 import from agent.sessions {
     list_sessions,
     get_session_record,
@@ -61,7 +74,6 @@ import from agent.checkpoints {
     restore_checkpoint_files,
     format_checkpoint_overlay_row,
 }
-import from agent.context_input { expand_context_input }
 import from agent.skills {
     load_jackal_skills,
     expand_skill_command,
@@ -164,9 +176,14 @@ glob _EXPLORER_SKIP_DIRS: list[str] = [
      _EXPLORER_MAX_FILES: int = 400,
      _EXPLORER_MAX_DEPTH: int = 6;
 
-# TODO(paths-with-spaces): mention parsing (agent.context_input) splits
-# tokens on whitespace, so explorer-inserted paths containing spaces will
-# not expand downstream until the parser learns quoting.
+# Whitespace paths: @"quoted path.md" / @"quoted path.md":10-20 are
+# handled by a thin TUI-side pre-pass (_take_quoted_mentions below). The
+# real fix belongs in agent.context_input (its _FILE_MENTION_PATTERN
+# splits on whitespace and cannot learn quoting) — that file is outside
+# this shell's ownership, so the pre-pass lives here until then.
+# Quoted mention: @"path" / @"path:N[-M]" / @"path":N[-M] — an optional
+# line range is accepted inside OR after the closing quote.
+glob _QUOTED_MENTION_PATTERN: str = r'@"([^"]+)"(?::(\d+)(?:-(\d+))?)?';
 
 # Built-in slash commands handled by _run_slash locally (name without the
 # leading "/" -> short description for the autocomplete popup).
@@ -185,6 +202,7 @@ glob SLASH_BUILTINS: dict[str, str] = {
     "checkpoint": "create a checkpoint (/checkpoint NAME)",
     "checkpoints": "browse and restore checkpoints",
     "explorer": "multi-select files as @mentions",
+    "mcp": "show MCP server connection status",
     "skills": "list available skills (/skill:name)",
 };
 
@@ -222,6 +240,7 @@ obj LiveShell {
         appr_args: any = None,
         ui_modal: any = None,
         picker: any = None,
+        mode: str = "normal",
         cmd_q: any = None,
         slash_sel: int = 0,
         slash_dismissed: str = "";
@@ -398,6 +417,27 @@ def _header_lines(app: LiveShell) -> list[str] {
 }
 
 
+"""Status-line badge for the active dev mode (empty for normal)."""
+def _mode_badge(mode: str) -> str {
+    if mode == "normal" {
+        return "";
+    }
+    if mode == "auto-accept" {
+        return " AUTO ";
+    }
+    if mode == "yolo" {
+        return " YOLO ";
+    }
+    if mode == "plan" {
+        return " PLAN ";
+    }
+    if mode == "ask" {
+        return " ASK ";
+    }
+    return " " + mode.upper() + " ";
+}
+
+
 def _status_line(app: LiveShell) -> str {
     spin = SPINNER[app.spin_i % len(SPINNER)];
     phase: str = app.phase;
@@ -408,8 +448,18 @@ def _status_line(app: LiveShell) -> str {
     } elif app.phase == "ready" {
         phase = "● ready";
     }
-    meter = _meter(app.progress_value, 14);
-    left = phase + "  " + meter;
+    badge = _mode_badge(app.mode);
+    left = "";
+    if badge {
+        # Read-only modes get the loudest marker; yolo/auto stay visible
+        # but quieter (no trailing !).
+        if is_read_only_mode(app.mode) {
+            left = badge + "! ";
+        } else {
+            left = badge + " ";
+        }
+    }
+    left = left + phase + "  " + _meter(app.progress_value, 14);
     right = app.status_hint;
     gap = app.columns - display_width(left) - display_width(right) - 2;
     if gap < 1 {
@@ -419,11 +469,23 @@ def _status_line(app: LiveShell) -> str {
 }
 
 
+"""Prompt-box draft prefix — read-only modes get an unmistakable marker."""
+def _prompt_prefix(mode: str) -> str {
+    if mode == "plan" {
+        return "[plan] ❯ ";
+    }
+    if mode == "ask" {
+        return "[ask] ❯ ";
+    }
+    return "❯ ";
+}
+
+
 def _prompt_lines(app: LiveShell) -> list[str] {
     draft = app.shell.prompt.draft;
     w = app.columns;
     top = "╭" + _rule(max(0, w - 2), "─") + "╮";
-    body_inner = "❯ " + draft;
+    body_inner = _prompt_prefix(app.mode) + draft;
     body = "│" + _pad_to(body_inner, max(0, w - 2)) + "│";
     if app.phase == "streaming" {
         hint = "streaming — wait for jackal";
@@ -431,6 +493,9 @@ def _prompt_lines(app: LiveShell) -> list[str] {
         hint = "modal — a accept · r reject";
     } else {
         hint = "enter send · ↑↓ history · ctrl+u clear";
+    }
+    if is_read_only_mode(app.mode) and app.phase != "streaming" and app.shell.approval is None {
+        hint = "READ-ONLY · shift+tab to cycle out";
     }
     hint = truncate_text(hint, max(0, w - 4), ellipsis="…");
     hint_w = display_width(hint);
@@ -656,26 +721,35 @@ def _picker_lines(app: LiveShell) -> list[str] {
         shown = draft if draft else "(type a model id)";
         body.append("  > " + shown[:inner - 8] + "▌");
     } elif bool(p.get("multi", False)) {
-        # Multi-select (EXPLORER): [x]/[ ] toggle boxes plus a sliding
-        # 8-row window so the cursor stays visible in long file lists.
-        options: list = list(p.get("options", []));
-        ids: list = list(p.get("ids", []));
+        # Multi-select (EXPLORER): optional type-to-filter row, [x]/[ ]
+        # toggle boxes, and a sliding 8-row window over the FILTERED rows so
+        # the cursor stays visible in long file lists.
+        vis: tuple[list, list] = _multi_filtered(p);
+        vis_options: list = vis[0];
+        vis_ids: list = vis[1];
         toggled: list = list(p.get("toggled", []));
-        sel = min(int(p.get("selected", 0)), max(0, len(options) - 1));
+        filt: str = str(p.get("filter", ""));
+        if filt {
+            body.append("/ " + filt + "▌");
+        }
+        if not vis_options {
+            body.append("(no matches)");
+        }
+        sel = min(int(p.get("selected", 0)), max(0, len(vis_options) - 1));
         start = 0;
         if sel >= 8 {
             start = sel - 7;
         }
-        window: any = options[start:start + 8];
+        window: any = vis_options[start:start + 8];
         i = start;
         for opt in window {
-            rid = str(ids[i]) if i < len(ids) else "";
+            rid = str(vis_ids[i]) if i < len(vis_ids) else "";
             box = "x" if rid in toggled else " ";
             mark = ">" if i == sel else " ";
             body.append(mark + " [" + box + "] " + str(opt)[:inner - 10]);
             i += 1;
         }
-        more = len(options) - start - len(window);
+        more = len(vis_options) - start - len(window);
         if more > 0 {
             body.append("… " + str(more) + " more");
         }
@@ -697,7 +771,7 @@ def _picker_lines(app: LiveShell) -> list[str] {
     if str(p.get("mode", "select")) == "input" {
         body.append("  type id · [enter] submit   [esc] cancel");
     } elif bool(p.get("multi", False)) {
-        body.append("  [↑↓] move  [space] toggle  [enter] insert  [esc]");
+        body.append("  type filter · [space] toggle · enter insert · esc");
     } else {
         body.append("  [↑↓] move   [enter] choose   [esc] cancel");
     }
@@ -746,11 +820,12 @@ def _open_picker(
         "draft": "",
         "multi": multi,
         "toggled": [],
+        "filter": "",
         "prev_hint": app.status_hint,
     };
     shell_open_approval(app.session, app.shell);
     if multi {
-        app.status_hint = "↑↓ move · space toggle · enter insert · esc cancel";
+        app.status_hint = "type filter · space toggle · enter insert · esc";
     } else {
         app.status_hint = "↑↓ move · enter choose · esc cancel";
     }
@@ -804,6 +879,32 @@ def _open_model_picker(app: LiveShell) -> str {
 }
 
 
+"""Multi-select rows narrowed by the picker's type-to-filter text.
+
+Case-insensitive substring match over option labels; empty filter returns
+the full lists. Both paint (_picker_lines) and key handling
+(_handle_picker_key) go through this helper so the cursor index always
+refers to the same visible rows. Pure over its input — replicated in
+tui_overlays.test.jac (keep in sync)."""
+def _multi_filtered(p: dict) -> tuple[list, list] {
+    options: list = list(p.get("options", []));
+    ids: list = list(p.get("ids", []));
+    filt: str = str(p.get("filter", "")).strip().lower();
+    if not filt {
+        return (options, ids);
+    }
+    vis_options: list = [];
+    vis_ids: list = [];
+    for i in range(len(options)) {
+        if filt in str(options[i]).lower() {
+            vis_options.append(options[i]);
+            vis_ids.append(str(ids[i]) if i < len(ids) else "");
+        }
+    }
+    return (vis_options, vis_ids);
+}
+
+
 def _handle_picker_key(app: LiveShell, key: str) {
     p: any = app.picker;
     if p is None {
@@ -811,6 +912,15 @@ def _handle_picker_key(app: LiveShell, key: str) {
     }
     title = str(p.get("title", ""));
     if key == "escape" {
+        # Multi-select (EXPLORER): first esc clears an active type-to-filter,
+        # second esc closes — the filter is cheap to abandon, the overlay is
+        # not.
+        if bool(p.get("multi", False)) and str(p.get("filter", "")) {
+            p["filter"] = "";
+            p["selected"] = 0;
+            app.dirty = True;
+            return;
+        }
         _close_picker(app);
         return;
     }
@@ -836,8 +946,32 @@ def _handle_picker_key(app: LiveShell, key: str) {
     }
     options: list = list(p.get("options", []));
     ids: list = list(p.get("ids", []));
+    is_multi: bool = bool(p.get("multi", False));
+    if is_multi {
+        # Type-to-filter: every printable char except space (toggle) narrows
+        # the visible rows; backspace edits. j/k are NOT reserved for
+        # movement here — arrow keys move — so filenames filter fully.
+        filt: str = str(p.get("filter", ""));
+        if key == "backspace" or key == "\x7f" {
+            if filt {
+                p["filter"] = filt[:-1];
+                p["selected"] = 0;
+                app.dirty = True;
+            }
+            return;
+        }
+        if len(key) == 1 and key >= " " and key != " " {
+            p["filter"] = filt + key;
+            p["selected"] = 0;
+            app.dirty = True;
+            return;
+        }
+        vis: tuple[list, list] = _multi_filtered(p);
+        options = vis[0];
+        ids = vis[1];
+    }
     sel = int(p.get("selected", 0));
-    if key == " " and bool(p.get("multi", False)) and len(options) > 0 {
+    if key == " " and is_multi and len(options) > 0 {
         # Multi-select toggle (space arrives as a TextEvent char). Header/
         # divider rows are furniture and never toggle.
         idx = min(sel, len(options) - 1);
@@ -1087,8 +1221,10 @@ def _skills_picker_entries(skills: list) -> dict {
 
 
 """Editor-draft mention text for picked paths: deduped `@a @b ` with a
-trailing space so typing continues cleanly. Empty picks -> "" (paths with
-whitespace will not round-trip through mention parsing; see TODO at top)."""
+trailing space so typing continues cleanly. Paths containing whitespace
+use the quoted `@"a b.txt"` form, which the TUI-side pre-pass expands
+(see _take_quoted_mentions); bare paths stay unquoted for readability.
+Empty picks -> ""."""
 def _format_mentions(paths: list) -> str {
     parts: list[str] = [];
     seen: set[str] = set();
@@ -1098,12 +1234,131 @@ def _format_mentions(paths: list) -> str {
             continue;
         }
         seen.add(rel);
-        parts.append("@" + rel);
+        if re.search(r"\s", rel) is not None {
+            parts.append("@\"" + rel + "\"");
+        } else {
+            parts.append("@" + rel);
+        }
     }
     if not parts {
         return "";
     }
     return " ".join(parts) + " ";
+}
+
+
+"""Extract @\"path\" / @\"path:N[-M]\" mentions (whitespace-tolerant form).
+
+Returns (remaining_text, mentions); each mention is a dict with keys
+raw / path / start / end / line_range. A :N or :N-M line range is
+consumed when it appears inside OR after the closing quote and parses;
+otherwise it stays part of the path. Paths failing
+agent.context_input's validity check are LEFT in the text untouched (no
+silent deletion of user text). Pure over its input — replicated in
+tui_overlays.test.jac (keep in sync).
+
+Ownership note: this pre-pass exists because the shared parser
+(agent.context_input._FILE_MENTION_PATTERN) tokenizes on whitespace; the
+quoting-aware regex belongs there once that file is editable by this
+task's scope."""
+def _take_quoted_mentions(text: str) -> tuple[str, list[dict]] {
+    mentions: list[dict] = [];
+    spans: list[tuple[int, int]] = [];
+    for m in re.finditer(_QUOTED_MENTION_PATTERN, text) {
+        inner: str = str(m.group(1));
+        path_part: str = inner;
+        rng: dict | None = None;
+        outer_start: any = m.group(2);
+        outer_end: any = m.group(3);
+        if outer_start {
+            # Range AFTER the closing quote: @"path":10-20.
+            outer_range: str = str(outer_start) + (
+                "-" + str(outer_end) if outer_end else ""
+            );
+            parsed_outer: dict | None = parse_line_range(outer_range);
+            if parsed_outer is not None {
+                rng = parsed_outer;
+            }
+            # A malformed outer range keeps the quoted content as the path;
+            # the bad suffix disappears with the token span.
+        } else {
+            cm = re.search(r":(\d+)(?:-(\d+))?$", inner);
+            if cm is not None {
+                inner_range: str = inner[cm.start() + 1:];
+                parsed_inner: dict | None = parse_line_range(inner_range);
+                if parsed_inner is not None {
+                    path_part = inner[:cm.start()];
+                    rng = parsed_inner;
+                }
+            }
+        }
+        if not is_valid_file_path(path_part) {
+            continue;
+        }
+        spans.append((m.start(), m.end()));
+        mentions.append({
+            "raw": str(m.group(0)),
+            "path": path_part,
+            "start": m.start(),
+            "end": m.end(),
+            "line_range": rng,
+        });
+    }
+    if not mentions {
+        return (text, []);
+    }
+    parts: list[str] = [];
+    last: int = 0;
+    for sp in spans {
+        parts.append(text[last:sp[0]]);
+        last = sp[1];
+    }
+    parts.append(text[last:]);
+    return ("".join(parts), mentions);
+}
+
+
+"""Expand user text INCLUDING the quoted-mention form.
+
+Thin wrapper over expand_context_input: quoted mentions are lifted out
+first, their <file> blocks are loaded via context_input's own slice
+loader (so truncation/range/error semantics match exactly), and the
+remaining text goes through the normal expansion (plain @mentions and
+!cmd still work alongside). Blocks are appended under an
+"Attached context:" header — merged into the existing section when the
+base expansion already produced one."""
+def _expand_quoted_context(cwd: str, text: str) -> str {
+    lifted: tuple[str, list[dict]] = _take_quoted_mentions(text);
+    cleaned: str = lifted[0];
+    quotes: list[dict] = lifted[1];
+    if not quotes {
+        return expand_context_input(cwd, text);
+    }
+    base: str = "";
+    body: str = cleaned.strip();
+    if body {
+        try {
+            base = expand_context_input(cwd, body);
+        } except Exception {
+            base = body;
+        }
+    }
+    blocks: list[str] = [];
+    for q in quotes {
+        qpath: str = str(q.get("path", ""));
+        qrng: any = q.get("line_range");
+        try {
+            got: tuple[str, int] = _load_file_slice(cwd, qpath, qrng);
+            blocks.append(got[0]);
+        } except (OSError, ValueError) as exc {
+            blocks.append('<file path="' + qpath + '" error="' + str(exc) + '" />');
+        }
+    }
+    if "Attached context:" in base {
+        return base + "\n" + "\n".join(blocks);
+    }
+    head: str = base + "\n\n" if base else "";
+    return head + "Attached context:\n" + "\n".join(blocks);
 }
 
 
@@ -1128,6 +1383,107 @@ def _open_explorer_picker(app: LiveShell) -> str {
         return "no readable project files";
     }
     opened = _open_picker(app, "EXPLORER", entries["rows"], entries["ids"], multi=True);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
+}
+
+
+"""MCP server specs from a parsed .jackal config — local copy of
+agent.session's _mcp_server_specs shape ({name: argv}). Inlined because
+underscore-prefixed imports from agent.session did not bind at runtime
+(NameError swallowed by callers); keep in sync with session.jac."""
+def _local_mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
+    out: dict[str, list[str]] = {};
+    raw: any = cfg.get("mcp") if isinstance(cfg, dict) else None;
+    if not isinstance(raw, dict) {
+        return out;
+    }
+    servers: any = raw.get("servers");
+    if not isinstance(servers, dict) {
+        return out;
+    }
+    for (name, entry) in servers.items() {
+        if not isinstance(entry, dict) or not str(name) {
+            continue;
+        }
+        cmd: any = entry.get("command");
+        if isinstance(cmd, str) {
+            cmd = [cmd];
+        }
+        if not isinstance(cmd, list) or not cmd {
+            continue;
+        }
+        parts: list[str] = [str(c) for c in cmd];
+        extra: any = entry.get("args");
+        if isinstance(extra, list) {
+            parts.extend([str(a) for a in extra]);
+        }
+        out[str(name)] = parts;
+    }
+    return out;
+}
+
+
+"""MCP STATUS overlay rows: one line per server declared in the walk-up
+.jackal config ("mcp": {"servers": …}), plus any runtime-attached clients
+not present in config. Connection state is honest: clients live in
+agent.session plugins.mcp_clients only after a successful spawn+handshake,
+so a configured-but-absent client is reported "not connected", and a
+present-but-uninitialized one as "spawn failed". Pure over (cwd, clients)
+— replicated in tui_overlays.test.jac (keep in sync)."""
+def _mcp_status_entries(cwd: str, clients: dict) -> dict {
+    specs: dict[str, list[str]] = {};
+    try {
+        cfg: dict = load_project_config(cwd);
+        parsed: dict[str, list[str]] = _local_mcp_server_specs(cfg);
+        specs = parsed;
+    } except Exception {
+        specs = {};
+    }
+    rows: list[str] = [];
+    ids: list[str] = [];
+    declared: set[str] = set();
+    for name in sorted(specs) {
+        sname: str = str(name);
+        declared.add(sname);
+        cmd_label: str = " ".join(specs[name]);
+        client: any = clients.get(sname);
+        if client is not None and client.initialized is True {
+            rows.append(sname + " — connected · " + cmd_label);
+        } elif client is not None {
+            rows.append(sname + " — spawn failed · " + cmd_label);
+        } else {
+            rows.append(sname + " — configured · not connected · " + cmd_label);
+        }
+        ids.append("__header__");
+    }
+    for cname in sorted(clients) {
+        if str(cname) in declared {
+            continue;
+        }
+        rows.append(str(cname) + " — attached (not in .jackal config)");
+        ids.append("__header__");
+    }
+    if not rows {
+        rows.append("no mcp servers configured (.jackal: \"mcp\": {\"servers\": …})");
+        ids.append("__header__");
+    }
+    return {"rows": rows, "ids": ids};
+}
+
+
+"""Open the read-only MCP status overlay; every row is furniture, so enter
+is a no-op and esc dismisses."""
+def _open_mcp_picker(app: LiveShell) -> str {
+    clients_arg: dict = {};
+    raw_clients: any = plugins.mcp_clients;
+    if isinstance(raw_clients, dict) {
+        clients_arg = raw_clients;
+    }
+    entries = _mcp_status_entries(os.getcwd(), clients_arg);
+    opened = _open_picker(app, "MCP STATUS", entries["rows"], entries["ids"]);
     if not opened {
         return "picker unavailable (overlay busy)";
     }
@@ -1438,9 +1794,10 @@ def _paint(app: LiveShell) {
     mark_semantic_dirty(app.renderer, app.shell.prompt);
     mark_layout_dirty(app.renderer, app.shell.screen);
 
-    # Caret sits after ❯ + space + draft inside the box (col 1 is │).
+    # Caret sits after the mode prefix + draft inside the box (col 1 is │).
+    prefix_w = display_width(_prompt_prefix(app.mode));
     draft_w = display_width(app.shell.prompt.draft);
-    cursor_col = 1 + 2 + draft_w;  # │ + ❯␠ + draft
+    cursor_col = 1 + prefix_w + draft_w;
     max_col = app.columns - 2;
     if cursor_col > max_col {
         cursor_col = max_col;
@@ -1521,19 +1878,26 @@ def _begin_assistant_reply(app: LiveShell, user_text: str, model_text: str = "")
         }
     }
 
-    # Tool approver: auto-allow read-only tools; destructive ones raise the
-    # modal and block the WORKER thread on an Event until the UI resolves it.
+    # Tool approver: auto-allow per the ACTIVE dev mode (Shift+Tab cycle);
+    # destructive ones raise the modal and block the WORKER thread on an
+    # Event until the UI resolves it.
     def approve(name: str, args: dict) -> any {
         cmd = "";
         if isinstance(args, dict) {
             cmd = str(args.get("cmd", ""));
         }
-        policy = requires_approval("normal", name, cmd);
+        policy = requires_approval(app.mode, name, cmd);
         if policy == "auto" {
             return True;
         }
-        if policy != "confirm" {
-            return "blocked in normal mode";
+        if policy == "blocked" {
+            # react_loop wraps a non-True verdict as an ERROR tool result and
+            # relays it through the event queue — the transcript gets the
+            # ERROR row without this worker thread touching UI state.
+            if is_read_only_mode(app.mode) {
+                return read_only_mode_block_reason(name, app.mode);
+            }
+            return "blocked in " + app.mode + " mode";
         }
         q.put(("__approve__", {"tool": name, "args": args}));
         ev = threading.Event();
@@ -1845,6 +2209,9 @@ def _run_slash(app: LiveShell, line: str) -> str {
     if line == "/explorer" {
         return _open_explorer_picker(app);
     }
+    if line == "/mcp" {
+        return _open_mcp_picker(app);
+    }
     if line == "/skills" {
         return _open_skills_picker(app);
     }
@@ -2142,6 +2509,25 @@ def _handle_key(app: LiveShell, key: str) {
         app.dirty = True;
         return;
     }
+    # Dev-mode cycle (Shift+Tab): normal -> auto-accept -> yolo -> plan ->
+    # ask. Gating is enforced by requires_approval in the turn approver
+    # below; blocked tools surface as ERROR tool_result rows.
+    # TODO(mode-system-appendix): agent.modes.system_prompt_for_mode is NOT
+    # wired — run_turn (agent/session.jac, outside this file's ownership)
+    # seeds history with the static SYSTEM_PROMPT and exposes no per-turn
+    # appendix seam, so plan/ask prompt softening needs a session-side
+    # hook before it can light up from here.
+    if key == "shift+tab" {
+        app.mode = cycle_mode(app.mode);
+        note: str = "mode → " + app.mode;
+        if is_read_only_mode(app.mode) {
+            note += "  (write tools blocked)";
+        }
+        _push_turn(app, "system", note);
+        app.status_hint = "mode " + app.mode + " · shift+tab cycles";
+        app.dirty = True;
+        return;
+    }
     # Slash-command autocomplete popup: owns up/down/tab/enter/escape while
     # visible; printable chars and backspace fall through to editing below —
     # the paint-time filter picks up the new draft automatically. j/k stay
@@ -2253,7 +2639,7 @@ def _handle_key(app: LiveShell, key: str) {
         # than killing the turn. Transcript still displays the raw line.
         expanded: str = text;
         try {
-            expanded = expand_context_input(os.getcwd(), text);
+            expanded = _expand_quoted_context(os.getcwd(), text);
         } except Exception {
             expanded = text;
         }
