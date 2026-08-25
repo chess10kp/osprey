@@ -24,6 +24,12 @@ default_codespace = "native"
 "core.edit" = "native"
 "ui.model" = "server"
 "ui.mutation" = "server"
+# ui.runtime: BLOCKED native (verified by forced-native probe, 2026-08-25):
+# (a) in-body graph ops with no native lowering (edge traversals
+#     [<-:Child:<-]/[->:Owns:->], connect +>:Layer:+>, `del e`, jid()/root BFS);
+# (b) E5093: UiNode/UiContainer/Screen/Overlay/MutationResult params come from
+#     server-pinned ui.model, so they cannot cross the native->Python boundary.
+# Unblocks only when jaclang grows native edge/jid support and ui.model lowers.
 "ui.runtime" = "server"
 "ui.events" = "server"
 "ui.layout" = "server"
@@ -33,7 +39,13 @@ default_codespace = "native"
 "ui.renderer" = "server"
 "ui.screen" = "server"
 "ui.transcript" = "server"
+# ui.inspect: BLOCKED native — same gap class as ui.runtime: in-body edge
+# traversals ([n ->:Owns:->], [n <-:Child:<-]) plus UiSession/UiEvent-walker
+# types imported from server-pinned runtime/events (E5093 boundary).
 "ui.inspect" = "server"
+# Demos: BLOCKED native — walker spawn dispatch (`progress spawn SetProgress`),
+# and UiSession/renderer-typed args passed into server-pinned runtime/screen/
+# transcript/renderer/agent.protocol (E5093). Lower after their deps lower.
 "ui.demo_complex_shell" = "server"
 "ui.demo_live_shell" = "server"
 "agent.protocol" = "server"
