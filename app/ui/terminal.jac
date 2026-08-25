@@ -8,11 +8,22 @@ and reliable restoration) using Python stdlib only
 It does not import or modify `tui/pi_jac_floor`.
 
 VirtualTerminal (virtual_terminal.jac) is the primary test adapter.
+
+Native-lowering status: the former `atexit` safety-net registration was
+removed app-side — teardown is owned by explicit restore paths (signal
+handlers here plus the `term.stop()` in tui.run_tui's finally). The
+remaining imports are irreducible OS interfaces with no pure-Jac
+substitute. VENDOR NA_STDLIB FLOOR REQUEST (blocks native lowering,
+error E5090): incremental UTF-8 decoding (`codecs.getincrementaldecoder`
+— or any streaming text decode), POSIX termios raw-mode get/set
+(`termios.tcgetattr/tcsetattr`, `tty.setraw`), window-size ioctl
+(`fcntl.ioctl` + `termios.TIOCGWINSZ`), POSIX signal handling
+(`signal.signal` for SIGWINCH/SIGINT/SIGTERM/SIGHUP), and multiplexed
+stdin readiness (`select.select`).
 """
 
 import sys;
 import os;
-import atexit;
 import codecs;
 import signal;
 import select;
@@ -186,7 +197,6 @@ obj ProcessTerminal(Terminal) {
         _old_sigint: any = None,
         _old_sigterm: any = None,
         _old_sighup: any = None,
-        _atexit_registered: bool = False,
         _utf8: any = None,
         _stdin_buf: str = "",
         eof: bool = False,
@@ -212,7 +222,6 @@ obj ProcessTerminal(Terminal) {
         self._old_sigint = None;
         self._old_sigterm = None;
         self._old_sighup = None;
-        self._atexit_registered = False;
         self._utf8 = Utf8StreamDecoder();
         self._stdin_buf = "";
         self.eof = False;
@@ -281,10 +290,6 @@ obj ProcessTerminal(Terminal) {
             self._old_sigint = signal.signal(sigint, self._on_sigint);
             self._old_sigterm = signal.signal(signal.SIGTERM as int, self._on_terminate_signal);
             self._old_sighup = signal.signal(signal.SIGHUP as int, self._on_terminate_signal);
-            if not self._atexit_registered {
-                atexit.register(self.restore);
-                self._atexit_registered = True;
-            }
             self.enable_bracketed_paste();
             self.enter_alternate_screen();
             self.hide_cursor();

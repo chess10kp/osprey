@@ -2755,8 +2755,10 @@ def run_tui() {
     app = create_live_shell();
     app.cmd_q = queue.Queue();
     app.term.start();
-    app.term.set_title("Jackal — " + model);
     try {
+        # Inside the try so any failure after start() unwinds through the
+        # finally below and restores the host terminal (replaces atexit).
+        app.term.set_title("Jackal — " + model);
         app.dirty = True;
         _render(app);
         while app.running {
