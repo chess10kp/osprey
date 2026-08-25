@@ -51,8 +51,8 @@ def _meter(value: float, width: int) -> str {
 
 # --- verbatim replicas of tui.jac picker entry builders ------------------
 
-def _task_picker_entries(cwd: str) -> dict {
-    tasks = load_tasks(cwd);
+def _task_picker_entries(cwd: str) -> dict[str, list[str]] {
+    tasks: list[dict[str, any]] = load_tasks(cwd);
     if not tasks {
         return {"rows": ["No tasks yet."], "ids": ["__header__"]};
     }
@@ -80,8 +80,8 @@ def _task_picker_entries(cwd: str) -> dict {
 }
 
 
-def _checkpoint_picker_entries(cwd: str) -> dict {
-    items = list_checkpoints(cwd);
+def _checkpoint_picker_entries(cwd: str) -> dict[str, list[str]] {
+    items: list[dict[str, any]] = list_checkpoints(cwd);
     rows: list[str] = [];
     ids: list[str] = [];
     for item in items[:20] {
@@ -106,7 +106,7 @@ def _explorer_walk(dir_path: str, base_root: str, depth: int, out: list[str]) {
     if depth > _EXPLORER_MAX_DEPTH or len(out) >= _EXPLORER_MAX_FILES {
         return;
     }
-    rules: list = [];
+    rules: list[any] = [];
     try {
         rules = _load_ignore_rules(base_root, dir_path);
     } except Exception {
@@ -152,14 +152,14 @@ def _explorer_walk(dir_path: str, base_root: str, depth: int, out: list[str]) {
 }
 
 
-def _explorer_file_entries(cwd: str) -> dict {
+def _explorer_file_entries(cwd: str) -> dict[str, list[str]] {
     out: list[str] = [];
     _explorer_walk(cwd, cwd, 1, out);
     return {"rows": list(out), "ids": list(out)};
 }
 
 
-def _skills_picker_entries(skills: list) -> dict {
+def _skills_picker_entries(skills: list[dict[str, any]]) -> dict[str, list[str]] {
     if not skills {
         return {"rows": ["no skills found"], "ids": ["__header__"]};
     }
@@ -204,7 +204,7 @@ def _make_project -> str {
 }
 
 
-def _seed_task_file(cwd: str, tasks: list) {
+def _seed_task_file(cwd: str, tasks: list[dict[str, any]]) {
     os.makedirs(os.path.join(cwd, ".jackal"), exist_ok=True);
     fh = open(os.path.join(cwd, ".jackal", "tasks.json"), "w");
     json.dump(tasks, fh);
@@ -233,7 +233,7 @@ test "task board maps selectable ids onto task indices" {
         add_task(cwd, "second thing", "with a blurb");
         # Mark the first completed via a raw rewrite (update_tasks not
         # imported to keep this fixture minimal).
-        seeded: list = [];
+        seeded: list[dict[str, any]] = [];
         for i in range(len(load_tasks(cwd))) {
             t = dict(load_tasks(cwd)[i]);
             if i == 0 {
@@ -291,8 +291,9 @@ test "checkpoint entries expose newest-first names with overlay rows" {
 
 
 def _touch(cwd: str, rel: str) {
-    full = os.path.join(cwd, rel);
-    parent = os.path.dirname(full);
+    full: str = os.path.join(cwd, rel);
+    dir_fn: any = os.path.dirname;
+    parent: str = str(dir_fn(full));
     if parent {
         os.makedirs(parent, exist_ok=True);
     }
@@ -360,7 +361,8 @@ test "explorer walk enforces depth and file caps" {
         # Depth cap (6): leaves under d0..d4 survive the walk (root=1,
         # d0=2 ... d4=6), d5+ branches are cut. Plus the 5 root files.
         assert len(entries["rows"]) == 10;
-        for r in entries["rows"] {
+        rows: list[str] = entries["rows"];
+        for r in rows {
             assert "d5" not in r and "d6" not in r;
         }
     } finally {
@@ -379,7 +381,7 @@ test "skills picker lists project skills with hidden tagging" {
         _seed_skill(cwd, "quiet-skill", "quiet-skill", "hidden helper", hidden=True);
 
         # Real loader: parse the seeded project skills dir, then format.
-        loaded: dict = load_skills_from_dir(
+        loaded: dict[str, any] = load_skills_from_dir(
             os.path.join(cwd, ".jackal", "skills"), "project"
         );
         assert len(loaded["skills"]) == 2;
