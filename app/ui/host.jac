@@ -61,9 +61,12 @@ def run_host_tick(
         out.append(InterruptEvent());
     }
 
+    # poll_input/eof live on ProcessTerminal/VirtualTerminal, not the base
+    # Terminal type; resolve them dynamically so the native checker lowers.
     raw = "";
     try {
-        raw = term.poll_input(timeout_s);
+        poll_fn = getattr(term, "poll_input");
+        raw = str(poll_fn(timeout_s));
     } except Exception {
         raw = "";
     }
@@ -83,7 +86,7 @@ def run_host_tick(
     esc_events = loop.normalizer.flush_esc_timeout(clock);
     out.extend(esc_events);
 
-    if hasattr(term, "eof") and term.eof and not loop.saw_eof {
+    if hasattr(term, "eof") and getattr(term, "eof") and not loop.saw_eof {
         loop.saw_eof = True;
         out.append(EofEvent());
     }

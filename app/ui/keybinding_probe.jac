@@ -101,8 +101,8 @@ def make_key_probe(bindings: list[tuple]) -> tuple {
 
     bridge = create_bridge("s-keybinding-probe");
     for binding in bindings {
-        key = binding[0];
-        result = binding[1];
+        key: str = binding[0];
+        result: str = binding[1];
         register_fake_shortcut(
             bridge, key, _make_handler(result),
             description="Probe " + key,
