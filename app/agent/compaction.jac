@@ -18,6 +18,24 @@ import os;
 import from .llm { make_transport }
 
 
+# ── Checker shims ───────────────────────────────────────────────────────
+
+
+"""Checker shims: the Jac type checker cannot bind AnyStr when plain str
+values flow into os.path abspath/dirname, so route those calls through
+any-typed aliases (same pattern as auth.jac / checkpoints.jac)."""
+def _path_abspath(p: str) -> str {
+    fn: any = os.path.abspath;
+    return str(fn(p));
+}
+
+
+def _path_dirname(p: str) -> str {
+    fn: any = os.path.dirname;
+    return str(fn(p));
+}
+
+
 glob CHARS_PER_TOKEN: int = 4,
      DEFAULT_CONTEXT_MAX: int = 128000,
      SUMMARY_RESERVE_TOKENS: int = 8192;
@@ -96,7 +114,7 @@ def compute_context_usage(messages: list, context_max_override: any = None) -> d
 """Walk up from cwd for a `.jackal` JSON config file (mirrors
 lib/jac/config/_project_config_toolchain.py find/load)."""
 def load_project_config(cwd: str) -> dict {
-    cur = os.path.abspath(cwd);
+    cur = _path_abspath(cwd);
     while True {
         cand = os.path.join(cur, ".jackal");
         if os.path.isfile(cand) {
@@ -111,7 +129,7 @@ def load_project_config(cwd: str) -> dict {
                 return {};
             }
         }
-        parent = os.path.dirname(cur);
+        parent = _path_dirname(cur);
         if parent == cur {
             return {};
         }

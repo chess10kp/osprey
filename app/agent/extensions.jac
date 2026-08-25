@@ -9,6 +9,24 @@ import json;
 import os;
 import time;
 
+
+# ── Checker shims ───────────────────────────────────────────────────────
+
+
+"""Checker shims: the Jac type checker cannot bind AnyStr when plain str
+values flow into os.path abspath/dirname, so route those calls through
+any-typed aliases (same pattern as auth.jac / checkpoints.jac)."""
+def _path_abspath(p: str) -> str {
+    fn: any = os.path.abspath;
+    return str(fn(p));
+}
+
+
+def _path_dirname(p: str) -> str {
+    fn: any = os.path.dirname;
+    return str(fn(p));
+}
+
 obj ExtensionDecl {
     has id: str = "",
         path: str = "",
@@ -84,7 +102,7 @@ def decls_from_json(data: any) -> list[ExtensionDecl] {
 """Walk up from cwd for .jackal/extensions.json or .jackal with extensions key."""
 def load_extension_decls(cwd: str = "") -> list[ExtensionDecl] {
     start = cwd if cwd else os.getcwd();
-    cur = os.path.abspath(start);
+    cur = _path_abspath(start);
     while True {
         ext_path = os.path.join(cur, ".jackal", "extensions.json");
         if os.path.isfile(ext_path) {
@@ -107,7 +125,7 @@ def load_extension_decls(cwd: str = "") -> list[ExtensionDecl] {
             } except (OSError, ValueError) {
             }
         }
-        parent = os.path.dirname(cur);
+        parent = _path_dirname(cur);
         if parent == cur {
             break;
         }
@@ -157,5 +175,5 @@ def resolve_decl_path(decl: ExtensionDecl, base_cwd: str) -> str {
     if os.path.isabs(p) {
         return p;
     }
-    return os.path.abspath(os.path.join(base_cwd, p));
+    return _path_abspath(os.path.join(base_cwd, p));
 }

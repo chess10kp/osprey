@@ -101,12 +101,15 @@ test "multiple pending requests come out FIFO by id order" {
     ids = [r1["id"], r2["id"], r3["id"]];
     assert len(set(ids)) == 3;
     head1 = pending(q);
+    assert head1 is not None;
     assert head1.id == ids[0];
     resolve(q, ids[0], True);
     head2 = pending(q);
+    assert head2 is not None;
     assert head2.id == ids[1];
     resolve(q, ids[1], False);
     head3 = pending(q);
+    assert head3 is not None;
     assert head3.id == ids[2];
     resolve(q, ids[2], True);
     assert pending(q) is None;
@@ -138,7 +141,8 @@ test "expire_older_than drops only entries past the age window" {
     new_rec.created_at = 5000.0;
     # now=6000, window=2000: cutoff 4000 keeps only the newer record.
     assert expire_older_than(q, 6000.0, 2000.0) == 1;
-    assert pending(q).id == r_new["id"];
+    survivor: any = pending(q);
+    assert survivor is not None and survivor.id == r_new["id"];
     assert resolve(q, r_old["id"], True)["error"] == "unknown_approval_id";
     # Boundary: created_at equal to the cutoff survives.
     assert expire_older_than(q, 7000.0, 2000.0) == 0;

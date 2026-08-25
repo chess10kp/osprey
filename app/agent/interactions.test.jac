@@ -55,7 +55,8 @@ test "poll peeks FIFO head without detaching" {
     # Peek semantics: still queued until taken.
     again = q.poll(time.monotonic() + 1.0);
     assert again[0] is not None and again[0].parent_corr == "p1";
-    assert q.take(first[0].corr) is not None;
+    peeked: any = first[0];
+    assert q.take(peeked.corr) is not None;
     second = q.poll(time.monotonic() + 2.0);
     assert second[0] is not None and second[0].method == "confirm";
 }

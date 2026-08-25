@@ -28,7 +28,7 @@ import from .registry {
     register_js,
     unregister_extension,
 }
-import from .interactions { new_ui_queue, UiInteraction }
+import from .interactions { new_ui_queue, UiInteractionQueue }
 import from .fake_host {
     FakePluginHost,
     FakeUi,
@@ -80,6 +80,24 @@ obj PluginBridge {
 }
 
 
+# ── Checker shims ───────────────────────────────────────────────────────
+
+
+"""Checker shims: the Jac type checker cannot bind AnyStr when plain str
+values flow into os.path abspath/dirname, so route those calls through
+any-typed aliases (same pattern as auth.jac / checkpoints.jac)."""
+def _path_abspath(p: str) -> str {
+    fn: any = os.path.abspath;
+    return str(fn(p));
+}
+
+
+def _path_dirname(p: str) -> str {
+    fn: any = os.path.dirname;
+    return str(fn(p));
+}
+
+
 def create_bridge(session_id: str) -> PluginBridge {
     return PluginBridge(session_id=session_id);
 }
@@ -89,7 +107,7 @@ def create_bridge(session_id: str) -> PluginBridge {
 def resolve_host_mjs(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"host.mjs not found: {explicit}");
     }
@@ -98,11 +116,11 @@ def resolve_host_mjs(explicit: str = "") -> str {
         os.path.join(cwd, "plugin_host", "host.mjs"),
         os.path.join(cwd, "app", "plugin_host", "host.mjs"),
     ];
-    here = os.path.dirname(os.path.abspath(__file__));
+    here = _path_dirname(_path_abspath(str(__file__)));
     candidates.append(os.path.join(here, "..", "plugin_host", "host.mjs"));
     for c in candidates {
         if os.path.isfile(c) {
-            return os.path.abspath(c);
+            return _path_abspath(c);
         }
     }
     raise FileNotFoundError("plugin_host/host.mjs not found (run from app/ or repo root)");
@@ -113,12 +131,12 @@ def resolve_host_mjs(explicit: str = "") -> str {
 def resolve_stub_echo(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"stub_echo not found: {explicit}");
     }
     host = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(host), "fixtures", "stub_echo.mjs");
+    path = os.path.join(_path_dirname(host), "fixtures", "stub_echo.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"stub_echo fixture missing: {path}");
     }
@@ -127,12 +145,12 @@ def resolve_stub_echo(explicit: str = "") -> str {
 def resolve_pi_greet(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"pi_greet not found: {explicit}");
     }
     host = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(host), "fixtures", "pi_greet.mjs");
+    path = os.path.join(_path_dirname(host), "fixtures", "pi_greet.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"pi_greet fixture missing: {path}");
     }
@@ -143,12 +161,12 @@ def resolve_pi_greet(explicit: str = "") -> str {
 def resolve_pi_ctx_probe(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"pi_ctx_probe not found: {explicit}");
     }
     host = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(host), "fixtures", "pi_ctx_probe.mjs");
+    path = os.path.join(_path_dirname(host), "fixtures", "pi_ctx_probe.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"pi_ctx_probe fixture missing: {path}");
     }
@@ -158,12 +176,12 @@ def resolve_pi_ctx_probe(explicit: str = "") -> str {
 def resolve_stub_commands(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"stub_commands not found: {explicit}");
     }
     host = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(host), "fixtures", "stub_commands.mjs");
+    path = os.path.join(_path_dirname(host), "fixtures", "stub_commands.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"stub_commands fixture missing: {path}");
     }
@@ -173,12 +191,12 @@ def resolve_stub_commands(explicit: str = "") -> str {
 def resolve_pi_gated(explicit: str = "") -> str {
     if explicit {
         if os.path.isfile(explicit) {
-            return os.path.abspath(explicit);
+            return _path_abspath(explicit);
         }
         raise FileNotFoundError(f"pi_gated not found: {explicit}");
     }
     host = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(host), "fixtures", "pi_gated.mjs");
+    path = os.path.join(_path_dirname(host), "fixtures", "pi_gated.mjs");
     if not os.path.isfile(path) {
         raise FileNotFoundError(f"pi_gated fixture missing: {path}");
     }
@@ -204,7 +222,7 @@ def resolve_node_bin(explicit: str = "") -> str {
     }
     try {
         host = resolve_host_mjs();
-        host_dir = os.path.dirname(host);
+        host_dir = _path_dirname(host);
         pinned = [
             os.path.join(host_dir, "node", "bin", "node"),
             os.path.join(host_dir, ".node-bin"),
@@ -546,7 +564,7 @@ def _wait_corr(
             q: any = bridge.ui_q;
             has_pending_ui = False;
             if q is not None {
-                has_pending_ui = (q as UiInteraction).has_open(correlation_id);
+                has_pending_ui = (q as UiInteractionQueue).has_open(correlation_id);
             }
             if has_pending_ui {
                 pending["ui_lease_start"] = time.monotonic();
@@ -864,7 +882,7 @@ def load_extension_path(
         _emit_host_status(bridge, "degraded", detail);
         raise RuntimeError(detail);
     }
-    abs_path = os.path.abspath(path);
+    abs_path = _path_abspath(path);
     if not os.path.isfile(abs_path) {
         raise FileNotFoundError(f"extension module not found: {abs_path}");
     }
@@ -2196,11 +2214,11 @@ def render_extension_block(
 
 # ==================== P12: interactive ui round-trip ====================
 
-def _ui_queue(bridge: PluginBridge) -> UiInteraction {
+def _ui_queue(bridge: PluginBridge) -> UiInteractionQueue {
     if bridge.ui_q is None {
         bridge.ui_q = new_ui_queue();
     }
-    return bridge.ui_q as UiInteraction;
+    return bridge.ui_q as UiInteractionQueue;
 }
 
 
@@ -2223,7 +2241,7 @@ def _ui_enqueue_from_env(bridge: PluginBridge, env: Envelope) {
     res = q.enqueue(req);
     if not res[0] {
         # Invalid request: tell Node immediately so its Promise settles.
-        _ui_send_response(bridge, str(env.correlation_id), "cancelled", None, res[1]);
+        _ui_send_response(bridge, str(env.correlation_id), "cancelled", None, str(res[1]));
     }
 }
 
@@ -2240,7 +2258,7 @@ def _ui_send_response(
     }
     if bridge.host_kind == "node" and _node_alive(bridge) {
         try {
-            _write_node(make_envelope(
+            _write_node(bridge, make_envelope(
                 kind="ui_response",
                 session_id=bridge.session_id,
                 correlation_id=corr,
@@ -2264,12 +2282,13 @@ def poll_ui_request(bridge: PluginBridge) -> dict | None {
     if bridge is None or bridge.ui_q is None {
         return None;
     }
-    q = bridge.ui_q as UiInteraction;
+    q = bridge.ui_q as UiInteractionQueue;
     polled: list = q.poll(time.monotonic());
     live: any = polled[0];
     expired: list = polled[1];
     for r in expired {
-        _ui_send_response(bridge, r.corr, "cancelled", None, "timeout");
+        rr: any = r;
+        _ui_send_response(bridge, str(rr.corr), "cancelled", None, "timeout");
     }
     if live is None {
         return None;
@@ -2294,11 +2313,11 @@ def respond_ui(bridge: PluginBridge, corr: str, value: any) -> bool {
     if bridge is None or bridge.ui_q is None {
         return False;
     }
-    r: any = (bridge.ui_q as UiInteraction).take(str(corr));
+    r: any = (bridge.ui_q as UiInteractionQueue).take(str(corr));
     if r is None {
         return False;
     }
-    return _ui_send_response(bridge, r.corr, "ok", value);
+    return _ui_send_response(bridge, str(r.corr), "ok", value);
 }
 
 
@@ -2307,11 +2326,11 @@ def cancel_ui(bridge: PluginBridge, corr: str, reason: str = "cancelled") -> boo
     if bridge is None or bridge.ui_q is None {
         return False;
     }
-    r: any = (bridge.ui_q as UiInteraction).take(str(corr));
+    r: any = (bridge.ui_q as UiInteractionQueue).take(str(corr));
     if r is None {
         return False;
     }
-    return _ui_send_response(bridge, r.corr, "cancelled", None, reason);
+    return _ui_send_response(bridge, str(r.corr), "cancelled", None, reason);
 }
 
 
@@ -2320,7 +2339,7 @@ def cancel_all_ui(bridge: PluginBridge, reason: str = "cancelled") -> int {
     if bridge is None or bridge.ui_q is None {
         return 0;
     }
-    q = bridge.ui_q as UiInteraction;
+    q = bridge.ui_q as UiInteractionQueue;
     n = 0;
     # Drain via take() so queue and wire stay consistent.
     while True {
@@ -2335,14 +2354,15 @@ def cancel_all_ui(bridge: PluginBridge, reason: str = "cancelled") -> int {
             break;
         }
         for r in recs {
-            _ui_send_response(bridge, r.corr, "cancelled", None, reason);
+            rr2: any = r;
+            _ui_send_response(bridge, str(rr2.corr), "cancelled", None, reason);
             n += 1;
         }
         # poll() is a peek: only expired records are detached automatically.
         # Detach the live record explicitly or this loop spins until its
         # deadline lapses.
         if live is not None {
-            q.take(live.corr);
+            q.take(str(live.corr));
         }
     }
     return n;

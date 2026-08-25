@@ -39,6 +39,14 @@ def _echo(text: str) -> str {
 }
 
 
+"""Checker shim: the Jac type checker cannot bind AnyStr when a plain str
+flows into os.path.dirname (same pattern as auth.jac / checkpoints.jac)."""
+def _path_dirname(p: str) -> str {
+    fn: any = os.path.dirname;
+    return str(fn(p));
+}
+
+
 test "ensure_host emits host_hello and is lazy" {
     bridge = create_bridge("s1");
     assert bridge.host is None;
@@ -291,7 +299,7 @@ test "tool_cancel aborts slow Pi tool" {
     reg = create_registry();
     ensure_node_host(bridge);
     host = resolve_host_mjs();
-    slow = os.path.join(os.path.dirname(str(host)), "fixtures", "pi_slow.mjs");
+    slow = os.path.join(_path_dirname(str(host)), "fixtures", "pi_slow.mjs");
     load_extension_path(bridge, reg, "pi.slow", slow);
     # Fire invoke on a worker thread; cancel shortly after.
     import threading;
@@ -702,7 +710,7 @@ test "input transforms chain across handlers on the fake host" {
     bridge = create_bridge("s-b2-chain");
     ensure_host(bridge);
 
-    def _first(data: dict, ctx: any) -> dict {
+    def _first(data: dict, ctx: any) -> dict | None {
         t = str(data.get("text", ""));
         if t.startswith("?up ") {
             return {"action": "transform", "text": t[4:].upper()};
@@ -710,7 +718,7 @@ test "input transforms chain across handlers on the fake host" {
         return None;
     }
 
-    def _second(data: dict, ctx: any) -> dict {
+    def _second(data: dict, ctx: any) -> dict | None {
         # Sees the REWRITTEN text from _first (chaining parity pin).
         t = str(data.get("text", ""));
         if t and t == t.upper() and any(c.isupper() for c in t) {
@@ -886,7 +894,7 @@ test "node host ext_loaded carries providers and unload drops them" {
     reg = create_registry();
     ensure_node_host(bridge);
     prov = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(prov), "fixtures", "pi_provider.mjs");
+    path = os.path.join(_path_dirname(prov), "fixtures", "pi_provider.mjs");
     names = load_extension_path(bridge, reg, "pi.provider", path);
     drain_inbox(bridge);
 
@@ -952,7 +960,7 @@ test "node host renders message and entry blocks over the wire" {
     reg = create_registry();
     ensure_node_host(bridge);
     prov = resolve_host_mjs();
-    path = os.path.join(os.path.dirname(prov), "fixtures", "pi_renderer.mjs");
+    path = os.path.join(_path_dirname(prov), "fixtures", "pi_renderer.mjs");
     load_extension_path(bridge, reg, "pi.renderer", path);
     drain_inbox(bridge);
 
@@ -982,7 +990,7 @@ test "tool_result_gate chains patches and echoes latest content" {
     bridge = create_bridge("s-tres");
     ensure_host(bridge);
 
-    def _first(data: dict, ctx: any) -> dict {
+    def _first(data: dict, ctx: any) -> dict | None {
         if data.get("toolName") == "bash" {
             return {"content": str(data.get("content", "")) + "\n[redacted]"};
         }
@@ -1237,11 +1245,13 @@ test "tool execute ui ctx: notify rides tool_result notifications, setStatus rid
     assert res == "ui exercised";
 
     # setStatus is a display method -> normalized ui_event entry.
-    traffic = drain_extension_traffic(bridge);
+    traffic: dict = drain_extension_traffic(bridge);
     methods: list[str] = [];
-    for entry in traffic["entries"] {
-        if str(entry.get("type", "")) == "ui_event" {
-            methods.append(str(entry.get("method", "")));
+    entries: list = traffic["entries"];
+    for entry in entries {
+        row: dict = entry;
+        if str(row.get("type", "")) == "ui_event" {
+            methods.append(str(row.get("method", "")));
         }
     }
     assert methods == ["setStatus"];
