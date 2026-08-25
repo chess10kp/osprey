@@ -46,7 +46,9 @@ test "unsubscribe_target clears all bindings for one target" {
     removed = unsubscribe_target(registry, "shared");
     assert removed == 2;
     assert binding_count(registry) == 1;
-    assert bindings_for_target(registry, "shared") == [];
+    # NOTE: `== []` against an empty list literal miscompares natively;
+    # use length checks instead.
+    assert len(bindings_for_target(registry, "shared")) == 0;
     assert len(bindings_for_target(registry, "other")) == 1;
 }
 
@@ -102,7 +104,7 @@ test "clear_bindings empties registry" {
     clear_bindings(registry);
     assert is_empty(registry);
     assert binding_count(registry) == 0;
-    assert dump_bindings(registry) == [];
+    assert len(dump_bindings(registry)) == 0;
 }
 
 

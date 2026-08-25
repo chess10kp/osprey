@@ -113,18 +113,34 @@ def _remove_binding(
 }
 
 
-def _binding_sort_key(binding: Binding) -> tuple[str, str] {
-    return (binding.target_id, binding.event_type);
+"""True when binding sorts before anchor under (source, target, event) order."""
+def _binding_sorts_before(binding: Binding, anchor: Binding) -> bool {
+    if binding.source_id != anchor.source_id {
+        return binding.source_id < anchor.source_id;
+    }
+    if binding.target_id != anchor.target_id {
+        return binding.target_id < anchor.target_id;
+    }
+    return binding.event_type < anchor.event_type;
 }
 
 
-def _orphan_sort_key(binding: Binding) -> tuple[str, str] {
-    return (binding.source_id, binding.event_type);
-}
+"""Stable in-place insertion sort under (source, target, event) order.
 
-
-def _delivery_sort_key(result: DeliveryResult) -> str {
-    return result.target_id;
+Used instead of list.sort(key=...) because keyed sorts do not yet lower
+correctly in the native codespace; plain `<` comparisons do."""
+def _sort_bindings_in_place(items: list[Binding]) {
+    i: int = 1;
+    while i < len(items) {
+        cur = items[i];
+        j: int = i - 1;
+        while j >= 0 and _binding_sorts_before(cur, items[j]) {
+            items[j + 1] = items[j];
+            j -= 1;
+        }
+        items[j + 1] = cur;
+        i += 1;
+    }
 }
 
 
@@ -219,11 +235,11 @@ def bindings_for_target(registry: BindingRegistry, target_id: str) -> list[Bindi
 
 
 """Collect all bindings in deterministic source/target/event order."""
-def dump_bindings(registry: BindingRegistry) -> list[dict] {
-    rows: list[dict] = [];
+def dump_bindings(registry: BindingRegistry) -> list[dict[str, str]] {
+    rows: list[dict[str, str]] = [];
     for source_id in sorted(registry.by_source.keys()) {
         bindings = list(registry.by_source[source_id]);
-        bindings.sort(key=_binding_sort_key);
+        _sort_bindings_in_place(bindings);
         for binding in bindings {
             rows.append(
                 {
@@ -246,7 +262,7 @@ def deliver(
 ) -> list[DeliveryResult] {
     results: list[DeliveryResult] = [];
     bindings = bindings_for_source(registry, source_id);
-    bindings.sort(key=_binding_sort_key);
+    _sort_bindings_in_place(bindings);
     for binding in bindings {
         if binding.event_type != event_type {
             continue;
@@ -258,7 +274,6 @@ def deliver(
             )
         );
     }
-    results.sort(key=_delivery_sort_key);
     return results;
 }
 
@@ -274,7 +289,7 @@ def find_orphan_bindings(
             continue;
         }
         bindings = list(registry.by_target[target_id]);
-        bindings.sort(key=_orphan_sort_key);
+        _sort_bindings_in_place(bindings);
         for binding in bindings {
             orphans.append(binding);
         }
