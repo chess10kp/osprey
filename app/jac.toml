@@ -28,7 +28,6 @@ default_codespace = "native"
 "ui.events" = "server"
 "ui.layout" = "server"
 "ui.layout_compile" = "server"
-"ui.layout_quantize" = "server"
 
 "ui.renderer" = "server"
 "ui.screen" = "server"
