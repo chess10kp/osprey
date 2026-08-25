@@ -196,7 +196,7 @@ def run_gate5_external_widget() -> bool {
     if len(painted) != 12 {
         return False;
     }
-    tags: dict = {};
+    tags: dict[str, object] = {};
     register_progress_markup(tags);
     if "ProgressBar" not in tags {
         return False;

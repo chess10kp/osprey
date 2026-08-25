@@ -37,7 +37,7 @@ test "progress_paint_line uses render_progress" {
 
 
 test "register_progress_markup adds ProgressBar tag" {
-    tags: dict = {};
+    tags: dict[str, object] = {};
     register_progress_markup(tags);
     assert "ProgressBar" in tags;
 }

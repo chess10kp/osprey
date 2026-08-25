@@ -59,6 +59,6 @@ def progress_paint_line(bar: ProgressBar, width: int) -> str {
 
 Avoids importing ui.markup so the widget package stays free of framework cycles.
 """
-def register_progress_markup(tags: dict) {
+def register_progress_markup(tags: dict[str, object]) {
     tags["ProgressBar"] = ProgressBar;
 }
