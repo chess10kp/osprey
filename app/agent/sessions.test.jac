@@ -43,7 +43,7 @@ def _sessions_dir(tmp: str) -> str {
 }
 
 
-def _read_raw(path: str) {
+def _read_raw(path: str) -> any {
     fh = open(path, "r");
     try {
         return json.load(fh);
@@ -54,7 +54,9 @@ def _read_raw(path: str) {
 
 
 def _write_text(path: str, text: str) {
-    os.makedirs(os.path.dirname(path), exist_ok=True);
+    # any-typed alias: native checker binds os.path.dirname to PathLike.
+    dfn: any = os.path.dirname;
+    os.makedirs(str(dfn(path)), exist_ok=True);
     fh = open(path, "w");
     try {
         fh.write(text);

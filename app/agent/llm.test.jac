@@ -50,6 +50,9 @@ obj TwoCallTransport {
 }
 
 
+# Test doubles are duck-typed transports; call sites cast with
+# `as Transport` so react_loop's typed parameter accepts them under native
+# checking (the same-stem annex cannot reference Transport at class-def time).
 obj ScriptedTransport {
     has tool_call_id: str = "call_1",
         tool_name: str = "echo",
@@ -95,7 +98,7 @@ test "react loop runs a tool then finishes" {
         handler=_echo,
     )];
     _events.clear();
-    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event);
+    answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event);
     assert answer == "done";
     kinds = [e[0] for e in _events];
     assert kinds == [
@@ -116,7 +119,7 @@ test "react loop retries transient transport errors" {
     messages = [{"role": "user", "content": "hello"}];
     _events.clear();
     transport = RetryTransport();
-    answer = react_loop(messages, [], transport, _noop_event, max_retries=1);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, max_retries=1);
     assert answer == "recovered";
     assert transport.calls == 2;
     assert _events[0][0] == "retry";
@@ -142,7 +145,7 @@ test "react loop stops mid-stream on cancel without touching history" {
     _events.clear();
     cancel = TurnCancel();
     transport = CancelMidStreamTransport(flag=cancel);
-    answer = react_loop(messages, [], transport, _noop_event, cancel=cancel);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, cancel=cancel);
     assert answer == "partial";
     assert len(messages) == 1;
     kinds = [e[0] for e in _events];
@@ -172,7 +175,7 @@ test "cancel before tool calls fills cancelled tool results" {
         }
     }
 
-    answer = react_loop(messages, specs, transport, _cancelling_event, cancel=cancel);
+    answer = react_loop(messages, specs, transport as Transport, _cancelling_event, cancel=cancel);
     assert answer == "done" or answer == "working";
     roles = [m["role"] for m in messages];
     assert roles == ["user", "assistant", "tool", "tool"];
@@ -203,7 +206,7 @@ test "approve hook denial yields error tool result without executing" {
         handler=_echo,
     )];
     _events.clear();
-    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, approve=_deny_all);
+    answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, approve=_deny_all);
     # The loop continues past a denial — the model sees the ERROR result
     # and produces a final answer.
     roles = [m["role"] for m in messages];
@@ -226,7 +229,7 @@ test "approve hook allow runs the tool unchanged" {
         handler=_echo,
     )];
     _events.clear();
-    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, approve=_allow_all);
+    answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, approve=_allow_all);
     assert messages[2]["content"] == "ECHO:hi";
 }
 
@@ -240,7 +243,7 @@ test "react loop emits loop limit" {
         handler=_echo,
     )];
     _events.clear();
-    answer = react_loop(messages, specs, ScriptedTransport(), _noop_event, max_iters=1);
+    answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, max_iters=1);
     assert answer == "";
     assert _events[-1][0] == "loop_limit";
     assert _events[-1][1]["max_iters"] == 1;
@@ -312,7 +315,7 @@ test "unknown tool yields error result without crashing" {
     spec = ScriptedTransport();
     spec.tool_name = "missing";
     _events.clear();
-    answer = react_loop(messages, [], spec, _noop_event);
+    answer = react_loop(messages, [], spec as Transport, _noop_event);
     assert "unknown tool" in _events[4][1]["result"];
     assert messages[2]["content"].startswith("ERROR");
 }
@@ -352,7 +355,7 @@ test "react loop invokes js tool via registry bridge" {
     transport.tool_name = "echo";
     transport.tool_args = "{\"text\": \"hi\"}";
     _events.clear();
-    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, reg=reg, bridge=bridge);
     assert answer == "done";
     assert _events[4][1]["result"] == "JS:hi";
     dispose_bridge(bridge);
@@ -382,7 +385,7 @@ test "react loop honors tool_call block verdicts from a plugin bridge" {
     transport = ScriptedTransport();
     transport.tool_name = "echo";
     _events.clear();
-    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, reg=reg, bridge=bridge);
     # Blocked call becomes an error tool-result; the run continues normally.
     assert answer == "done";
     assert messages[2]["role"] == "tool";
@@ -414,7 +417,7 @@ test "react loop stops early on terminating block verdict" {
     transport = ScriptedTransport();
     transport.tool_name = "echo";
     _events.clear();
-    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, reg=reg, bridge=bridge);
     assert answer == "";
     assert messages[-1]["content"] == "ERROR: blocked by extension: dangerous command";
     kinds = [e[0] for e in _events];
@@ -464,7 +467,7 @@ test "react loop applies tool_result rewrites from a plugin bridge" {
     }
     import from .registry { create_registry, ToolRegistry }
 
-    def _rewrite(data: dict, ctx: any) -> dict {
+    def _rewrite(data: dict, ctx: any) -> dict | None {
         # Sees the latest content; appends a marker (middleware chain).
         if data.get("toolName") == "echo" {
             return {"content": str(data.get("content", "")) + "+REWRITTEN"};
@@ -472,7 +475,7 @@ test "react loop applies tool_result rewrites from a plugin bridge" {
         return None;
     }
 
-    def _confirm_latest(data: dict, ctx: any) -> dict {
+    def _confirm_latest(data: dict, ctx: any) -> dict | None {
         # Second handler must see the first handler's patch applied.
         assert str(data.get("content", "")).endswith("+REWRITTEN");
         return None;
@@ -499,7 +502,7 @@ test "react loop applies tool_result rewrites from a plugin bridge" {
     transport.tool_name = "echo";
     transport.tool_args = "{\"text\": \"hi\"}";
     _events.clear();
-    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, reg=reg, bridge=bridge);
     assert answer == "done";
     # Module-level _echo prefixes ECHO:; the middleware appends +REWRITTEN.
     assert messages[2]["content"] == "ECHO:hi+REWRITTEN";
@@ -546,7 +549,7 @@ test "react loop skips tool execution when cancelled during the gate" {
     transport = ScriptedTransport();
     transport.tool_name = "echo";
     _events.clear();
-    answer = react_loop(messages, [], transport, _noop_event, reg=reg, bridge=bridge, cancel=cancel);
+    answer = react_loop(messages, [], transport as Transport, _noop_event, reg=reg, bridge=bridge, cancel=cancel);
     # The gate fired; the tool itself must NOT have executed. Cancelled
     # calls get a terminal tool MESSAGE but no tool_result event (matching
     # the pre-existing cancel-before-invoke semantics).

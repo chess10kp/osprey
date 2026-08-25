@@ -45,6 +45,24 @@ glob _last_id_ms: int = 0,
      _TRANSCRIPT_SUFFIX: str = ".json";
 
 
+# ── Checker shims ─────────────────────────────────────────────────────────
+
+
+"""Checker shims: os.path.abspath/dirname demand PathLike under native
+checking when plain str values flow in; route through any-typed aliases
+(same pattern as compaction.jac / extensions.jac)."""
+def _path_abspath(p: str) -> str {
+    fn: any = os.path.abspath;
+    return str(fn(p));
+}
+
+
+def _path_dirname(p: str) -> str {
+    fn: any = os.path.dirname;
+    return str(fn(p));
+}
+
+
 def _sessions_dir(cwd: str) -> str {
     return os.path.join(cwd, ".jackal", "sessions");
 }
@@ -94,7 +112,7 @@ def _now_iso() -> str {
 
 
 """Parse a JSON file; None when missing or corrupt."""
-def _read_json(path: str) {
+def _read_json(path: str) -> any {
     fh = None;
     try {
         fh = open(path, "r");
@@ -312,7 +330,7 @@ def save_session(
 
     trimmed = name.strip();
     if trimmed {
-        final_name = trimmed;
+        final_name: str = trimmed;
     } elif prior_name {
         final_name = prior_name;
     } else {
@@ -656,7 +674,7 @@ def export_session(cwd: str, session_id: str, path: str) -> bool {
             continue;
         }
     }
-    parent = os.path.dirname(os.path.abspath(path));
+    parent = _path_dirname(_path_abspath(path));
     try {
         os.makedirs(parent, exist_ok=True);
         with open(path, "w") as fh {

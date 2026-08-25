@@ -62,7 +62,9 @@ obj Transport {
         # Single source of truth for the request body so tests can assert its
         # exact shape without network I/O. With thinking == "" the returned
         # dict is byte-identical to the pre-thinking-level body (no extra keys).
-        body = {
+        # dict[str, any]: "reasoning" carries a nested dict while other
+        # values are scalars, so the bare inference collapses to literals.
+        body: dict[str, any] = {
             "model": self.model,
             "messages": messages,
             "stream": True,
@@ -309,7 +311,9 @@ obj ProviderTransport (Transport) {
         body = self._build_body(messages, tool_defs);
         headers = {};
         if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
-        url = self.base_url.rstrip("/") + "/chat/completions";
+        # Typed intermediate: the literal-arg rstrip chain infers LiteralString,
+        # which the hook rewrite below cannot assign back into.
+        url: str = self.base_url.rstrip("/") + "/chat/completions";
         if self.ext_bridge is not None {
             try {
                 prepped = prepare_provider_request(
