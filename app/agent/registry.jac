@@ -5,7 +5,6 @@ contribute without a second source of truth. Native tools keep local handlers;
 js tools carry schema only and dispatch through a PluginBridge.
 """
 
-import from typing { Callable }
 
 import from .tool_spec {
     ToolSpec,
@@ -46,7 +45,7 @@ def register_native(
     if handler is None {
         raise ValueError("native tool requires a handler");
     }
-    entry = RegisteredTool(
+    ent = RegisteredTool(
         name=name,
         description=description,
         parameters=parameters,
@@ -54,8 +53,8 @@ def register_native(
         extension_id="",
         handler=handler,
     );
-    reg.tools[name] = entry;
-    return entry;
+    reg.tools[name] = ent;
+    return ent;
 }
 
 
@@ -73,7 +72,7 @@ def register_js(
     if not extension_id {
         raise ValueError("js tool requires an extension_id");
     }
-    entry = RegisteredTool(
+    ent = RegisteredTool(
         name=name,
         description=description,
         parameters=parameters,
@@ -81,8 +80,8 @@ def register_js(
         extension_id=extension_id,
         handler=None,
     );
-    reg.tools[name] = entry;
-    return entry;
+    reg.tools[name] = ent;
+    return ent;
 }
 
 
@@ -117,8 +116,8 @@ def unregister(reg: ToolRegistry, name: str) -> bool {
 """Drop every tool contributed by one extension. Returns count removed."""
 def unregister_extension(reg: ToolRegistry, extension_id: str) -> int {
     doomed: list[str] = [];
-    for (name, entry) in reg.tools.items() {
-        if entry.extension_id == extension_id {
+    for (name, ent) in reg.tools.items() {
+        if ent.extension_id == extension_id {
             doomed.append(name);
         }
     }
@@ -132,13 +131,13 @@ def unregister_extension(reg: ToolRegistry, extension_id: str) -> int {
 """ToolSpecs for react_loop. Js entries have handler=None (invoke via bridge)."""
 def as_tool_specs(reg: ToolRegistry) -> list[ToolSpec] {
     out: list[ToolSpec] = [];
-    for (_name, entry) in reg.tools.items() {
+    for (_name, ent) in reg.tools.items() {
         out.append(
             ToolSpec(
-                name=entry.name,
-                description=entry.description,
-                parameters=entry.parameters,
-                handler=entry.handler,
+                name=ent.name,
+                description=ent.description,
+                parameters=ent.parameters,
+                handler=ent.handler,
             )
         );
     }
@@ -149,13 +148,13 @@ def as_tool_specs(reg: ToolRegistry) -> list[ToolSpec] {
 """OpenAI-shape tool defs for the model (schema only, any origin)."""
 def openai_tools(reg: ToolRegistry) -> list {
     defs = [];
-    for (_name, entry) in reg.tools.items() {
+    for (_name, ent) in reg.tools.items() {
         defs.append({
             "type": "function",
             "function": {
-                "name": entry.name,
-                "description": entry.description,
-                "parameters": entry.parameters,
+                "name": ent.name,
+                "description": ent.description,
+                "parameters": ent.parameters,
             },
         });
     }
@@ -172,21 +171,21 @@ Unknown / missing handler / missing bridge → ERROR string (loop-safe).
 def invoke(
     reg: ToolRegistry, name: str, args: dict, bridge: any = None
 ) -> str {
-    entry = get_tool(reg, name);
-    if entry is None {
+    ent = get_tool(reg, name);
+    if ent is None {
         return f"ERROR: unknown tool {name}";
     }
-    if entry.origin == "native" {
-        if entry.handler is None {
+    if ent.origin == "native" {
+        if ent.handler is None {
             return f"ERROR: native tool {name} has no handler";
         }
         try {
-            return str(entry.handler(**args));
+            return str(ent.handler(**args));
         } except Exception as e {
             return f"ERROR: {e}";
         }
     }
-    if entry.origin == "js" {
+    if ent.origin == "js" {
         if bridge is None {
             return f"ERROR: js tool {name} requires a plugin bridge";
         }
@@ -196,5 +195,5 @@ def invoke(
             return f"ERROR: {e}";
         }
     }
-    return f"ERROR: unsupported tool origin {entry.origin}";
+    return f"ERROR: unsupported tool origin {ent.origin}";
 }

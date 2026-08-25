@@ -16,7 +16,7 @@ def _boom(x: int) -> str {
 
 test "register_native and get_tool" {
     reg = create_registry();
-    entry = register_native(
+    ent = register_native(
         reg,
         "echo",
         "echo text",
@@ -27,8 +27,8 @@ test "register_native and get_tool" {
         },
         _echo,
     );
-    assert entry.origin == "native";
-    assert entry.handler is not None;
+    assert ent.origin == "native";
+    assert ent.handler is not None;
     got = get_tool(reg, "echo");
     assert got is not None;
     assert got.name == "echo";
@@ -37,16 +37,16 @@ test "register_native and get_tool" {
 
 test "register_js requires extension_id and has no handler" {
     reg = create_registry();
-    entry = register_js(
+    ent = register_js(
         reg,
         "echo_js",
         "js echo",
         {"type": "object", "properties": {}},
         "ext.stub",
     );
-    assert entry.origin == "js";
-    assert entry.extension_id == "ext.stub";
-    assert entry.handler is None;
+    assert ent.origin == "js";
+    assert ent.extension_id == "ext.stub";
+    assert ent.handler is None;
     raised = False;
     try {
         register_js(reg, "bad", "d", {}, "");

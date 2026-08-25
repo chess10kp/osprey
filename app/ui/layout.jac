@@ -242,9 +242,9 @@ def _structural_naturals(
         id_str = scoped.id_str;
         spec = state.specs.get(id_str);
         lines: list[str] = [];
-        entry = state.content.get(id_str);
-        if entry is not None {
-            lines = entry.lines;
+        ent = state.content.get(id_str);
+        if ent is not None {
+            lines = ent.lines;
         }
         w_cols = wrap_widths.get(id_str, 80);
         if w_cols < 1 {

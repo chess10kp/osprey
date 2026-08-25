@@ -889,12 +889,12 @@ def load_extension_path(
     # Builtin catalog rides ext_load so pi.getAllTools() sees the full
     # surface (native-origin tools only; js tools come from other exts).
     builtins: list[dict] = [];
-    for entry in reg.tools.values() {
-        if entry.origin == "native" {
+    for tool_entry in reg.tools.values() {
+        if tool_entry.origin == "native" {
             builtins.append({
-                "name": entry.name,
-                "description": entry.description,
-                "parameters": entry.parameters,
+                "name": tool_entry.name,
+                "description": tool_entry.description,
+                "parameters": tool_entry.parameters,
             });
         }
     }
@@ -1226,14 +1226,14 @@ def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> di
     if h is None or not h.alive {
         return {"ok": False, "error": "plugin host unavailable"};
     }
-    entry = h.shortcut_handlers.get(key);
-    if entry is None {
+    shortcut_entry = h.shortcut_handlers.get(key);
+    if shortcut_entry is None {
         return {"ok": False, "error": f"unknown shortcut {key}"};
     }
     notifications: list[str] = [];
     try {
         ui = FakeUi(notifications, []);
-        result = entry["handler"]({"ui": ui});
+        result = shortcut_entry["handler"]({"ui": ui});
         res_payload: dict = {
             "ok": True,
             "result": "" if result is None else str(result),
@@ -1339,14 +1339,14 @@ def invoke_command(
     if h is None or not h.alive {
         return {"ok": False, "error": "plugin host unavailable"};
     }
-    entry = h.command_handlers.get(name);
-    if entry is None {
+    handler_entry = h.command_handlers.get(name);
+    if handler_entry is None {
         return {"ok": False, "error": f"unknown command {name}"};
     }
     notifications: list[str] = [];
     try {
         ui = FakeUi(notifications, []);
-        result = entry["handler"](args, {"ui": ui});
+        result = handler_entry["handler"](args, {"ui": ui});
         res_payload: dict = {
             "ok": True,
             "result": "" if result is None else str(result),
@@ -2194,12 +2194,12 @@ def render_extension_block(
         return none_out;
     }
     table = h.message_renderers if kind != "entry" else h.entry_renderers;
-    entry: any = table.get(str(type));
-    if entry is None or not isinstance(entry, dict) {
+    renderer: any = table.get(str(type));
+    if renderer is None or not isinstance(renderer, dict) {
         return none_out;
     }
     try {
-        out: any = entry["fn"](payload);
+        out: any = renderer["fn"](payload);
         return {"ok": True, "lines": _fake_content_lines(out)};
     } except Exception as e {
         text = "" if payload is None else str(payload);

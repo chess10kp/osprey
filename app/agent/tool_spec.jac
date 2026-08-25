@@ -4,7 +4,6 @@ Kept separate from llm.jac so registry/tools can import ToolSpec without
 pulling httpx (llm transport).
 """
 
-import from typing { Callable }
 
 
 # Shared safety caps used by both tool execution and the ReAct history.

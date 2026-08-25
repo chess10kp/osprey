@@ -77,7 +77,7 @@ obj AnsiDiff {
 
 
 obj _OverlayHit {
-    has node: UiNode,
+    has nd: UiNode,
         z: int = 0,
         id_str: str = "";
 }
@@ -171,10 +171,10 @@ def clear_cursor(renderer: Renderer) {
 
 """Detach a node: damage its previous rect and drop registry state."""
 def detach_node(renderer: Renderer, n: UiNode) {
-    entry = frame_entry_of(renderer.layout, n);
-    if entry is not None and not entry.rect.is_empty() {
+    ent = frame_entry_of(renderer.layout, n);
+    if ent is not None and not ent.rect.is_empty() {
         renderer.damage.append(
-            DamageRect(rect=entry.rect.copy(), reason="detach")
+            DamageRect(rect=ent.rect.copy(), reason="detach")
         );
     }
     if renderer.cursor_node_id == node_id(n) {
@@ -262,7 +262,7 @@ def _layered_overlays(layout_root: UiNode) -> list[UiNode] {
             for e in [edge layout_root ->:Layer:-> ov] {
                 z = e.z_index;
             }
-            found.append(_OverlayHit(node=ov, z=z, id_str=node_id(ov)));
+            found.append(_OverlayHit(nd=ov, z=z, id_str=node_id(ov)));
         }
     }
     if not found {
@@ -270,7 +270,7 @@ def _layered_overlays(layout_root: UiNode) -> list[UiNode] {
     }
     found.sort(key=_overlay_jid_key);
     found.sort(key=_overlay_z_key);
-    return [hit.node for hit in found];
+    return [hit.nd for hit in found];
 }
 
 
@@ -280,14 +280,14 @@ def _paint_node(state: LayoutState, n: UiNode, buf: CellBuffer) {
         return;
     }
     nid = node_id(n);
-    entry = frame.entries.get(nid);
-    if entry is None {
+    ent = frame.entries.get(nid);
+    if ent is None {
         return;
     }
-    if entry.wrapped_lines or nid in state.content {
+    if ent.wrapped_lines or nid in state.content {
         spec = state.specs.get(nid);
         scrolls = spec is not None and spec.scroll_vertical;
-        _paint_entry_lines(buf, entry, scrolls);
+        _paint_entry_lines(buf, ent, scrolls);
     }
 }
 
@@ -336,10 +336,10 @@ def _walk_damage(
     state = renderer.layout;
     frame = state.last_frame;
     nid = node_id(n);
-    entry = frame.entries.get(nid) if frame is not None else None;
+    ent = frame.entries.get(nid) if frame is not None else None;
     prev = renderer.prev_rects.get(nid, Rect());
-    if entry is not None {
-        cur = entry.rect;
+    if ent is not None {
+        cur = ent.rect;
         if prev.is_empty() and not cur.is_empty() {
             out.append(DamageRect(rect=cur.copy(), reason="appear"));
         } elif not prev.is_empty() and cur.is_empty() {
@@ -448,12 +448,12 @@ def _resolve_cursor(renderer: Renderer) -> CursorPos {
         return CursorPos();
     }
     frame = renderer.layout.last_frame;
-    entry = frame.entries.get(renderer.cursor_node_id) if frame is not None else None;
-    if entry is None or entry.rect.is_empty() {
+    ent = frame.entries.get(renderer.cursor_node_id) if frame is not None else None;
+    if ent is None or ent.rect.is_empty() {
         return CursorPos();
     }
-    row = entry.rect.y + renderer.cursor_row_offset;
-    col = entry.rect.x + renderer.cursor_col_offset;
+    row = ent.rect.y + renderer.cursor_row_offset;
+    col = ent.rect.x + renderer.cursor_col_offset;
     if row < 0 or col < 0 {
         return CursorPos();
     }

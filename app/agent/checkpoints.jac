@@ -200,11 +200,11 @@ def _capture_files(cwd: str, file_paths: list[str]) -> dict[str, str] {
 def _dir_size(dir_path: str) -> int {
     total = 0;
     try {
-        for entry in os.scandir(dir_path) {
-            if entry.is_dir() {
-                total += _dir_size(entry.path);
-            } elif entry.is_file() {
-                total += entry.stat().st_size;
+        for dir_entry in os.scandir(dir_path) {
+            if dir_entry.is_dir() {
+                total += _dir_size(dir_entry.path);
+            } elif dir_entry.is_file() {
+                total += dir_entry.stat().st_size;
             }
         }
     } except OSError {}
@@ -366,8 +366,8 @@ def list_checkpoints(cwd: str) -> list {
         return [];
     }
 
-    for entry in entries {
-        dir_path = os.path.join(cp_dir, entry);
+    for name_entry in entries {
+        dir_path = os.path.join(cp_dir, name_entry);
         if not os.path.isdir(dir_path) {
             continue;
         }
@@ -378,7 +378,7 @@ def list_checkpoints(cwd: str) -> list {
         try {
             metadata = _load_json_file(meta_path);
             items.append({
-                "name": entry,
+                "name": name_entry,
                 "metadata": metadata,
                 "sizeBytes": _dir_size(dir_path),
             });

@@ -290,9 +290,9 @@ test "set_content enforces monotonic revisions and liveness" {
     # Equal-or-advancing revisions replace content.
     assert set_content(state, t, ["two"], 1).ok;
     assert set_content(state, t, ["three"], 2).ok;
-    entry = state.content[node_id(t)];
-    assert entry.lines == ["three"];
-    assert entry.content_revision == 2;
+    ent = state.content[node_id(t)];
+    assert ent.lines == ["three"];
+    assert ent.content_revision == 2;
 }
 
 

@@ -1404,11 +1404,11 @@ def _local_mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
     if not isinstance(servers, dict) {
         return out;
     }
-    for (name, entry) in servers.items() {
-        if not isinstance(entry, dict) or not str(name) {
+    for (name, ent) in servers.items() {
+        if not isinstance(ent, dict) or not str(name) {
             continue;
         }
-        cmd: any = entry.get("command");
+        cmd: any = ent.get("command");
         if isinstance(cmd, str) {
             cmd = [cmd];
         }
@@ -1416,7 +1416,7 @@ def _local_mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
             continue;
         }
         parts: list[str] = [str(c) for c in cmd];
-        extra: any = entry.get("args");
+        extra: any = ent.get("args");
         if isinstance(extra, list) {
             parts.extend([str(a) for a in extra]);
         }

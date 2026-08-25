@@ -134,11 +134,11 @@ def handle_command(line: str) -> str | None {
         if not cmds { return "no extension commands loaded"; }
         lines: list[str] = ["extension commands:"];
         for raw_name in sorted(cmds.keys()) {
-            entry = cmds[raw_name];
+            ent = cmds[raw_name];
             name = str(raw_name);
             desc = "";
-            if isinstance(entry, dict) {
-                got = entry.get("description", "");
+            if isinstance(ent, dict) {
+                got = ent.get("description", "");
                 if isinstance(got, str) { desc = got; }
             }
             if desc {

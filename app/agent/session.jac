@@ -10,7 +10,6 @@ import os;
 import json;
 import time;
 
-import from typing { Callable }
 
 import from .llm {
     Transport,
@@ -154,11 +153,11 @@ def _mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
     if not isinstance(servers, dict) {
         return out;
     }
-    for (name, entry) in servers.items() {
-        if not isinstance(entry, dict) or not str(name) {
+    for (name, ent) in servers.items() {
+        if not isinstance(ent, dict) or not str(name) {
             continue;
         }
-        cmd: any = entry.get("command");
+        cmd: any = ent.get("command");
         if isinstance(cmd, str) {
             cmd = [cmd];
         }
@@ -166,7 +165,7 @@ def _mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
             continue;
         }
         parts: list[str] = [str(c) for c in cmd];
-        extra: any = entry.get("args");
+        extra: any = ent.get("args");
         if isinstance(extra, list) {
             parts.extend([str(a) for a in extra]);
         }
@@ -717,20 +716,20 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
         }
         raw_entries: list[dict] = traffic["entries"];
         for e in raw_entries {
-            entry: dict = dict(e);
+            ent: dict = dict(e);
             # P11: an entry renderer matching this type upgrades the entry
             # with native content lines (app/ui paints them via
             # set_node_content); unmatched entries pass through untouched.
             try {
                 r: dict = render_extension_block(
-                    bridge as PluginBridge, "entry", str(entry.get("type", "")), entry.get("data")
+                    bridge as PluginBridge, "entry", str(ent.get("type", "")), ent.get("data")
                 );
                 if r.get("ok") and r.get("lines") {
-                    entry["lines"] = r["lines"];
+                    ent["lines"] = r["lines"];
                 }
             } except Exception {
             }
-            on_event("entry", entry);
+            on_event("entry", ent);
         }
     } except Exception {
     }
@@ -771,12 +770,12 @@ def _maybe_auto_compact(bridge: PluginBridge | None) {
         cfg = resolve_auto_compact_config(
             raw_cfg, str(raw_cfg.get("compactStrategy", ""))
         );
-        override: any = None;
+        ctx_override: any = None;
         env_max: str = os.environ.get("JACKAL_CONTEXT_MAX", "");
         if env_max.isdigit() {
-            override = int(env_max);
+            ctx_override = int(env_max);
         }
-        usage = compute_context_usage(history, override);
+        usage = compute_context_usage(history, ctx_override);
         if not should_auto_compact(usage, cfg) {
             return;
         }

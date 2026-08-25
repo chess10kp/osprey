@@ -90,7 +90,7 @@ edge Layer: Screen --> Overlay {
 
 obj RankedChild {
     has rank: int,
-        node: UiNode;
+        nd: UiNode;
 }
 
 
@@ -110,11 +110,11 @@ def ordered_children(parent: UiContainer) -> list[UiNode] {
     pairs: list[RankedChild] = [];
     for child in [parent ->:Child:->] {
         for e in [edge parent ->:Child:-> child] {
-            pairs.append(RankedChild(rank=e.rank, node=child));
+            pairs.append(RankedChild(rank=e.rank, nd=child));
         }
     }
     pairs.sort(key=_ranked_child_key);
-    return [pair.node for pair in pairs];
+    return [pair.nd for pair in pairs];
 }
 
 

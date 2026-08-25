@@ -14,7 +14,7 @@ dicts as they arrive:
 import os;
 import json;
 import time;
-import from typing { Callable, Generator }
+import from collections.abc { Generator }
 import from .tool_spec { ToolSpec, MAX_TOOL_RESULT }
 import from .registry {
     ToolRegistry,

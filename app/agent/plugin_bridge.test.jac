@@ -81,10 +81,10 @@ test "load_extension registers js tools and invoke round-trips" {
         {"echo": _echo},
     );
     assert names == ["echo"];
-    entry = get_tool(reg, "echo");
-    assert entry is not None;
-    assert entry.origin == "js";
-    assert entry.extension_id == "stub.echo";
+    ent = get_tool(reg, "echo");
+    assert ent is not None;
+    assert ent.origin == "js";
+    assert ent.extension_id == "stub.echo";
     kinds = drain_inbox(bridge);
     assert "host_hello" in kinds;
     assert "ext_loaded" in kinds;
@@ -184,9 +184,9 @@ test "node host load stub_echo and invoke round-trip" {
     stub = resolve_stub_echo();
     names = load_extension_path(bridge, reg, "stub.echo", stub);
     assert "echo" in names;
-    entry = get_tool(reg, "echo");
-    assert entry is not None;
-    assert entry.origin == "js";
+    ent = get_tool(reg, "echo");
+    assert ent is not None;
+    assert ent.origin == "js";
     result = invoke(reg, "echo", {"text": "hi"}, bridge);
     assert result == "ECHO:hi";
     dispose_bridge(bridge);
@@ -242,9 +242,9 @@ test "node host loads real Pi greet extension" {
     path = resolve_pi_greet();
     names = load_extension_path(bridge, reg, "pi.greet", path);
     assert "greet" in names;
-    entry = get_tool(reg, "greet");
-    assert entry is not None;
-    assert entry.origin == "js";
+    ent = get_tool(reg, "greet");
+    assert ent is not None;
+    assert ent.origin == "js";
     result = invoke(reg, "greet", {"name": "Jac"}, bridge);
     assert result == "Hello, Jac!";
     dispose_bridge(bridge);
@@ -569,8 +569,8 @@ test "fake host drains messages entries and ui events" {
     # Entries include the ui_event normalized from the command's UI calls.
     entries: list[dict] = list(traffic["entries"]);
     kinds: list[str] = [];
-    for entry in entries {
-        kinds.append(str(entry.get("type", "")));
+    for ent in entries {
+        kinds.append(str(ent.get("type", "")));
     }
     assert "ui_event" in kinds;
 
@@ -1248,8 +1248,8 @@ test "tool execute ui ctx: notify rides tool_result notifications, setStatus rid
     traffic: dict = drain_extension_traffic(bridge);
     methods: list[str] = [];
     entries: list = traffic["entries"];
-    for entry in entries {
-        row: dict = entry;
+    for ent in entries {
+        row: dict = ent;
         if str(row.get("type", "")) == "ui_event" {
             methods.append(str(row.get("method", "")));
         }

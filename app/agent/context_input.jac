@@ -112,18 +112,18 @@ syntactically present but rejected range leaves line_range None (whole
 file)."""
 def parse_file_mentions(input_text: str) -> list {
     mentions: list = [];
-    for match in re.finditer(_FILE_MENTION_PATTERN, input_text) {
-        file_path = str(match.group(1));
+    for m in re.finditer(_FILE_MENTION_PATTERN, input_text) {
+        file_path = str(m.group(1));
         if not is_valid_file_path(file_path) {
             continue;
         }
-        line_start = match.group(2);
-        line_end = match.group(3);
+        line_start = m.group(2);
+        line_end = m.group(3);
         mention: dict = {
-            "raw_text": match.group(0),
+            "raw_text": m.group(0),
             "file_path": file_path,
-            "start_index": match.start(),
-            "end_index": match.end(),
+            "start_index": m.start(),
+            "end_index": m.end(),
             "line_range": None,
         };
         if line_start {

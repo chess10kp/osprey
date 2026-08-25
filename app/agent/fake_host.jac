@@ -197,9 +197,9 @@ def register_fake_transformer(
     if h is None {
         raise RuntimeError("plugin host unavailable");
     }
-    entry = {"fn": fn, "extension_id": extension_id};
-    h.md_transformers.append(entry);
-    bridge.md_transformers.append(entry);
+    transformer = {"fn": fn, "extension_id": extension_id};
+    h.md_transformers.append(transformer);
+    bridge.md_transformers.append(transformer);
 }
 
 
@@ -211,12 +211,12 @@ def register_fake_provider(bridge: any, cfg: dict, extension_id: str = "fake.pro
         raise ValueError("provider config requires a name");
     }
     h = bridge.host;
-    entry = dict(cfg);
+    provider_cfg = dict(cfg);
     if h is not None {
-        h.providers[name] = {**entry, "owner": extension_id};
+        h.providers[name] = {**provider_cfg, "owner": extension_id};
     }
-    entry["extension_id"] = extension_id;
-    bridge.providers[name] = entry;
+    provider_cfg["extension_id"] = extension_id;
+    bridge.providers[name] = provider_cfg;
 }
 
 

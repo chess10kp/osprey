@@ -182,7 +182,7 @@ obj _Entry {
 
 
 obj _FlowChild {
-    has entry: _Entry,
+    has ent: _Entry,
         size: AxisSize,
         natural: float | None = None;
 }
@@ -902,7 +902,7 @@ def _emit_partition(
                 nat = float(natural_sizes[nid].height);
             }
         }
-        flow_kids.append(_FlowChild(entry=scoped, size=size_axis, natural=nat));
+        flow_kids.append(_FlowChild(ent=scoped, size=size_axis, natural=nat));
     }
 
     span_flow = span_w if horizontal_flow else span_h;
@@ -919,7 +919,7 @@ def _emit_partition(
             if mx is None {
                 mx = 1e308;
             }
-            info.child_ids.append(flow_kids[i].entry.edges.id_str);
+            info.child_ids.append(flow_kids[i].ent.edges.id_str);
             info.targets.append(alloc.targets[i]);
             info.fixed.append(_flow_weight(kid_size) == 0.0);
             info.minimums.append(kid_size.minimum);
@@ -947,7 +947,7 @@ def _emit_partition(
         if not _emit(
             result,
             _expr([
-                _t(_axis_start(flow_kids[0].entry.edges, horizontal_flow)),
+                _t(_axis_start(flow_kids[0].ent.edges, horizontal_flow)),
                 _t(_axis_start(parent_edges, horizontal_flow), -1.0),
             ]),
             Relation.EQ,
@@ -960,8 +960,8 @@ def _emit_partition(
             if not _emit(
                 result,
                 _expr([
-                    _t(_axis_start(flow_kids[i].entry.edges, horizontal_flow)),
-                    _t(_axis_end(flow_kids[i - 1].entry.edges, horizontal_flow), -1.0),
+                    _t(_axis_start(flow_kids[i].ent.edges, horizontal_flow)),
+                    _t(_axis_end(flow_kids[i - 1].ent.edges, horizontal_flow), -1.0),
                 ]),
                 Relation.EQ,
                 StrengthTier.REQUIRED,
@@ -978,8 +978,8 @@ def _emit_partition(
         # when they fall on the current axis; only FLOW-axis size facts
         # are gated to the phase that owns the flow axis.
         kid = flow_kids[i];
-        kid_edges = kid.entry.edges;
-        kid_scoped = kid.entry.scoped;
+        kid_edges = kid.ent.edges;
+        kid_scoped = kid.ent.scoped;
         if _wants(phase, horizontal_flow) and _flow_weight(kid.size) > 0.0 {
             has_flexible = True;
             if not _emit(
@@ -1022,7 +1022,7 @@ def _emit_partition(
         # cross axis is the opposite of THIS container's flow axis.
         if _wants(phase, not horizontal_flow) {
             if not _emit_cross_axis(
-                result, kid.entry, owner, natural_sizes,
+                result, kid.ent, owner, natural_sizes,
                 not horizontal_flow,
             ) {
                 return False;
@@ -1033,9 +1033,9 @@ def _emit_partition(
         # the cross span passes straight through from this container.
         child_span_w = alloc.targets[i] if horizontal_flow else span_w;
         child_span_h = span_h if horizontal_flow else alloc.targets[i];
-        if isinstance(kid.entry.scoped.target, UiContainer) {
+        if isinstance(kid.ent.scoped.target, UiContainer) {
             if not _emit_partition(
-                result, kid.entry, entries_by_id, natural_sizes,
+                result, kid.ent, entries_by_id, natural_sizes,
                 child_span_w, child_span_h, phase,
             ) {
                 return False;
@@ -1050,7 +1050,7 @@ def _emit_partition(
     # — forcing closure here would turn the warned overflow into an
     # UNSATISFIABLE frame.
     if has_flexible and not alloc.hard_overflow and _wants(phase, horizontal_flow) {
-        last_edges = flow_kids[len(flow_kids) - 1].entry.edges;
+        last_edges = flow_kids[len(flow_kids) - 1].ent.edges;
         if not _emit(
             result,
             _expr([
@@ -1467,8 +1467,8 @@ def compile_layout(
             bottom=solver.new_variable(),
         );
         result.nodes[scoped.id_str] = edges;
-        entry = _Entry(scoped=scoped, edges=edges, spec=state.specs[scoped.id_str]);
-        entries_by_id[scoped.id_str] = entry;
+        ent = _Entry(scoped=scoped, edges=edges, spec=state.specs[scoped.id_str]);
+        entries_by_id[scoped.id_str] = ent;
     }
     root_entry = entries_by_id[node_id(layout_root)];
 

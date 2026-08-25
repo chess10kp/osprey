@@ -120,9 +120,9 @@ def web_search(query: str, num_results: int = DEFAULT_SEARCH_RESULTS) -> str {
         );
         results: list[tuple] = [];
         seen_urls: set = set();
-        for entry in enumerate(anchors) {
-            idx = int(entry[0]);
-            pair = entry[1];
+        for ent in enumerate(anchors) {
+            idx = int(ent[0]);
+            pair = ent[1];
             attrs = str(pair[0]);
             title = strip_html(pair[1]);
             href_m = re.search(r'href="([^"]+)"', attrs);

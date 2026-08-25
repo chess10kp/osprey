@@ -19,7 +19,6 @@ object; no realms/isolation or interception yet; provisions are unique per
 active fiber (enforced lightly); no async/inertia - deactivation is eager.
 """
 
-import from typing { Callable }
 
 
 """An accumulator element: an inverse action plus the coeffect keys it

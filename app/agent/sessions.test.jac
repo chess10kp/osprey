@@ -447,9 +447,9 @@ def _backdate_transcript(tmp: str, session_id: str, updated_iso: str) {
     idx: any = _read_raw(ipath);
     pos = 0;
     while pos < len(idx) {
-        entry: dict = idx[pos];
-        if str(entry.get("id")) == session_id {
-            entry["updatedAt"] = updated_iso;
+        ent: dict = idx[pos];
+        if str(ent.get("id")) == session_id {
+            ent["updatedAt"] = updated_iso;
         }
         pos += 1;
     }

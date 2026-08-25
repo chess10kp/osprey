@@ -222,17 +222,17 @@ def explain_invalidation(
 def dump_layout(session: UiSession, n: UiNode) -> str {
     nid = node_id(n);
     lines: list[str] = ["node=" + _node_label(n)];
-    entry = session.renderer.layout.get(nid, None);
-    if entry is None {
+    ent = session.renderer.layout.get(nid, None);
+    if ent is None {
         lines.append("layout=<none>");
         return "\n".join(lines);
     }
-    if isinstance(entry, dict) {
-        for key in sorted(entry.keys()) {
-            lines.append(str(key) + "=" + str(entry[key]));
+    if isinstance(ent, dict) {
+        for key in sorted(ent.keys()) {
+            lines.append(str(key) + "=" + str(ent[key]));
         }
     } else {
-        lines.append("layout=" + str(entry));
+        lines.append("layout=" + str(ent));
     }
     return "\n".join(lines);
 }

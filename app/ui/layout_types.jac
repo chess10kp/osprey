@@ -575,8 +575,8 @@ def set_scroll_offset(state: LayoutState, target: UiNode, requested_offset: int)
     }
     state.specs[id_str].scroll_vertical = True;
     state.scroll_requests[id_str] = max(0, requested_offset);
-    entry = state.content.get(id_str);
-    if entry is None {
+    ent = state.content.get(id_str);
+    if ent is None {
         state.content[id_str] = ContentEntry(
             lines=[],
             content_revision=0,
@@ -618,28 +618,28 @@ def frame_entry_of(state: LayoutState, target: UiNode) -> FrameEntry | None {
     if state.last_frame is None {
         return None;
     }
-    entry = state.last_frame.entries.get(node_id(target));
-    if entry is None {
+    ent = state.last_frame.entries.get(node_id(target));
+    if ent is None {
         return None;
     }
     return FrameEntry(
-        measured=Size(width=entry.measured.width, height=entry.measured.height),
-        rect=_copy_rect(entry.rect),
-        clip=_copy_rect(entry.clip),
-        wrapped_lines=[line for line in entry.wrapped_lines],
-        requested_scroll_offset=entry.requested_scroll_offset,
-        scroll_offset=entry.scroll_offset,
-        max_scroll_offset=entry.max_scroll_offset,
+        measured=Size(width=ent.measured.width, height=ent.measured.height),
+        rect=_copy_rect(ent.rect),
+        clip=_copy_rect(ent.clip),
+        wrapped_lines=[line for line in ent.wrapped_lines],
+        requested_scroll_offset=ent.requested_scroll_offset,
+        scroll_offset=ent.scroll_offset,
+        max_scroll_offset=ent.max_scroll_offset,
     );
 }
 
 
 def rect_of(state: LayoutState, target: UiNode) -> Rect | None {
-    entry = frame_entry_of(state, target);
-    if entry is None {
+    ent = frame_entry_of(state, target);
+    if ent is None {
         return None;
     }
-    return _copy_rect(entry.rect);
+    return _copy_rect(ent.rect);
 }
 
 

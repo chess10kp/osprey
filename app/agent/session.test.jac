@@ -62,8 +62,8 @@ test "session_boot parallel sidecar loads fixture and run_turn uses bridge" {
     bridge = plugins.bridge;
     assert reg is not None;
     assert bridge is not None;
-    entry = get_tool(reg as ToolRegistry, "echo");
-    assert entry is not None;
+    ent = get_tool(reg as ToolRegistry, "echo");
+    assert ent is not None;
     result = invoke(reg as ToolRegistry, "echo", {"text": "sess"}, bridge as PluginBridge);
     assert result == "ECHO:sess";
     session_dispose();

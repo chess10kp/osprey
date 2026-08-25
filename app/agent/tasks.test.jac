@@ -85,15 +85,15 @@ test "save writes tasks.json as an indent=2 array with camelCase keys" {
 
         raw = _read_raw(path);
         assert isinstance(raw, list) and len(raw) == 1;
-        entry: dict = raw[0];
-        assert set(entry.keys()) == {"id", "title", "description", "status", "createdAt", "updatedAt"};
-        assert entry["id"] == task["id"];
-        assert entry["title"] == "ship the port";
-        assert entry["description"] is None;  # blank description coalesces to null
-        assert entry["status"] == "pending";
-        assert _is_iso_utc(str(entry["createdAt"]));
-        assert _is_iso_utc(str(entry["updatedAt"]));
-        assert entry["createdAt"] == entry["updatedAt"];
+        ent: dict = raw[0];
+        assert set(ent.keys()) == {"id", "title", "description", "status", "createdAt", "updatedAt"};
+        assert ent["id"] == task["id"];
+        assert ent["title"] == "ship the port";
+        assert ent["description"] is None;  # blank description coalesces to null
+        assert ent["status"] == "pending";
+        assert _is_iso_utc(str(ent["createdAt"]));
+        assert _is_iso_utc(str(ent["updatedAt"]));
+        assert ent["createdAt"] == ent["updatedAt"];
         assert load_tasks(tmp) == [task];
     } finally {
         _cleanup(tmp);
