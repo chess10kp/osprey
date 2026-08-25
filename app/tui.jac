@@ -61,6 +61,13 @@ import from agent.checkpoints {
     restore_checkpoint_files,
     format_checkpoint_overlay_row,
 }
+import from agent.context_input { expand_context_input }
+import from agent.skills {
+    load_jackal_skills,
+    expand_skill_command,
+    _load_ignore_rules,
+    _match_ignore_pattern,
+}
 import os;
 
 import from ui.runtime {
@@ -148,6 +155,19 @@ import from ui.width {
 
 glob SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+# /explorer walk bounds + skip list (dot-dirs are always skipped; dot-FILES
+# stay selectable). Caps keep huge trees responsive inside an 8-row overlay.
+glob _EXPLORER_SKIP_DIRS: list[str] = [
+         "node_modules", "__pycache__", ".git", ".jac", ".jackal",
+         ".venv", "venv", ".mypy_cache", ".pytest_cache",
+     ],
+     _EXPLORER_MAX_FILES: int = 400,
+     _EXPLORER_MAX_DEPTH: int = 6;
+
+# TODO(paths-with-spaces): mention parsing (agent.context_input) splits
+# tokens on whitespace, so explorer-inserted paths containing spaces will
+# not expand downstream until the parser learns quoting.
+
 # Built-in slash commands handled by _run_slash locally (name without the
 # leading "/" -> short description for the autocomplete popup).
 glob SLASH_BUILTINS: dict[str, str] = {
@@ -164,6 +184,8 @@ glob SLASH_BUILTINS: dict[str, str] = {
     "tasks": "list project tasks",
     "checkpoint": "create a checkpoint (/checkpoint NAME)",
     "checkpoints": "browse and restore checkpoints",
+    "explorer": "multi-select files as @mentions",
+    "skills": "list available skills (/skill:name)",
 };
 
 
@@ -633,16 +655,40 @@ def _picker_lines(app: LiveShell) -> list[str] {
         draft = str(p.get("draft", ""));
         shown = draft if draft else "(type a model id)";
         body.append("  > " + shown[:inner - 8] + "▌");
-    } else {
+    } elif bool(p.get("multi", False)) {
+        # Multi-select (EXPLORER): [x]/[ ] toggle boxes plus a sliding
+        # 8-row window so the cursor stays visible in long file lists.
         options: list = list(p.get("options", []));
+        ids: list = list(p.get("ids", []));
+        toggled: list = list(p.get("toggled", []));
+        sel = min(int(p.get("selected", 0)), max(0, len(options) - 1));
+        start = 0;
+        if sel >= 8 {
+            start = sel - 7;
+        }
+        window: any = options[start:start + 8];
+        i = start;
+        for opt in window {
+            rid = str(ids[i]) if i < len(ids) else "";
+            box = "x" if rid in toggled else " ";
+            mark = ">" if i == sel else " ";
+            body.append(mark + " [" + box + "] " + str(opt)[:inner - 10]);
+            i += 1;
+        }
+        more = len(options) - start - len(window);
+        if more > 0 {
+            body.append("… " + str(more) + " more");
+        }
+    } else {
+        options2: list = list(p.get("options", []));
         sel = int(p.get("selected", 0));
         i = 0;
-        for opt in options[:8] {
+        for opt in options2[:8] {
             mark = ">" if i == sel else " ";
             body.append(mark + " " + str(opt)[:inner - 6]);
             i += 1;
         }
-        more = len(options) - 8;
+        more = len(options2) - 8;
         if more > 0 {
             body.append("… " + str(more) + " more");
         }
@@ -650,6 +696,8 @@ def _picker_lines(app: LiveShell) -> list[str] {
     body.append("");
     if str(p.get("mode", "select")) == "input" {
         body.append("  type id · [enter] submit   [esc] cancel");
+    } elif bool(p.get("multi", False)) {
+        body.append("  [↑↓] move  [space] toggle  [enter] insert  [esc]");
     } else {
         body.append("  [↑↓] move   [enter] choose   [esc] cancel");
     }
@@ -675,6 +723,7 @@ def _open_picker(
     rows: list[str],
     ids: list[str],
     extra_last_input: bool = False,
+    multi: bool = False,
 ) -> bool {
     if app.picker is not None or app.ui_modal is not None or app.shell.approval is not None {
         return False;
@@ -695,10 +744,16 @@ def _open_picker(
         "selected": 0,
         "mode": "select",
         "draft": "",
+        "multi": multi,
+        "toggled": [],
         "prev_hint": app.status_hint,
     };
     shell_open_approval(app.session, app.shell);
-    app.status_hint = "↑↓ move · enter choose · esc cancel";
+    if multi {
+        app.status_hint = "↑↓ move · space toggle · enter insert · esc cancel";
+    } else {
+        app.status_hint = "↑↓ move · enter choose · esc cancel";
+    }
     app.dirty = True;
     return True;
 }
@@ -782,6 +837,23 @@ def _handle_picker_key(app: LiveShell, key: str) {
     options: list = list(p.get("options", []));
     ids: list = list(p.get("ids", []));
     sel = int(p.get("selected", 0));
+    if key == " " and bool(p.get("multi", False)) and len(options) > 0 {
+        # Multi-select toggle (space arrives as a TextEvent char). Header/
+        # divider rows are furniture and never toggle.
+        idx = min(sel, len(options) - 1);
+        rid = str(ids[idx]) if idx < len(ids) else "";
+        if rid and rid != "__header__" {
+            toggled: list = list(p.get("toggled", []));
+            if rid in toggled {
+                toggled.remove(rid);
+            } else {
+                toggled.append(rid);
+            }
+            p["toggled"] = toggled;
+            app.dirty = True;
+        }
+        return;
+    }
     if (key == "up" or key == "k") and len(options) > 0 {
         p["selected"] = (sel - 1) % len(options);
         app.dirty = True;
@@ -802,6 +874,20 @@ def _handle_picker_key(app: LiveShell, key: str) {
         if chosen_id == "__header__" {
             # Header/divider/summary rows are separators, not choices
             # (provider headers in MODEL, board furniture in TASKS).
+            app.dirty = True;
+            return;
+        }
+        if bool(p.get("multi", False)) {
+            # Multi-select confirm: insert every toggled path as @mentions;
+            # with nothing toggled, fall back to the cursor row.
+            picks: list = list(p.get("toggled", []));
+            if not picks {
+                picks = [chosen_id];
+            }
+            _close_picker(app);
+            if title == "EXPLORER" {
+                _insert_into_draft(app, _format_mentions(picks));
+            }
             app.dirty = True;
             return;
         }
@@ -831,6 +917,10 @@ def _handle_picker_key(app: LiveShell, key: str) {
             if reply {
                 _push_turn(app, "tool", reply);
             }
+        } elif title == "SKILLS" {
+            # Insert the expansion token; the user appends args and submits,
+            # at which point expand_skill_command inlines the skill body.
+            _insert_into_draft(app, "/skill:" + chosen_id + " ");
         }
         app.dirty = True;
     }
@@ -905,6 +995,173 @@ def _checkpoint_picker_entries(cwd: str) -> dict {
         ids.append(str(item.get("name", "")));
     }
     return {"rows": rows, "ids": ids};
+}
+
+
+"""EXPLORER picker rows via a bounded recursive walk under cwd.
+
+Dot-dirs and _EXPLORER_SKIP_DIRS are skipped (dot-FILES stay selectable);
+gitignore-style rules from .gitignore/.ignore/.fdignore are honored via
+agent.skills helpers; depth/file caps keep huge trees responsive. Rows are
+cwd-relative forward-slash paths; ids map 1:1 for toggling. Pure over cwd
+— replicated in tui_overlays.test.jac (keep in sync)."""
+def _explorer_walk(dir_path: str, base_root: str, depth: int, out: list[str]) {
+    if depth > _EXPLORER_MAX_DEPTH or len(out) >= _EXPLORER_MAX_FILES {
+        return;
+    }
+    rules: list = [];
+    try {
+        rules = _load_ignore_rules(base_root, dir_path);
+    } except Exception {
+        rules = [];
+    }
+    try {
+        entries = sorted(os.listdir(dir_path));
+    } except OSError {
+        return;
+    }
+    subdirs: list[str] = [];
+    for name in entries {
+        full = os.path.join(dir_path, name);
+        is_dir = os.path.isdir(full);
+        rel_fn: any = os.path.relpath;
+        rel = str(rel_fn(full, base_root)).replace(os.sep, "/");
+        # Ignore patterns match dirs with a trailing slash (skills.jac
+        # convention), files bare.
+        rel_cmp = rel + "/" if is_dir else rel;
+        try {
+            if _match_ignore_pattern(rel_cmp, rules) {
+                continue;
+            }
+        } except Exception {
+        }
+        if is_dir {
+            if name.startswith(".") or name in _EXPLORER_SKIP_DIRS {
+                continue;
+            }
+            subdirs.append(name);
+        } else {
+            if len(out) < _EXPLORER_MAX_FILES {
+                out.append(rel);
+            }
+        }
+    }
+    for name in subdirs {
+        _explorer_walk(os.path.join(dir_path, name), base_root, depth + 1, out);
+        if len(out) >= _EXPLORER_MAX_FILES {
+            return;
+        }
+    }
+}
+
+
+def _explorer_file_entries(cwd: str) -> dict {
+    out: list[str] = [];
+    _explorer_walk(cwd, cwd, 1, out);
+    return {"rows": list(out), "ids": list(out)};
+}
+
+
+"""SKILLS picker rows from a load_jackal_skills() result's skill list: one
+"name — description" row per skill (model-hidden skills tagged "· hidden");
+ids are skill names so enter can insert /skill:name. Pure over its input
+— replicated in tui_overlays.test.jac."""
+def _skills_picker_entries(skills: list) -> dict {
+    if not skills {
+        return {"rows": ["no skills found"], "ids": ["__header__"]};
+    }
+    rows: list[str] = [];
+    ids: list[str] = [];
+    for s in skills {
+        name = str(s.get("name", ""));
+        desc = str(s.get("description", ""));
+        label = name + (" — " + desc if desc else "");
+        if s.get("disableModelInvocation", False) is True {
+            label += "  · hidden";
+        }
+        rows.append(label);
+        ids.append(name);
+    }
+    return {"rows": rows, "ids": ids};
+}
+
+
+"""Editor-draft mention text for picked paths: deduped `@a @b ` with a
+trailing space so typing continues cleanly. Empty picks -> "" (paths with
+whitespace will not round-trip through mention parsing; see TODO at top)."""
+def _format_mentions(paths: list) -> str {
+    parts: list[str] = [];
+    seen: set[str] = set();
+    for p in paths {
+        rel = str(p);
+        if not rel or rel in seen {
+            continue;
+        }
+        seen.add(rel);
+        parts.append("@" + rel);
+    }
+    if not parts {
+        return "";
+    }
+    return " ".join(parts) + " ";
+}
+
+
+"""Append text to the prompt draft (picker/skill insertion point moves to
+the end; manual edits drop history-browse mode as editor_insert does)."""
+def _insert_into_draft(app: LiveShell, addition: str) {
+    if not addition {
+        return;
+    }
+    draft = app.shell.prompt.draft + addition;
+    app.shell.prompt.draft = draft;
+    app.shell.prompt.caret = len(draft);
+    app.shell.prompt.history_index = -1;
+    app.dirty = True;
+}
+
+
+"""Open the EXPLORER multi-select overlay over the project tree."""
+def _open_explorer_picker(app: LiveShell) -> str {
+    entries = _explorer_file_entries(os.getcwd());
+    if not entries["rows"] {
+        return "no readable project files";
+    }
+    opened = _open_picker(app, "EXPLORER", entries["rows"], entries["ids"], multi=True);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
+}
+
+
+"""Open the SKILLS catalog overlay; enter inserts `/skill:name ` into the
+draft (submitting it inlines the skill body via expand_skill_command)."""
+def _open_skills_picker(app: LiveShell) -> str {
+    skills: list = [];
+    try {
+        catalog: dict = load_jackal_skills();
+        skills = list(catalog.get("skills", []));
+    } except Exception as e {
+        return "ERROR: failed to load skills: " + str(e)[:80];
+    }
+    entries = _skills_picker_entries(skills);
+    ids: list = list(entries["ids"]);
+    selectable = False;
+    for rid in ids {
+        if str(rid) != "__header__" {
+            selectable = True;
+            break;
+        }
+    }
+    if not selectable {
+        return str(entries["rows"][0]) if entries["rows"] else "no skills found";
+    }
+    opened = _open_picker(app, "SKILLS", entries["rows"], entries["ids"]);
+    if not opened {
+        return "picker unavailable (overlay busy)";
+    }
+    return "";
 }
 
 
@@ -1237,7 +1494,11 @@ def _apply_resize(app: LiveShell, columns: int, rows: int) {
 
 Events flow through app.evq as (kind, data) pairs consumed by _tick_stream;
 the worker is a daemon so esc/quit never hangs on a stuck transport."""
-def _begin_assistant_reply(app: LiveShell, user_text: str) {
+def _begin_assistant_reply(app: LiveShell, user_text: str, model_text: str = "") {
+    # Transcript shows the RAW user line (mirrors the legacy shells);
+    # model_text — when different — is the context-expanded payload
+    # (@file blocks / !cmd output) actually sent downstream.
+    payload = model_text if model_text else user_text;
     _push_turn(app, "user", user_text);
     app.phase = "streaming";
     app.shell.status.phase = "streaming";
@@ -1288,7 +1549,7 @@ def _begin_assistant_reply(app: LiveShell, user_text: str) {
 
     def worker_main {
         try {
-            answer = run_turn(user_text, collector, approve=approve);
+            answer = run_turn(payload, collector, approve=approve);
             q.put(("__done__", {"answer": str(answer)}));
         } except Exception as e {
             try {
@@ -1581,6 +1842,12 @@ def _run_slash(app: LiveShell, line: str) -> str {
     if line == "/tasks" {
         return _open_tasks_picker(app);
     }
+    if line == "/explorer" {
+        return _open_explorer_picker(app);
+    }
+    if line == "/skills" {
+        return _open_skills_picker(app);
+    }
     if line == "/checkpoints" {
         return _open_checkpoints_picker(app);
     }
@@ -1591,6 +1858,22 @@ def _run_slash(app: LiveShell, line: str) -> str {
             return _open_checkpoints_picker(app);
         }
         return _create_checkpoint_now(app, arg);
+    }
+    if line.startswith("/skill:") {
+        # Inline skill expansion: the transcript keeps the typed command;
+        # the model receives the <skill> block with args appended.
+        try {
+            catalog: dict = load_jackal_skills();
+        } except Exception as e {
+            return "ERROR: failed to load skills: " + str(e);
+        }
+        expanded = expand_skill_command(line, catalog["skills"]);
+        if expanded == line {
+            unknown = line[7:].split(" ", 1)[0];
+            return "unknown skill: " + unknown + " (/skills for the list)";
+        }
+        _begin_assistant_reply(app, line, expanded);
+        return "";
     }
     if line.startswith("/") {
         parts = line[1:].split(None, 1);
@@ -1964,7 +2247,17 @@ def _handle_key(app: LiveShell, key: str) {
             app.dirty = True;
             return;
         }
-        _begin_assistant_reply(app, text);
+        # Context-expansion seam: @path[:10-20] become fenced <file>
+        # blocks and a leading !cmd becomes a <command_output> block.
+        # Any unexpected expansion failure degrades to the raw text rather
+        # than killing the turn. Transcript still displays the raw line.
+        expanded: str = text;
+        try {
+            expanded = expand_context_input(os.getcwd(), text);
+        } except Exception {
+            expanded = text;
+        }
+        _begin_assistant_reply(app, text, expanded);
         return;
     }
     if key == "backspace" {
