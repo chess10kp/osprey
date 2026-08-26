@@ -32,7 +32,7 @@ glob WEB_TIMEOUT_SECS: int = 15,
 
 """Validate an http(s) URL; reject everything else (no file://, no data:).
 Returns ("", error_message) on failure."""
-def validate_web_url(raw: str) -> tuple {
+def validate_web_url(raw: str) -> tuple[str, str] {
     url = (raw or "").strip();
     if not url {
         return ("", "url is required");
@@ -118,8 +118,8 @@ def web_search(query: str, num_results: int = DEFAULT_SEARCH_RESULTS) -> str {
             r'(?is)<(?:a|td|div)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|td|div)>',
             page,
         );
-        results: list[tuple] = [];
-        seen_urls: set = set();
+        results: list[tuple[str, str, str]] = [];
+        seen_urls: set[str] = set();
         for ent in enumerate(anchors) {
             idx = int(ent[0]);
             pair = ent[1];
@@ -205,7 +205,7 @@ sem web_fetch.url = "http(s) URL to fetch.";
 """ToolSpec-shaped dicts for agent.tools.tool_specs() registration.
 Mirrors the ToolSpec(name/description/parameters/handler) shape without
 importing ToolSpec, so tools.jac needs one append line to adopt these."""
-def tool_specs_web() -> list[dict] {
+def tool_specs_web() -> list[dict[str, any]] {
     return [
         {
             "name": "web_search",
