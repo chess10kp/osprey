@@ -49,23 +49,18 @@ default_codespace = "native"
 # ui.layout_compile: BLOCKED native — imports server-pinned
 # constraints.algebra/solver; placement resolves the native pin to server.
 "ui.layout_compile" = "server"
+
+# --- Graph-cluster holds (post edge-jid landing, 2026-08-25) ---
+# Vendored jaclang now lowers EdgeRefTrailer bound endpoints and jid()
+# (vendor tests "osp bound endpoints + jid"). Remaining holds:
+# ui.model: E5092 UnaryExpr fallback observed at the edge-jid branch base;
+#   RE-VERIFY on current main, then unpin model -> mutation -> events ->
+#   runtime -> inspect -> demos cascade.
 "ui.model" = "server"
 "ui.mutation" = "server"
 "ui.events" = "server"
-# ui.runtime: BLOCKED native (verified by forced-native probe, 2026-08-25):
-# (a) in-body graph ops with no native lowering (edge traversals
-#     [<-:Child:<-]/[->:Owns:->], connect +>:Layer:+>, `del e`, jid()/root BFS);
-# (b) E5093: UiNode/UiContainer/Screen/Overlay/MutationResult params come from
-#     server-pinned ui.model, so they cannot cross the native->Python boundary.
-# Unblocks only when jaclang grows native edge/jid support and ui.model lowers.
 "ui.runtime" = "server"
-# ui.inspect: BLOCKED native — same gap class as ui.runtime: in-body edge
-# traversals ([n ->:Owns:->], [n <-:Child:<-]) plus UiSession/UiEvent-walker
-# types imported from server-pinned runtime/events (E5093 boundary).
 "ui.inspect" = "server"
-# Demos: BLOCKED native — walker spawn dispatch (`progress spawn SetProgress`),
-# and UiSession/renderer-typed args passed into server-pinned runtime/screen/
-# transcript/renderer/agent.protocol (E5093). Lower after their deps lower.
 "ui.demo_complex_shell" = "server"
 "ui.demo_live_shell" = "server"
 # agent.protocol: Envelope/InProcessAdapter objs are constructed by server
