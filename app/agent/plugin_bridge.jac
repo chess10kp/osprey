@@ -51,30 +51,30 @@ obj PluginBridge {
         last_active: float = 0.0,
         status_phase: str = "idle",
         idle_timeout_s: float = 300.0,
-        pending: dict = {},
+        pending: dict[str, any] = {},
         reply_q: any = None,
         reader_stop: any = None,
         reader_thread: any = None,
         write_lock: any = None,
         restart_used: bool = False,
-        host_caps: list = [],
+        host_caps: list[str] = [],
         compat_tier: str = "T0",
-        hello_payload: dict = {},
-        commands: dict = {},
-        md_transformers: list = [],
-        providers: dict = {},
+        hello_payload: dict[str, any] = {},
+        commands: dict[str, any] = {},
+        md_transformers: list[dict[str, any]] = [],
+        providers: dict[str, any] = {},
         ui_q: any = None,
         interactive_ui: bool = False,
-        traffic_messages: list = [],
-        traffic_entries: list = [],
+        traffic_messages: list[dict[str, any]] = [],
+        traffic_entries: list[dict[str, any]] = [],
         session_name: str = "",
-        shortcuts: dict = {},
-        labels: dict = {},
+        shortcuts: dict[str, any] = {},
+        labels: dict[str, any] = {},
         pending_model: str = "",
         pending_thinking_level: str = "";
 
     """Dispatch a js tool (fake or Node) — used by registry.invoke."""
-    def invoke_js_tool(name: str, args: dict) -> str {
+    def invoke_js_tool(name: str, args: dict[str, any]) -> str {
         return invoke_tool(self, name, args);
     }
 }
@@ -244,7 +244,7 @@ def resolve_node_bin(explicit: str = "") -> str {
 
 
 
-def envelope_to_dict(env: Envelope) -> dict {
+def envelope_to_dict(env: Envelope) -> dict[str, any] {
     return {
         "version": env.version,
         "session_id": env.session_id,
@@ -259,9 +259,9 @@ def envelope_to_dict(env: Envelope) -> dict {
 }
 
 
-def envelope_from_dict(data: dict) -> Envelope {
+def envelope_from_dict(data: dict[str, any]) -> Envelope {
     raw_payload: any = data.get("payload", {});
-    payload: dict = {};
+    payload: dict[str, any] = {};
     if isinstance(raw_payload, dict) {
         payload = raw_payload;
     }
@@ -763,7 +763,7 @@ def load_extension(
     bridge: PluginBridge,
     reg: ToolRegistry,
     extension_id: str,
-    tool_defs: list,
+    tool_defs: list[dict[str, any]],
     handlers: dict[str, any],
 ) -> list[str] {
     if bridge.host_kind == "node" {
@@ -776,7 +776,7 @@ def load_extension(
     }
     corr = _alloc_corr(bridge);
     names: list[str] = [];
-    schemas: list = [];
+    schemas: list[dict[str, any]] = [];
     for td in tool_defs {
         t: any = td;
         name = str(t.get("name", ""));
@@ -785,7 +785,7 @@ def load_extension(
         }
         names.append(name);
         raw_params: any = t.get("parameters", {});
-        params: dict = {};
+        params: dict[str, any] = {};
         if isinstance(raw_params, dict) {
             params = raw_params;
         }
@@ -822,7 +822,7 @@ def load_extension(
 
 
 """Return (ok, missing) for required capabilities vs host_caps (P4)."""
-def caps_satisfied(bridge: PluginBridge, requires: list) -> list {
+def caps_satisfied(bridge: PluginBridge, requires: list[str]) -> list[any] {
     missing: list[str] = [];
     for r in requires {
         need = str(r);
@@ -837,7 +837,7 @@ def caps_satisfied(bridge: PluginBridge, requires: list) -> list {
 """Composite capability gate (P12 slice 5): interactive_ui means the Node
 host can round-trip AND this frontend installed a UI adapter. Line/JSON
 frontends fail loud at ext_load instead of at first ui.select call."""
-def ui_cap_satisfied(bridge: PluginBridge, requires: list, has_ui: bool) -> bool {
+def ui_cap_satisfied(bridge: PluginBridge, requires: list[str], has_ui: bool) -> bool {
     if "interactive_ui" not in [str(x) for x in requires] {
         return True;
     }
@@ -856,13 +856,13 @@ def load_extension_path(
     extension_id: str,
     path: str,
     timeout: float = 5.0,
-    requires: list = [],
+    requires: list[str] = [],
     has_ui: bool = False,
 ) -> list[str] {
     ensure_node_host(bridge);
     cap_check = caps_satisfied(bridge, requires);
     ok_caps: bool = bool(cap_check[0]);
-    missing: list = [];
+    missing: list[str] = [];
     if len(cap_check) > 1 {
         raw_m: any = cap_check[1];
         if isinstance(raw_m, list) {
@@ -888,7 +888,7 @@ def load_extension_path(
     }
     # Builtin catalog rides ext_load so pi.getAllTools() sees the full
     # surface (native-origin tools only; js tools come from other exts).
-    builtins: list[dict] = [];
+    builtins: list[dict[str, any]] = [];
     for tool_entry in reg.tools.values() {
         if tool_entry.origin == "native" {
             builtins.append({
@@ -935,7 +935,7 @@ def load_extension_path(
         }
         names.append(name);
         raw_params: any = t.get("parameters", {});
-        params: dict = {};
+        params: dict[str, any] = {};
         if isinstance(raw_params, dict) {
             params = raw_params;
         }
@@ -948,7 +948,7 @@ def load_extension_path(
         );
     }
     # T2-partial: track registered commands so the session/UI can route them.
-    cmds: list = reply.payload.get("commands", []);
+    cmds: list[any] = reply.payload.get("commands", []);
     if isinstance(cmds, list) {
         for cd in cmds {
             c: any = cd;
@@ -1053,7 +1053,7 @@ def unload_extension(
 
 
 """Invoke a js tool via tool_invoke / tool_result (fake or Node)."""
-def invoke_tool(bridge: PluginBridge, name: str, args: dict) -> str {
+def invoke_tool(bridge: PluginBridge, name: str, args: dict[str, any]) -> str {
     # Surface dead Node before attempting RPC (D13 degraded, never crash).
     if bridge.host_kind == "node" and not _node_alive(bridge) {
         host_status(bridge);
@@ -1073,7 +1073,7 @@ def invoke_tool(bridge: PluginBridge, name: str, args: dict) -> str {
 }
 
 
-def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
+def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict[str, any]) -> str {
     ensure_host(bridge);
     h = bridge.host;
     if h is None or not h.alive {
@@ -1125,7 +1125,7 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
         ok = False;
         err = str(e);
     }
-    payload: dict = {"ok": ok};
+    payload: dict[str, any] = {"ok": ok};
     if ok {
         payload["result"] = result;
     } else {
@@ -1147,7 +1147,7 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict) -> str {
 }
 
 
-def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
+def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict[str, any]) -> str {
     if not _node_alive(bridge) {
         phase = maybe_restart_host(bridge);
         if phase != "ready" or not _node_alive(bridge) {
@@ -1185,7 +1185,7 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict) -> str {
 """Invoke an extension keyboard shortcut by key. Returns the shortcut_result
 payload dict: {ok, notifications?, ui_events?, error?}; failures (including
 Node silence/timeout) come back as {ok: False, error: ...}, never raised."""
-def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> dict {
+def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> dict[str, any] {
     if bridge.host_kind == "node" {
         if not _node_alive(bridge) {
             phase = maybe_restart_host(bridge);
@@ -1234,7 +1234,7 @@ def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> di
     try {
         ui = FakeUi(notifications, []);
         result = shortcut_entry["handler"]({"ui": ui});
-        res_payload: dict = {
+        res_payload: dict[str, any] = {
             "ok": True,
             "result": "" if result is None else str(result),
             "notifications": notifications,
@@ -1246,7 +1246,7 @@ def invoke_shortcut(bridge: PluginBridge, key: str, timeout: float = 10.0) -> di
         _absorb_payload(bridge, res_payload);
         return res_payload;
     } except Exception as e {
-        err_payload: dict = {
+        err_payload: dict[str, any] = {
             "ok": False,
             "error": str(e),
             "notifications": notifications,
@@ -1298,7 +1298,7 @@ def drain_inbox(bridge: PluginBridge) -> list[str] {
 {ok, result?, error?, notifications?}. Raises TimeoutError on Node silence."""
 def invoke_command(
     bridge: PluginBridge, name: str, args: str = "", timeout: float = 10.0
-) -> dict {
+) -> dict[str, any] {
     if bridge.host_kind == "node" {
         if not _node_alive(bridge) {
             phase = maybe_restart_host(bridge);
@@ -1347,7 +1347,7 @@ def invoke_command(
     try {
         ui = FakeUi(notifications, []);
         result = handler_entry["handler"](args, {"ui": ui});
-        res_payload: dict = {
+        res_payload: dict[str, any] = {
             "ok": True,
             "result": "" if result is None else str(result),
             "notifications": notifications,
@@ -1359,7 +1359,7 @@ def invoke_command(
         _absorb_payload(bridge, res_payload);
         return res_payload;
     } except Exception as e {
-        err_payload: dict = {
+        err_payload: dict[str, any] = {
             "ok": False,
             "error": str(e),
             "notifications": notifications,
@@ -1372,7 +1372,7 @@ def invoke_command(
 
 """Absorb extension traffic (message pushes, entries, ui_events, session
 name) from a reply payload into bridge tracking buffers. Tolerates junk."""
-def _absorb_payload(bridge: PluginBridge, payload: dict) {
+def _absorb_payload(bridge: PluginBridge, payload: dict[str, any]) {
     msgs: any = payload.get("messages", []);
     if isinstance(msgs, list) {
         for m in msgs {
@@ -1457,7 +1457,7 @@ def _absorb_payload(bridge: PluginBridge, payload: dict) {
 
 """Shortcut bindings registered by loaded extensions (key -> meta dict with
 description + extension_id). Listed for host UIs; not yet bound to keys."""
-def list_shortcuts(bridge: PluginBridge | None) -> dict {
+def list_shortcuts(bridge: PluginBridge | None) -> dict[str, any] {
     if bridge is None {
         return {};
     }
@@ -1466,7 +1466,7 @@ def list_shortcuts(bridge: PluginBridge | None) -> dict {
 
 
 """Labels set by loaded extensions via pi.setLabel (id -> meta dict)."""
-def list_labels(bridge: PluginBridge | None) -> dict {
+def list_labels(bridge: PluginBridge | None) -> dict[str, any] {
     if bridge is None {
         return {};
     }
@@ -1478,8 +1478,8 @@ def list_labels(bridge: PluginBridge | None) -> dict {
 
 Returns {"model": str, "thinking_level": str} and clears both pendings so
 each request applies exactly once. Empty strings mean no request."""
-def drain_model_requests(bridge: PluginBridge | None) -> dict {
-    out: dict = {"model": "", "thinking_level": ""};
+def drain_model_requests(bridge: PluginBridge | None) -> dict[str, any] {
+    out: dict[str, any] = {"model": "", "thinking_level": ""};
     if bridge is None {
         return out;
     }
@@ -1492,7 +1492,7 @@ def drain_model_requests(bridge: PluginBridge | None) -> dict {
 
 
 """Pull per-listener ui_events buckets out of hook results."""
-def _absorb_hook_results(bridge: PluginBridge, results: list) {
+def _absorb_hook_results(bridge: PluginBridge, results: list[any]) {
     for r in results {
         if isinstance(r, dict) and r.get("ui_events") {
             _absorb_payload(bridge, {"ui_events": r["ui_events"]});
@@ -1511,9 +1511,9 @@ final working copy back as hook_done payload `data`. Other events return
 return ({block}, {action}, {messages}, ...) or None for scalar/None returns.
 Returns {results, data}; never raises on transport failure (empty results)."""
 def fire_hook_data(
-    bridge: PluginBridge | None, event: str, data: dict, timeout: float = 10.0
-) -> dict {
-    empty: dict = {"results": [], "data": dict(data)};
+    bridge: PluginBridge | None, event: str, data: dict[str, any], timeout: float = 10.0
+) -> dict[str, any] {
+    empty: dict[str, any] = {"results": [], "data": dict(data)};
     if bridge is None {
         return empty;
     }
@@ -1536,9 +1536,9 @@ def fire_hook_data(
         }
         touch_bridge(bridge);
         raw: any = reply.payload.get("results", []);
-        out_list: list = raw if isinstance(raw, list) else [];
+        out_list: list[any] = raw if isinstance(raw, list) else [];
         final: any = reply.payload.get("data");
-        final_data: dict = dict(final) if isinstance(final, dict) else dict(data);
+        final_data: dict[str, any] = dict(final) if isinstance(final, dict) else dict(data);
         _absorb_payload(bridge, dict(reply.payload));
         _absorb_hook_results(bridge, out_list);
         return {"results": out_list, "data": final_data};
@@ -1550,7 +1550,7 @@ def fire_hook_data(
         return empty;
     }
     working = dict(data);
-    results: list = [];
+    results: list[dict[str, any]] = [];
     for handler in h.listeners.get(event, []) {
         notifications: list[str] = [];
         try {
@@ -1575,7 +1575,7 @@ def fire_hook_data(
                     working["isError"] = out["isError"];
                 }
             }
-            entry_r: dict = {
+            entry_r: dict[str, any] = {
                 "ok": True,
                 "result": "" if out is None else str(out),
                 "verdict": out if isinstance(out, dict) else None,
@@ -1601,8 +1601,8 @@ def fire_hook_data(
 
 
 """Verdict dicts from successful listener results, in fire order."""
-def _ok_verdicts(results: list) -> list {
-    verdicts: list = [];
+def _ok_verdicts(results: list[any]) -> list[any] {
+    verdicts: list[any] = [];
     for r in results {
         if isinstance(r, dict) and r.get("ok") and isinstance(r.get("verdict"), dict) {
             verdicts.append(r["verdict"]);
@@ -1617,8 +1617,8 @@ def _ok_verdicts(results: list) -> list {
 Returns {blocked, reason, terminate, args} where args is the (possibly
 handler-mutated) tool input to actually execute with. First blocking handler
 wins. Never raises — default verdict lets the call through."""
-def tool_call_gate(bridge: PluginBridge | None, name: str, args: dict) -> dict {
-    out: dict = {"blocked": False, "reason": "", "terminate": False, "args": args};
+def tool_call_gate(bridge: PluginBridge | None, name: str, args: dict[str, any]) -> dict[str, any] {
+    out: dict[str, any] = {"blocked": False, "reason": "", "terminate": False, "args": args};
     if bridge is None {
         return out;
     }
@@ -1655,10 +1655,10 @@ result passes through untouched."""
 def tool_result_gate(
     bridge: PluginBridge | None,
     name: str,
-    args: dict,
+    args: dict[str, any],
     result: str,
-) -> dict {
-    out: dict = {"ok": True, "result": result, "is_error": False};
+) -> dict[str, any] {
+    out: dict[str, any] = {"ok": True, "result": result, "is_error": False};
     if bridge is None {
         return out;
     }
@@ -1702,8 +1702,8 @@ Returns {action, text} — action is continue | transform | handled (first
 handled wins). Transforms CHAIN: hosts apply each transform verdict to the
 working copy between handlers, so later handlers and the echoed final text
 see the composed result — the echoed text is authoritative."""
-def input_gate(bridge: PluginBridge | None, text: str) -> dict {
-    out: dict = {"action": "continue", "text": str(text)};
+def input_gate(bridge: PluginBridge | None, text: str) -> dict[str, any] {
+    out: dict[str, any] = {"action": "continue", "text": str(text)};
     if bridge is None {
         return out;
     }
@@ -1743,7 +1743,7 @@ def input_gate(bridge: PluginBridge | None, text: str) -> dict {
 Handlers may edit the message copy in place (echoed back) or return
 {messages} (explicit replacement — last one wins). Returns the message list
 to stream with; the caller's history is never mutated."""
-def context_gate(bridge: PluginBridge | None, messages: list) -> list {
+def context_gate(bridge: PluginBridge | None, messages: list[dict[str, any]]) -> list[dict[str, any]] {
     if bridge is None {
         return messages;
     }
@@ -1785,8 +1785,8 @@ systemPrompt composes last-wins across handlers (each handler built its
 string from the same base prompt in this single-round-trip design — full
 chaining would need per-handler round trips). Message injection keeps the
 last non-empty content."""
-def agent_start_gate(bridge: PluginBridge | None, prompt: str) -> dict {
-    out: dict = {"message": "", "systemPrompt": ""};
+def agent_start_gate(bridge: PluginBridge | None, prompt: str) -> dict[str, any] {
+    out: dict[str, any] = {"message": "", "systemPrompt": ""};
     if bridge is None {
         return out;
     }
@@ -1832,7 +1832,7 @@ hook_done payload: [{ok, extension_id, result|error, verdict?,
 notifications?, ui_events?}] where verdict carries the handler's raw object
 return when it returned a dict ({block}, {action}, {systemPrompt}, ...).
 Returns [] when no host exists (hooks are best-effort, never fatal)."""
-def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.0) -> list {
+def fire_hook(bridge: PluginBridge, event: str, data: dict[str, any], timeout: float = 10.0) -> list[dict[str, any]] {
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
         _prepare_corr(bridge, corr, expect_kind="hook_done");
@@ -1852,7 +1852,7 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
         }
         touch_bridge(bridge);
         raw: any = reply.payload.get("results", []);
-        out_list: list = raw if isinstance(raw, list) else [];
+        out_list: list[any] = raw if isinstance(raw, list) else [];
         _absorb_payload(bridge, dict(reply.payload));
         _absorb_hook_results(bridge, out_list);
         return out_list;
@@ -1862,13 +1862,13 @@ def fire_hook(bridge: PluginBridge, event: str, data: dict, timeout: float = 10.
     if h is None or not h.alive {
         return [];
     }
-    results: list = [];
+    results: list[dict[str, any]] = [];
     for handler in h.listeners.get(event, []) {
         notifications: list[str] = [];
         try {
             ui = FakeUi(notifications, []);
             out = handler(data, {"ui": ui});
-            entry_r: dict = {
+            entry_r: dict[str, any] = {
                 "ok": True,
                 "result": "" if out is None else str(out),
                 "verdict": out if isinstance(out, dict) else None,
@@ -1902,11 +1902,11 @@ when wired): relay_tool_hooks in agent/session.jac — fire where tool ==
 "run_command". Best-effort: no host or transport failure returns []."""
 def fire_user_bash(
     bridge: PluginBridge | None, command: str, result: str = ""
-) -> list {
+) -> list[dict[str, any]] {
     if bridge is None {
         return [];
     }
-    data: dict = {"command": str(command)};
+    data: dict[str, any] = {"command": str(command)};
     if result {
         data["result"] = str(result)[:2000];
     }
@@ -1921,7 +1921,7 @@ def fire_user_bash(
 """Fire the Pi `project_trust` hook when a project directory is first
 trusted. Payload: {path}. Best-effort: no host or transport failure
 returns []."""
-def fire_project_trust(bridge: PluginBridge | None, path: str) -> list {
+def fire_project_trust(bridge: PluginBridge | None, path: str) -> list[dict[str, any]] {
     if bridge is None {
         return [];
     }
@@ -1947,12 +1947,12 @@ def transform_markdown(
     markdown: str,
     message_type: str = "assistant",
     streaming: bool = False,
-) -> dict {
+) -> dict[str, any] {
     md = str(markdown);
     if bridge is None {
         return {"ok": True, "markdown": md};
     }
-    mctx = {"message_type": message_type, "isStreaming": streaming};
+    mctx: dict[str, any] = {"message_type": message_type, "isStreaming": streaming};
     if bridge.host_kind == "node" and _node_alive(bridge) {
         corr = _alloc_corr(bridge);
         _prepare_corr(bridge, corr, expect_kind="md_transformed");
@@ -2004,7 +2004,7 @@ def transform_markdown(
 """Pop accumulated extension traffic (messages pushed via sendMessage/
 sendUserMessage; entries/ui_events from appendEntry + display UI calls).
 Returns {"messages": [...], "entries": [...]} and clears the buffers."""
-def drain_extension_traffic(bridge: PluginBridge | None) -> dict {
+def drain_extension_traffic(bridge: PluginBridge | None) -> dict[str, any] {
     if bridge is None {
         return {"messages": [], "entries": []};
     }
@@ -2015,7 +2015,7 @@ def drain_extension_traffic(bridge: PluginBridge | None) -> dict {
             _absorb_payload(bridge, {"session_name": h.session_name});
         }
     }
-    out: dict = {
+    out: dict[str, any] = {
         "messages": list(bridge.traffic_messages),
         "entries": list(bridge.traffic_entries),
     };
@@ -2060,7 +2060,7 @@ def set_session_name(bridge: PluginBridge, name: str, timeout: float = 5.0) -> b
 
 Returns {provider, model, base_url, streaming} or None when the id does not
 match the namespace or no extension declared it."""
-def resolve_ext_model(bridge: PluginBridge | None, model_id: str) -> dict | None {
+def resolve_ext_model(bridge: PluginBridge | None, model_id: str) -> dict[str, any] | None {
     parts = str(model_id).split("/");
     if len(parts) != 3 or parts[0] != "ext" or not parts[1] or not parts[2] {
         return None;
@@ -2103,10 +2103,10 @@ def prepare_provider_request(
     bridge: PluginBridge | None,
     model: str,
     url: str,
-    headers: dict,
-    body: dict,
-) -> dict {
-    out: dict = {"url": url, "headers": headers, "body": body};
+    headers: dict[str, str],
+    body: dict[str, any],
+) -> dict[str, any] {
+    out: dict[str, any] = {"url": url, "headers": headers, "body": body};
     if bridge is None {
         return out;
     }
@@ -2142,7 +2142,7 @@ def prepare_provider_request(
 
 
 """Mirror the shim's toContentLines normalization."""
-def _fake_content_lines(out: any) -> list {
+def _fake_content_lines(out: any) -> list[str] {
     if out is None {
         return [];
     }
@@ -2161,8 +2161,8 @@ lines ({ok, lines}). Renderer errors degrade to unstyled fallback lines.
 No bridge/host/renderer -> {ok: False, lines: []} (caller uses defaults)."""
 def render_extension_block(
     bridge: PluginBridge | None, kind: str, type: str, payload: any
-) -> dict {
-    none_out: dict = {"ok": False, "lines": []};
+) -> dict[str, any] {
+    none_out: dict[str, any] = {"ok": False, "lines": []};
     if bridge is None {
         return none_out;
     }
@@ -2186,7 +2186,7 @@ def render_extension_block(
         touch_bridge(bridge);
         ok = bool(reply.payload.get("ok", False));
         raw: any = reply.payload.get("lines", []);
-        lines: list = [str(x) for x in raw] if isinstance(raw, list) else [];
+        lines: list[str] = [str(x) for x in raw] if isinstance(raw, list) else [];
         return {"ok": ok, "lines": lines};
     }
     h = bridge.host;
@@ -2224,7 +2224,7 @@ def _ui_queue(bridge: PluginBridge) -> UiInteractionQueue {
 
 def _ui_enqueue_from_env(bridge: PluginBridge, env: Envelope) {
     p = env.payload if env.payload is not None else {};
-    req = {
+    req: dict[str, any] = {
         "corr": str(env.correlation_id or ""),
         "parent_corr": str(p.get("parent_correlation_id", "")),
         "parent_kind": str(p.get("parent_kind", "")),
@@ -2249,7 +2249,7 @@ def _ui_enqueue_from_env(bridge: PluginBridge, env: Envelope) {
 def _ui_send_response(
     bridge: PluginBridge, corr: str, status: str, value: any, reason: str = ""
 ) -> bool {
-    payload: dict = {"status": status};
+    payload: dict[str, any] = {"status": status};
     if value is not None {
         payload["value"] = value;
     }
@@ -2278,14 +2278,14 @@ requests are answered cancelled automatically. Returns a payload dict for
 the modal controller or None:
 {corr, parent_corr, parent_kind, extension_id, method, title, message,
 options, placeholder}."""
-def poll_ui_request(bridge: PluginBridge) -> dict | None {
+def poll_ui_request(bridge: PluginBridge) -> dict[str, any] | None {
     if bridge is None or bridge.ui_q is None {
         return None;
     }
     q = bridge.ui_q as UiInteractionQueue;
-    polled: list = q.poll(time.monotonic());
+    polled: list[any] = q.poll(time.monotonic());
     live: any = polled[0];
-    expired: list = polled[1];
+    expired: list[any] = polled[1];
     for r in expired {
         rr: any = r;
         _ui_send_response(bridge, str(rr.corr), "cancelled", None, "timeout");
@@ -2343,10 +2343,10 @@ def cancel_all_ui(bridge: PluginBridge, reason: str = "cancelled") -> int {
     n = 0;
     # Drain via take() so queue and wire stay consistent.
     while True {
-        recs: list = [];
-        polled2: list = q.poll(time.monotonic());
+        recs: list[any] = [];
+        polled2: list[any] = q.poll(time.monotonic());
         live: any = polled2[0];
-        expired: list = polled2[1];
+        expired: list[any] = polled2[1];
         for r in expired + ([live] if live is not None else []) {
             recs.append(r);
         }

@@ -87,7 +87,7 @@ def handle_command(line: str) -> str | None {
             if got is None { return "no saved sessions to resume"; }
             sid = got;
         }
-        rec: dict | None = get_session_record(os.getcwd(), sid);
+        rec: dict[str, any] | None = get_session_record(os.getcwd(), sid);
         if rec is None { return "unknown session: " + sid; }
         msgs: any = rec.get("messages", []);
         if not isinstance(msgs, list) or not msgs {

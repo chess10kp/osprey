@@ -13,6 +13,9 @@ entry point returns {"ok": True, ...} or {"ok": False, "error": ...}.
 
 import json;
 import os;
+# NOTE: shutil/tempfile are unused by runtime code but REQUIRED here: the
+# same-stem test annex (mcp.test.jac) resolves names against the base
+# module's namespace at merge time. Do not remove.
 import shutil;
 import subprocess;
 import sys;
@@ -35,26 +38,26 @@ obj McpClient {
         timeout_s: float = DEFAULT_TIMEOUT_S,
         initialized: bool = False,
         protocol_version: str = "",
-        server_info: dict = {},
-        pending: dict = {},
-        notifications: list[dict] = [],
+        server_info: dict[str, any] = {},
+        pending: dict[str, any] = {},
+        notifications: list[dict[str, any]] = [],
         write_lock: any = None,
         reader_stop: any = None,
         reader_thread: any = None;
 
-    def start(server_cmd: list[str], timeout_s: float = -1.0) -> dict {
+    def start(server_cmd: list[str], timeout_s: float = -1.0) -> dict[str, any] {
         return mcp_start(self, server_cmd, timeout_s);
     }
 
-    def list_tools(timeout_s: float = -1.0) -> dict {
+    def list_tools(timeout_s: float = -1.0) -> dict[str, any] {
         return mcp_list_tools(self, timeout_s);
     }
 
-    def call_tool(name: str, arguments: dict, timeout_s: float = -1.0) -> dict {
+    def call_tool(name: str, arguments: dict[str, any], timeout_s: float = -1.0) -> dict[str, any] {
         return mcp_call_tool(self, name, arguments, timeout_s);
     }
 
-    def stop() -> dict {
+    def stop() -> dict[str, any] {
         return mcp_stop(self);
     }
 }
@@ -159,7 +162,7 @@ def _stop_reader(client: McpClient) {
 }
 
 
-def _write_line(client: McpClient, msg: dict) {
+def _write_line(client: McpClient, msg: dict[str, any]) {
     if not _alive(client) or client.proc.stdin is None {
         raise RuntimeError("mcp server not running");
     }
@@ -184,14 +187,14 @@ def _write_line(client: McpClient, msg: dict) {
 
 Internal: raises TimeoutError/RuntimeError. Public seam wraps this."""
 def _request(
-    client: McpClient, method: str, params: dict, timeout_s: float
-) -> dict {
+    client: McpClient, method: str, params: dict[str, any], timeout_s: float
+) -> dict[str, any] {
     _ensure_io(client);
     rid = client.next_id;
     client.next_id += 1;
     key = str(rid);
     client.pending[key] = {"event": threading.Event(), "msg": None};
-    req: dict = {
+    req: dict[str, any] = {
         "jsonrpc": "2.0",
         "id": rid,
         "method": method,
@@ -225,7 +228,7 @@ def _request(
 
 
 """Extract {"ok": ...} payload from a JSON-RPC response dict."""
-def _response_payload(resp: dict) -> dict {
+def _response_payload(resp: dict[str, any]) -> dict[str, any] {
     err: any = resp.get("error");
     if isinstance(err, dict) and err is not None {
         code = err.get("code", "");
@@ -252,7 +255,7 @@ def _effective_timeout(client: McpClient, timeout_s: float) -> float {
 
 server_cmd example: ["jac", "mcp"]. Returns {"ok": True, "server_info": ...}
 or {"ok": False, "error": ...}; never raises."""
-def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0) -> dict {
+def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0) -> dict[str, any] {
     if not server_cmd {
         return {"ok": False, "error": "server_cmd must not be empty"};
     }
@@ -276,7 +279,7 @@ def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0)
     }
     client.server_cmd = [str(c) for c in server_cmd];
     _start_reader(client);
-    init_params: dict = {
+    init_params: dict[str, any] = {
         "protocolVersion": MCP_PROTOCOL_VERSION,
         "capabilities": {},
         "clientInfo": {"name": "jackal", "version": "0.1.0"},
@@ -298,7 +301,7 @@ def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0)
         client.protocol_version = pv;
     }
     raw_info: any = result.get("serverInfo");
-    info: dict = {};
+    info: dict[str, any] = {};
     if isinstance(raw_info, dict) {
         info = raw_info;
     }
@@ -311,7 +314,7 @@ def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0)
         return {"ok": False, "error": f"initialized notification failed: {e}"};
     }
     client.initialized = True;
-    out: dict = {"ok": True};
+    out: dict[str, any] = {"ok": True};
     if info.get("name") {
         out["server_name"] = str(info.get("name"));
     }
@@ -323,7 +326,7 @@ def mcp_start(client: McpClient, server_cmd: list[str], timeout_s: float = -1.0)
 
 
 """List tools exposed by the server. Returns {"ok", "tools": [...]}."""
-def mcp_list_tools(client: McpClient, timeout_s: float = -1.0) -> dict {
+def mcp_list_tools(client: McpClient, timeout_s: float = -1.0) -> dict[str, any] {
     if not client.initialized or not _alive(client) {
         return {"ok": False, "error": "mcp client not initialized"};
     }
@@ -339,7 +342,7 @@ def mcp_list_tools(client: McpClient, timeout_s: float = -1.0) -> dict {
     }
     result: any = payload["result"];
     raw_tools: any = result.get("tools", []);
-    tools: list[dict] = [];
+    tools: list[dict[str, any]] = [];
     if isinstance(raw_tools, list) {
         for t in raw_tools {
             if isinstance(t, dict) and t.get("name") {
@@ -361,20 +364,20 @@ def mcp_list_tools(client: McpClient, timeout_s: float = -1.0) -> dict {
 MCP-level tool failures (isError=true) come back ok=True with is_error=True
 and the error text in "result" — the transport succeeded; semantics failed."""
 def mcp_call_tool(
-    client: McpClient, name: str, arguments: dict, timeout_s: float = -1.0
-) -> dict {
+    client: McpClient, name: str, arguments: dict[str, any], timeout_s: float = -1.0
+) -> dict[str, any] {
     if not client.initialized or not _alive(client) {
         return {"ok": False, "error": "mcp client not initialized"};
     }
     if not name {
         return {"ok": False, "error": "tool name must not be empty"};
     }
-    args: dict = {};
+    args: dict[str, any] = {};
     if isinstance(arguments, dict) {
         args = arguments;
     }
     timeout = _effective_timeout(client, timeout_s);
-    params: dict = {"name": str(name), "arguments": args};
+    params: dict[str, any] = {"name": str(name), "arguments": args};
     try {
         resp = _request(client, "tools/call", params, timeout);
     } except Exception as e {
@@ -397,7 +400,7 @@ def mcp_call_tool(
     }
     text = "\n".join(parts);
     is_err = bool(result.get("isError", False));
-    out: dict = {"ok": True, "result": text, "is_error": is_err};
+    out: dict[str, any] = {"ok": True, "result": text, "is_error": is_err};
     structured: any = result.get("structuredContent");
     if isinstance(structured, dict) {
         out["structured"] = structured;
@@ -407,7 +410,7 @@ def mcp_call_tool(
 
 
 """Stop the server subprocess and tear down reader state. Never raises."""
-def mcp_stop(client: McpClient) -> dict {
+def mcp_stop(client: McpClient) -> dict[str, any] {
     proc = client.proc;
     if proc is not None {
         try {
@@ -446,9 +449,9 @@ Each spec matches the native registration shape used across the repo:
 {"name", "description", "parameters"} where parameters is the MCP
 inputSchema JSON-Schema dict (empty object schema when absent).
 prefix avoids collisions with native tools (e.g. "mcp_")."""
-def mcp_tool_specs(client: McpClient, prefix: str = "", timeout_s: float = -1.0) -> list[dict] {
+def mcp_tool_specs(client: McpClient, prefix: str = "", timeout_s: float = -1.0) -> list[dict[str, any]] {
     res = mcp_list_tools(client, timeout_s);
-    specs: list[dict] = [];
+    specs: list[dict[str, any]] = [];
     if not res["ok"] {
         return specs;
     }
@@ -462,7 +465,7 @@ def mcp_tool_specs(client: McpClient, prefix: str = "", timeout_s: float = -1.0)
             continue;
         }
         raw_schema: any = t.get("inputSchema");
-        params: dict = {};
+        params: dict[str, any] = {};
         if isinstance(raw_schema, dict) and raw_schema {
             params = raw_schema;
         } else {

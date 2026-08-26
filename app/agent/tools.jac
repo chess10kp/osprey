@@ -6,6 +6,9 @@ to core/ modules which place native by inference.
 
 import os;
 import subprocess;
+# NOTE: shutil/tempfile are unused by this module's runtime code but REQUIRED
+# here: the same-stem test annex (tools.test.jac) resolves names against the
+# base module's namespace at merge time. Do not remove.
 import tempfile;
 import shutil;
 import fnmatch;
