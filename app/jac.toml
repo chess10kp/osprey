@@ -41,12 +41,34 @@ default_codespace = "native"
 # transcript/renderer/agent.protocol (E5093). Lower after their deps lower.
 "ui.demo_complex_shell" = "server"
 "ui.demo_live_shell" = "server"
+# agent.protocol: Envelope/InProcessAdapter objs are constructed by server
+# session/tui/demo consumers (class-boundary wall, see agent.tool_spec);
+# drive_screen pokes shell.transcript/status attributes of server-pinned
+# ui.screen ShellScreen across the boundary.
 "agent.protocol" = "server"
+# agent.tool_spec: LOWERS clean natively when explicitly pinned native
+# (verified 2026-08-25: placement=native, build green) but CANNOT be used
+# natively while its consumers stay server: server-codespace code that
+# constructs a native-pinned obj class dies at runtime with NameError
+# (registry.test.jac "as_tool_specs" -> ToolSpec(...) in registry.jac).
+# Same wall as E5093 for classes. Unblocks when jaclang gives native objs a
+# Python-side mirror, or when llm/session/plugin_bridge/tools/web_tools all
+# lower too.
 "agent.tool_spec" = "server"
+# agent.registry: same class-boundary wall (ToolSpec/RegisteredTool used by
+# server llm/plugin_bridge/session); additionally stores handler callables in
+# obj fields (B2, fix in flight) and invoke() calls ent.handler(**args).
 "agent.registry" = "server"
 "agent.plugin_bridge" = "server"
-"agent.extensions" = "server"
 "agent.session" = "server"
+# agent.extensions: BLOCKED native, two independent walls (probed 2026-08-25):
+# (a) no native json.load/loads in jaclang -> load_extension_decls demotes to
+#     Python-only, which forces the whole module server;
+# (b) os.path.abspath / os.path.isabs unsupported natively (dirname/join/
+#     isfile/getcwd ARE supported); ExtensionStatus/ExtensionDecl are
+#     constructed server-side in session.jac anyway (class-boundary wall,
+#     see agent.tool_spec above).
+"agent.extensions" = "server"
 
 [dependencies]
 httpx = "~=0.28"
