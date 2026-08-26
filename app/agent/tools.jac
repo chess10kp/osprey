@@ -6,8 +6,6 @@ to core/ modules which place native by inference.
 
 import os;
 import subprocess;
-import tempfile;
-import shutil;
 import fnmatch;
 import re;
 import from core.edit { apply_edit }
