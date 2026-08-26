@@ -58,7 +58,7 @@ obj Transport {
     has hook_bridge: any = None,
         hook_timeout: float = 2.0;
 
-    def _build_body(messages: list, tool_defs: list) -> dict {
+    def _build_body(messages: list[dict[str, any]], tool_defs: list[dict[str, any]]) -> dict[str, any] {
         # Single source of truth for the request body so tests can assert its
         # exact shape without network I/O. With thinking == "" the returned
         # dict is byte-identical to the pre-thinking-level body (no extra keys).
@@ -78,10 +78,10 @@ obj Transport {
         return body;
     }
 
-    def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+    def stream(messages: list[dict[str, any]], tool_defs: list[dict[str, any]]) -> Generator[dict[str, any], None, None] {
         import httpx;
         body = self._build_body(messages, tool_defs);
-        headers = {};
+        headers: dict[str, str] = {};
         if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
         url = self.base_url.rstrip("/") + "/chat/completions";
         yield from self._open_stream(url, headers, body);
@@ -90,7 +90,7 @@ obj Transport {
     """Fire the informational after_provider_response hook (Pi parity).
     Never raises and never blocks longer than hook_timeout — a failing or
     hung hook must not affect the stream."""
-    def _notify_response(status: int, headers: dict) {
+    def _notify_response(status: int, headers: dict[str, str]) {
         if self.hook_bridge is None {
             return;
         }
@@ -108,9 +108,9 @@ obj Transport {
 
     """POST `body` to `url` and yield normalized chunks (shared by native
     and P10 provider transports)."""
-    def _open_stream(url: str, headers: dict, body: dict) -> Generator[dict, None, None] {
+    def _open_stream(url: str, headers: dict[str, str], body: dict[str, any]) -> Generator[dict[str, any], None, None] {
         import httpx;
-        calls: dict[int, dict] = {};
+        calls: dict[int, dict[str, any]] = {};
         client_obj: any = httpx.Client(timeout=300.0);
         r: any = None;
         try {
@@ -162,7 +162,7 @@ obj Transport {
             client_obj.close();
         }
         if calls {
-            ordered: list[dict] = [];
+            ordered: list[dict[str, any]] = [];
             for i in sorted(calls) { ordered.append(calls[i]); }
             yield {"tool_calls": ordered};
         }
@@ -185,7 +185,7 @@ Route fields:
   key_env       bearer-token env var; "" = provider needs no credential
   models        static catalog hints (informational)
 """
-glob PROVIDER_ROUTES: dict = {
+glob PROVIDER_ROUTES: dict[str, dict[str, any]] = {
     "openrouter": {
         "description": "OpenRouter multi-provider gateway",
         "base_url": "https://openrouter.ai/api/v1",
@@ -279,7 +279,7 @@ the table's local:// marker instead of silently billing a real endpoint.
 def make_transport(model: str = "", thinking: str = "", hook_bridge: any = None) -> Transport {
     provider = provider_for(model);
     if provider == "ext" { provider = "openai_compat"; }
-    route: dict = PROVIDER_ROUTES[provider];
+    route: dict[str, any] = PROVIDER_ROUTES[provider];
     prefix = provider + "/";
     stripped = model;
     if model.startswith(prefix) { stripped = model[len(prefix):]; }
@@ -305,11 +305,11 @@ full request control, trusted in-process code), then streams identically to
 the native transport."""
 obj ProviderTransport (Transport) {
     has ext_bridge: any = None,
-        ext_cfg: dict = {};
+        ext_cfg: dict[str, any] = {};
 
-    override def stream(messages: list, tool_defs: list) -> Generator[dict, None, None] {
+    override def stream(messages: list[dict[str, any]], tool_defs: list[dict[str, any]]) -> Generator[dict[str, any], None, None] {
         body = self._build_body(messages, tool_defs);
-        headers = {};
+        headers: dict[str, str] = {};
         if self.api_key { headers["Authorization"] = "Bearer " + self.api_key; }
         # Typed intermediate: the literal-arg rstrip chain infers LiteralString,
         # which the hook rewrite below cannot assign back into.
@@ -359,8 +359,8 @@ def make_ext_transport(bridge: PluginBridge | None, model_id: str, thinking: str
     return t;
 }
 
-def _tool_defs(specs: list[ToolSpec]) -> list {
-    defs = [];
+def _tool_defs(specs: list[ToolSpec]) -> list[dict[str, any]] {
+    defs: list[dict[str, any]] = [];
     for s in specs {
         defs.append({
             "type": "function",
@@ -403,7 +403,7 @@ def _cap_tool_result(result: any) -> str {
 
 """Best-effort Pi message_end relay for one finalized assistant message.
 Never raises — hook transport failures must not break the turn."""
-def _notify_message_end(bridge: any, message: dict) {
+def _notify_message_end(bridge: any, message: dict[str, any]) {
     if bridge is None {
         return;
     }
@@ -432,7 +432,7 @@ cancelled-error tool results so the message protocol stays valid.
 Returns the final assistant text.
 """
 def react_loop(
-    messages: list,
+    messages: list[dict[str, any]],
     specs: list[ToolSpec],
     transport: Transport,
     on_event: any,
@@ -449,7 +449,7 @@ def react_loop(
 
     """Gate a tool call through the optional approver. True allows; any other
     return (str reason) becomes the tool's error result."""
-    def _approved(name: str, args: dict) -> any {
+    def _approved(name: str, args: dict[str, any]) -> any {
         if approve is None {
             return True;
         }
@@ -464,7 +464,7 @@ def react_loop(
     defs = _tool_defs(active_specs);
     for turn in range(max_iters) {
         text = "";
-        tool_calls: list = [];
+        tool_calls: list[dict[str, any]] = [];
         retries = 0;
         while True {
             stream_error = "";
@@ -473,7 +473,7 @@ def react_loop(
             # Pi `context` hook (batch-2): handlers may edit a copy of the
             # messages per LLM call; edits apply to this call only — the
             # caller's history is never mutated.
-            call_messages: list = messages;
+            call_messages: list[dict[str, any]] = messages;
             if bridge is not None {
                 try {
                     call_messages = context_gate(bridge as PluginBridge, messages);
@@ -527,12 +527,12 @@ def react_loop(
             return text;
         }
         if not tool_calls {
-            final_msg: dict = {"role": "assistant", "content": text};
+            final_msg: dict[str, any] = {"role": "assistant", "content": text};
             messages.append(final_msg);
             _notify_message_end(bridge, final_msg);
             return text;
         }
-        tc_msg: dict = {
+        tc_msg: dict[str, any] = {
             "role": "assistant",
             "content": text,
             "tool_calls": tool_calls,
@@ -579,7 +579,7 @@ def react_loop(
             on_event("tool_call", {"tool": name, "args": args});
             # Pi `tool_call` hook: handlers may mutate input in place and/or
             # return {block, reason?, terminate?}. First block wins.
-            gate: dict = {"blocked": False, "reason": "", "terminate": False};
+            gate: dict[str, any] = {"blocked": False, "reason": "", "terminate": False};
             if bridge is not None {
                 try {
                     g = tool_call_gate(bridge as PluginBridge, name, args);
