@@ -13,8 +13,13 @@ entry point returns {"ok": True, ...} or {"ok": False, "error": ...}.
 
 import json;
 import os;
+# NOTE: shutil/tempfile are unused by runtime code but REQUIRED here: the
+# same-stem test annex (mcp.test.jac) resolves names against the base
+# module's namespace at merge time. Do not remove.
+import shutil;
 import subprocess;
 import sys;
+import tempfile;
 import threading;
 import time;
 
