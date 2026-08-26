@@ -14,6 +14,6 @@ glob MAX_TOOL_RESULT: int = 50_000,
 obj ToolSpec {
     has name: str,
         description: str = "",
-        parameters: dict = {},
+        parameters: dict[str, any] = {},
         handler: Callable | None = None;
 }
