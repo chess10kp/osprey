@@ -86,7 +86,7 @@ obj SessionPlugins {
         cwd: str = "",
         bridge: PluginBridge | None = None,
         reg: ToolRegistry | None = None,
-        decls: list = [],
+        decls: list[any] = [],
         loaded: int = 0,
         total: int = 0,
         ready: bool = True,
@@ -97,15 +97,15 @@ obj SessionPlugins {
         prompt_queue: list[str] = [],
         warm_future: any = None,
         wait_budget_s: float = 5.0,
-        commands: dict = {},
+        commands: dict[str, any] = {},
         interactive_ui: bool = False,
         active_cancel: any = None,
-        mcp_clients: dict = {},
+        mcp_clients: dict[str, McpClient] = {},
         mcp_tools: int = 0;
 }
 
 
-glob history: list = [],
+glob history: list[dict[str, any]] = [],
      show_stats: bool = True,
      model: str = os.environ.get("JACKAL_MODEL", "openrouter/anthropic/claude-sonnet-5"),
      thinking_level: str = "",
@@ -117,7 +117,7 @@ glob _t0: float = 0.0,
 # Per-provider last-model memory (fx-style), persisted to
 # <cwd>/.jackal/model_prefs.json. Loaded defensively once per process; a
 # missing or corrupt file simply means no remembered preferences.
-glob _model_prefs: dict = {},
+glob _model_prefs: dict[str, any] = {},
      _model_prefs_loaded: bool = False;
 
 
@@ -143,7 +143,7 @@ def _mcp_name_chunk(raw: any) -> str {
 
 """Extract {name: argv} MCP server specs from a parsed .jackal config.
 Malformed entries are skipped silently."""
-def _mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
+def _mcp_server_specs(cfg: dict[str, any]) -> dict[str, list[str]] {
     out: dict[str, list[str]] = {};
     raw: any = cfg.get("mcp") if isinstance(cfg, dict) else None;
     if not isinstance(raw, dict) {
@@ -182,7 +182,7 @@ resultToString convention (invoke does str(handler(**args))): tool text on
 success, ERROR-prefixed strings on transport or MCP-level failures."""
 def _make_mcp_handler(client: McpClient, server_name: str, tool_name: str) -> Callable {
     def handle(**args: any) -> str {
-        res: dict = client.call_tool(tool_name, args);
+        res: dict[str, any] = client.call_tool(tool_name, args);
         if res.get("ok") {
             if res.get("is_error") {
                 return (
@@ -262,7 +262,7 @@ def _attach_one_mcp_server(server_name: str, cmd: list[str]) {
 
 
 """Parse .jackal mcp config and background-spawn each declared server."""
-def _attach_mcp_servers(cfg: dict) {
+def _attach_mcp_servers(cfg: dict[str, any]) {
     specs = _mcp_server_specs(cfg);
     for (name, cmd) in specs.items() {
         flow _attach_one_mcp_server(name, cmd);
@@ -323,7 +323,7 @@ def _record_model_pref(name: str) {
 
 """Snapshot of persisted last-model preferences ("last" + provider keys).
 For the TUI /model picker to preselect per-provider defaults."""
-def model_preferences() -> dict {
+def model_preferences() -> dict[str, any] {
     _load_model_prefs();
     return dict(_model_prefs);
 }
@@ -376,7 +376,7 @@ def clear_history {
 
 
 """Render one event from the loop to stdout (line-mode UI)."""
-def render_event(kind: str, data: dict) {
+def render_event(kind: str, data: dict[str, any]) {
     out: any = sys.stdout;
     if kind == "chunk" {
         out.write(str(data.get("content", "")));
@@ -505,7 +505,7 @@ Returns extensions_status. No Node if undeclared.
 def session_boot(
     sid: str = "",
     cwd: str = "",
-    decls: list | None = None,
+    decls: list[any] | None = None,
     wait_budget_s: float = 5.0,
     interactive_ui: bool = False,
 ) -> ExtensionStatus {
@@ -539,7 +539,7 @@ def session_boot(
     # raises and tolerates bridge=None.
     rt = get_tool(plugins.reg, "run_command");
     if rt is not None and rt.handler is not None {
-        cell: dict = {"fn": rt.handler};
+        cell: dict[str, any] = {"fn": rt.handler};
 
         def _run_command_hooked(cmd: str, timeout_secs: int = 120) -> str {
             res = str(cell["fn"](cmd, timeout_secs));
@@ -680,7 +680,7 @@ def relay_tool_hooks(bridge: PluginBridge | None, inner: any) -> any {
     if bridge is None {
         return inner;
     }
-    def relayed(kind: str, data: dict) {
+    def relayed(kind: str, data: dict[str, any]) {
         if kind == "tool_call" {
             fire_hook(bridge, "tool_execution_start", {
                 "tool": str(data.get("tool", "")),
@@ -709,19 +709,19 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
         return;
     }
     try {
-        traffic: dict = drain_extension_traffic(bridge);
-        msgs: list[dict] = traffic["messages"];
+        traffic: dict[str, any] = drain_extension_traffic(bridge);
+        msgs: list[dict[str, any]] = traffic["messages"];
         for m in msgs {
             history.append({"role": str(m.get("role", "user")), "content": str(m.get("content", ""))});
         }
-        raw_entries: list[dict] = traffic["entries"];
+        raw_entries: list[dict[str, any]] = traffic["entries"];
         for e in raw_entries {
-            ent: dict = dict(e);
+            ent: dict[str, any] = dict(e);
             # P11: an entry renderer matching this type upgrades the entry
             # with native content lines (app/ui paints them via
             # set_node_content); unmatched entries pass through untouched.
             try {
-                r: dict = render_extension_block(
+                r: dict[str, any] = render_extension_block(
                     bridge as PluginBridge, "entry", str(ent.get("type", "")), ent.get("data")
                 );
                 if r.get("ok") and r.get("lines") {
@@ -745,7 +745,7 @@ def _apply_pending_model_requests() {
     if b is None {
         return;
     }
-    req: dict = drain_model_requests(b as PluginBridge);
+    req: dict[str, any] = drain_model_requests(b as PluginBridge);
     m = str(req.get("model", ""));
     lv = str(req.get("thinking_level", ""));
     if m and m != model {
@@ -813,7 +813,7 @@ def _maybe_auto_compact(bridge: PluginBridge | None) {
                 strategy = "llm";
             }
         }
-        compacted: list[dict] = [{"role": "user", "content": summary_text}];
+        compacted: list[dict[str, any]] = [{"role": "user", "content": summary_text}];
         for m in kept {
             compacted.append(m);
         }
@@ -1011,7 +1011,7 @@ def run_turn(
         # line-based and native-screen clients share one protocol).
         if bridge is not None {
             try {
-                mr: dict = render_extension_block(
+                mr: dict[str, any] = render_extension_block(
                     bridge as PluginBridge,
                     "message",
                     "assistant",
@@ -1033,13 +1033,13 @@ def run_turn(
 
 
 """Read-only view of session history for the shell (/export, /sessions)."""
-def get_history() -> list {
+def get_history() -> list[dict[str, any]] {
     return list(history);
 }
 
 
 """Replace in-memory history with a loaded transcript (restore flow)."""
-def restore_history(msgs: list) {
+def restore_history(msgs: list[dict[str, any]]) {
     history.clear();
     for m in msgs {
         if isinstance(m, dict) {
@@ -1072,7 +1072,7 @@ def cancel_active_turn() -> bool {
 The bridge owns the authoritative set; this re-syncs from it so commands
 registered/unloaded after warm-up are reflected immediately.
 """
-def list_commands() -> dict {
+def list_commands() -> dict[str, any] {
     b = plugins.bridge;
     if b is not None {
         plugins.commands = dict((b as PluginBridge).commands);
@@ -1091,7 +1091,7 @@ def run_command(name: str, args: str = "") -> str {
     if bridge is None {
         return f"ERROR: no plugin host running (command /{name} unavailable)";
     }
-    res: dict = invoke_command(bridge as PluginBridge, name, args);
+    res: dict[str, any] = invoke_command(bridge as PluginBridge, name, args);
     # A command handler may have called pi.setModel/setThinkingLevel.
     _apply_pending_model_requests();
     lines: list[str] = [];
@@ -1120,7 +1120,7 @@ def run_extension_shortcut(key: str) -> str {
     if bridge is None {
         return f"ERROR: no plugin host running (shortcut {key} unavailable)";
     }
-    res: dict = invoke_shortcut(bridge as PluginBridge, key);
+    res: dict[str, any] = invoke_shortcut(bridge as PluginBridge, key);
     _apply_pending_model_requests();
     lines: list[str] = [];
     for note in res.get("notifications", []) or [] {
@@ -1141,20 +1141,20 @@ def run_extension_shortcut(key: str) -> str {
 """Shortcut bindings registered by loaded extensions (key -> meta with
 extension_id + description). Listed for host UIs; the TUI input loop matches
 keypresses against these and fires them via run_extension_shortcut."""
-def list_extension_shortcuts() -> dict {
+def list_extension_shortcuts() -> dict[str, any] {
     return list_shortcuts(plugins.bridge);
 }
 
 
 """Labels set by loaded extensions via pi.setLabel (id -> meta)."""
-def list_extension_labels() -> dict {
+def list_extension_labels() -> dict[str, any] {
     return list_labels(plugins.bridge);
 }
 
 
 """JSONL event sink: one serialized event per line on stdout. This IS the
 harness's UI protocol."""
-def json_event(kind: str, data: dict) {
+def json_event(kind: str, data: dict[str, any]) {
     line = json.dumps({"type": kind, **data});
     out: any = sys.stdout;
     out.write(line + "\n");
