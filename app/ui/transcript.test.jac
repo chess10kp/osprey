@@ -30,7 +30,7 @@ test "measure_cache_key includes id width and revisions" {
     k3 = measure_cache_key("a", 20, 1, 1);
     assert k1 != k2;
     assert k1 != k3;
-    assert create_measure_cache().entries == {};
+    assert len(create_measure_cache().entries) == 0;
 }
 
 

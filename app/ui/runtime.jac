@@ -35,8 +35,8 @@ import from ui.bindings {
 
 
 obj RendererState {
-    has layout: dict[str, dict] = {};
-    has damage: list[dict] = [];
+    has layout: dict[str, dict[str, int]] = {};
+    has damage: list[dict[str, int]] = [];
     has cursor_holder_id: str = "";
 }
 
@@ -53,6 +53,13 @@ obj InvalidationRecord {
 }
 
 
+"""Queued UI session event (resize, ...) for consumers to drain."""
+obj SessionEventRecord {
+    has kind: str = "";
+    has payload: dict[str, int] = {};
+}
+
+
 obj UiSession {
     has bindings: BindingRegistry;
     has renderer: RendererState;
@@ -64,7 +71,7 @@ obj UiSession {
     has graph_revision: int = 0;
     has disposed: bool = False;
     has invalidation_journal: list[InvalidationRecord] = [];
-    has event_queue: list[dict[str, any]] = [];
+    has event_queue: list[SessionEventRecord] = [];
     has tracked_node_ids: set[str] = set();
 }
 
@@ -202,8 +209,10 @@ def record_invalidation(
 def ui_jids_reachable_from_persistent_root(ui_jids: set[str]) -> list[str] {
     found: list[str] = [];
     visited: set[str] = set();
-    queue: list[any] = [root];
-    visited.add(jid(root));
+    # Seed via append: an any-typed list literal (`= [root]`) does not lower
+    # natively, while append onto an explicitly typed list does.
+    queue: list[any] = [];
+    queue.append(root);
     while queue {
         current = queue.pop(0);
         current_jid = jid(current);
@@ -373,7 +382,7 @@ def dispose_session(session: UiSession) {
         dispose_subtree(session.ui_root);
         session.ui_root = None;
     }
-    session.tracked_node_ids = set();
+    session.tracked_node_ids.clear();
 }
 
 

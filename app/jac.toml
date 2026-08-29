@@ -22,7 +22,13 @@ default_codespace = "native"
 "constraints.solver" = "server"
 "constraints.layout_relations" = "server"
 "core.edit" = "native"
-"ui.model" = "server"
+
+# 2026-08-29 cascade (vendor fixes: hasattr lowering, edge-field store,
+# empty-container-literal compare): model/mutation/runtime lower and pass
+# their suites natively (model 8/8, mutation 19/19, runtime 53/53).
+"ui.model" = "native"
+"ui.mutation" = "native"
+"ui.runtime" = "native"
 
 # Verified-lowering UI modules pinned native (2026-08-25 probe): each lowers
 # with zero fallback notes under default_codespace=native, but the seal only
@@ -31,9 +37,14 @@ default_codespace = "native"
 # matches reality. Modules whose deps are server-pinned stay "server"
 # (placement overrides their pins) and are annotated below.
 "ui.width" = "native"
+# layout_types must be pinned native so native importers (renderer, cells)
+# see Rect/LayoutState layouts; unpinned it seals server and its types erase.
+"ui.layout_types" = "native"
 "ui.markup" = "native"
-# ui.gates / ui.focus: BLOCKED native — import server-pinned ui.runtime
-# (E5093 boundary); placement resolves the native pin back to server.
+# ui.gates: BLOCKED native (2026-08-29 re-probe) — imports InsertText from
+# server-pinned ui.events (E5093 boundary); suite passes server-placed.
+# ui.focus: BLOCKED native — its test annex calls create_session (ui.runtime)
+# whose cross-unit native layout is not visible at focus's seal position.
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
@@ -51,15 +62,18 @@ default_codespace = "native"
 # constraints.algebra/solver; placement resolves the native pin to server.
 "ui.layout_compile" = "server"
 
-# --- Graph-cluster holds (post edge-jid landing, 2026-08-25) ---
-# Vendored jaclang now lowers EdgeRefTrailer bound endpoints and jid()
-# (vendor tests "osp bound endpoints + jid"). Remaining holds:
-# ui.model: E5092 UnaryExpr fallback observed at the edge-jid branch base;
-#   RE-VERIFY on current main, then unpin model -> mutation -> events ->
-#   runtime -> inspect -> demos cascade.
-"ui.mutation" = "server"
+# --- Graph-cluster holds (2026-08-29) ---
+# ui.events: module lowers EXCEPT its test annex — the annex calls
+# create_session (ui.runtime) whose cross-unit native function layout is
+# not visible when events compiles before runtime in the seal order, and
+# walker archetypes in the annex (EchoRegion can on_insert with InsertText)
+# hit the same wall. Also still seam-aborts when any native annex path
+# reaches a demoted function (vendor B7-class gap: native->demoted calls
+# abort instead of bridging). Re-probe after jaclang lands per-unit
+# cross-module function layouts or demoted-call bridging.
 "ui.events" = "server"
-"ui.runtime" = "server"
+# inspect/demos: hold for the events frontier above (walker dispatch +
+# annex walls); demos additionally spawn walkers (SetProgress).
 "ui.inspect" = "server"
 "ui.demo_complex_shell" = "server"
 "ui.demo_live_shell" = "server"

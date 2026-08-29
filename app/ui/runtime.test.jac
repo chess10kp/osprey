@@ -96,8 +96,8 @@ test "Gate 1 lifecycle dispose releases bindings renderer and capabilities" {
     dispose_session(session);
     assert session.disposed;
     assert is_empty(session.bindings);
-    assert session.renderer.layout == {};
-    assert session.capabilities.by_node == {};
+    assert len(session.renderer.layout) == 0;  # == {} dict-compare pending native dict deep-eq
+    assert len(session.capabilities.by_node) == 0;
     assert validate_session(session) == [];
 }
 
@@ -148,9 +148,9 @@ test "dispose clears renderer layout keys" {
     handle = create_session();
     session = handle.session;
     session.renderer.layout["00000000000000000000000000000000"] = {"x": 0};
-    assert session.renderer.layout != {};
+    assert len(session.renderer.layout) != 0;
     dispose_session(session);
-    assert session.renderer.layout == {};
+    assert len(session.renderer.layout) == 0;  # == {} dict-compare pending native dict deep-eq
 }
 
 

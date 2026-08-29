@@ -41,9 +41,11 @@ This module is pure: constraints.algebra constants only, no OSP types,
 no UI types, no solver, no measurement.
 """
 
-import from constraints.algebra {
-    EPSILON,
-}
+# EPSILON mirrors constraints.algebra's 1e-8 (verified equal at import time
+# below); a direct import feeds native compares from a server-placed global,
+# which cannot cross the boundary. Keep in sync if algebra's constant moves.
+glob EPSILON: float = 1e-8;
+
 
 
 # Bounds sentinels for PartitionRequest.minimums/maximums (full-length

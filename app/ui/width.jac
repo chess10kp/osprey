@@ -185,7 +185,13 @@ def grapheme_width(seg: str) -> int {
 
 
 """Return the length and end index of an ANSI escape at `pos`, or None."""
-def extract_ansi(text: str, pos: int) -> dict[str, int | str] | None {
+obj AnsiToken {
+    has code: str = "";
+    has length: int = 0;
+}
+
+
+def extract_ansi(text: str, pos: int) -> AnsiToken | None {
     if pos >= len(text) or text[pos] != "\x1b" {
         return None;
     }
@@ -198,7 +204,7 @@ def extract_ansi(text: str, pos: int) -> dict[str, int | str] | None {
         while j < len(text) {
             code = ord(text[j]);
             if code >= 64 and code <= 126 {
-                return {"code": text[pos:j + 1], "length": (j + 1) - pos};
+                return AnsiToken(code=text[pos:j + 1], length=(j + 1) - pos);
             }
             j += 1;
         }
@@ -208,10 +214,10 @@ def extract_ansi(text: str, pos: int) -> dict[str, int | str] | None {
         j = pos + 2;
         while j < len(text) {
             if text[j] == "\x07" {
-                return {"code": text[pos:j + 1], "length": (j + 1) - pos};
+                return AnsiToken(code=text[pos:j + 1], length=(j + 1) - pos);
             }
             if text[j] == "\x1b" and j + 1 < len(text) and text[j + 1] == "\\" {
-                return {"code": text[pos:j + 2], "length": (j + 2) - pos};
+                return AnsiToken(code=text[pos:j + 2], length=(j + 2) - pos);
             }
             j += 1;
         }
@@ -221,17 +227,17 @@ def extract_ansi(text: str, pos: int) -> dict[str, int | str] | None {
         j = pos + 2;
         while j < len(text) {
             if text[j] == "\x07" {
-                return {"code": text[pos:j + 1], "length": (j + 1) - pos};
+                return AnsiToken(code=text[pos:j + 1], length=(j + 1) - pos);
             }
             if text[j] == "\x1b" and j + 1 < len(text) and text[j + 1] == "\\" {
-                return {"code": text[pos:j + 2], "length": (j + 2) - pos};
+                return AnsiToken(code=text[pos:j + 2], length=(j + 2) - pos);
             }
             j += 1;
         }
         return None;
     }
     # Single-character ESC sequences (e.g. ESC c).
-    return {"code": text[pos:pos + 2], "length": 2};
+    return AnsiToken(code=text[pos:pos + 2], length=2);
 }
 
 
@@ -241,7 +247,7 @@ def strip_ansi(text: str) -> str {
     while i < len(text) {
         ansi = extract_ansi(text, i);
         if ansi is not None {
-            i += int(ansi["length"]);
+            i += ansi.length;
             continue;
         }
         out += text[i];
@@ -285,13 +291,19 @@ def display_width(text: str) -> int {
 }
 
 
-def _truncate_plain(text: str, max_width: int) -> dict[str, str | int] {
+obj TruncatedSpan {
+    has text: str = "";
+    has width: int = 0;
+}
+
+
+def _truncate_plain(text: str, max_width: int) -> TruncatedSpan {
     if max_width <= 0 or not text {
-        return {"text": "", "width": 0};
+        return TruncatedSpan(text="", width=0);
     }
     if _is_printable_ascii(text) and "\x1b" not in text and "\t" not in text {
         clipped = text[0:max_width];
-        return {"text": clipped, "width": len(clipped)};
+        return TruncatedSpan(text=clipped, width=len(clipped));
     }
     result = "";
     width = 0;
@@ -300,8 +312,8 @@ def _truncate_plain(text: str, max_width: int) -> dict[str, str | int] {
     while i < len(text) {
         ansi = extract_ansi(text, i);
         if ansi is not None {
-            pending_ansi += str(ansi["code"]);
-            i += int(ansi["length"]);
+            pending_ansi += ansi.code;
+            i += ansi.length;
             continue;
         }
         # Take one grapheme from the remaining non-ANSI run.
@@ -312,7 +324,7 @@ def _truncate_plain(text: str, max_width: int) -> dict[str, str | int] {
         for g in segment_graphemes(text[i:end]) {
             w = grapheme_width(g.text);
             if width + w > max_width {
-                return {"text": result, "width": width};
+                return TruncatedSpan(text=result, width=width);
             }
             if pending_ansi {
                 result += pending_ansi;
@@ -326,7 +338,7 @@ def _truncate_plain(text: str, max_width: int) -> dict[str, str | int] {
     if pending_ansi {
         result += pending_ansi;
     }
-    return {"text": result, "width": width};
+    return TruncatedSpan(text=result, width=width);
 }
 
 
@@ -353,15 +365,15 @@ def truncate_text(
     }
     if ellipsis_w >= max_width {
         clipped = _truncate_plain(ellipsis, max_width);
-        body = str(clipped["text"]);
+        body = clipped.text;
         if pad {
-            return body + (" " * (max_width - int(clipped["width"])));
+            return body + (" " * (max_width - clipped.width));
         }
         return body;
     }
     target = max_width - ellipsis_w;
     clipped = _truncate_plain(text, target);
-    body = str(clipped["text"]) + ellipsis;
+    body = clipped.text + ellipsis;
     if pad {
         return body + (" " * (max_width - display_width(body)));
     }
@@ -389,8 +401,8 @@ def wrap_text(text: str, width: int) -> list[str] {
         while i < len(line) {
             ansi = extract_ansi(line, i);
             if ansi is not None {
-                current += str(ansi["code"]);
-                i += int(ansi["length"]);
+                current += ansi.code;
+                i += ansi.length;
                 continue;
             }
             end = i + 1;

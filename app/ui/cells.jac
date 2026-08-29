@@ -5,6 +5,8 @@ default-attr cells here. Style lives in the retained buffer and damage path —
 not on OSP nodes and not as a frozen markup DSL.
 """
 
+import from ui.layout_types { Rect }
+
 import from ui.width {
     segment_graphemes,
     grapheme_width,
@@ -42,14 +44,6 @@ obj CellBuffer {
 obj CellDiff {
     has text: str = "",
         cells_written: int = 0;
-}
-
-
-obj PatchRect {
-    has x: int = 0,
-        y: int = 0,
-        width: int = 0,
-        height: int = 0;
 }
 
 
@@ -246,11 +240,17 @@ def buffer_blit_text(
 
 
 """Blit a run of {text, attrs} spans with wide-grapheme column advance."""
+obj TextSpan {
+    has text: str = "";
+    has attrs: StyleAttrs | None = None;
+}
+
+
 def buffer_blit_spans(
     buf: CellBuffer,
     row: int,
     col: int,
-    spans: list[dict],
+    spans: list[TextSpan],
     max_width: int = -1,
 ) {
     if row < 0 or row >= buf.rows or col < 0 or col >= buf.columns {
@@ -266,16 +266,11 @@ def buffer_blit_spans(
         if remaining <= 0 or x >= buf.columns {
             break;
         }
-        text = str(span.get("text", ""));
-        if not text {
+        if not span.text {
             continue;
         }
-        raw_attrs = span.get("attrs");
-        style: StyleAttrs | None = None;
-        if isinstance(raw_attrs, StyleAttrs) {
-            style = raw_attrs;
-        }
-        buffer_blit_text(buf, row, x, text, style, remaining);
+        buffer_blit_text(buf, row, x, span.text, span.attrs, remaining);
+        text = span.text;
         adv = grapheme_width(text);
         if adv > remaining {
             adv = remaining;
@@ -320,12 +315,12 @@ def buffer_from_plain_rows(
 
 
 def _rect_bounds(
-    rect: any, columns: int, rows_n: int
+    rect: Rect, columns: int, rows_n: int
 ) -> tuple[int, int, int, int] {
-    x = int(rect.x);
-    y = int(rect.y);
-    w = int(rect.width);
-    h = int(rect.height);
+    x = rect.x;
+    y = rect.y;
+    w = rect.width;
+    h = rect.height;
     x0 = max(0, x);
     y0 = max(0, y);
     x1 = min(columns, x + w);
@@ -338,7 +333,7 @@ def _rect_bounds(
 def diff_buffers_ansi(
     previous: CellBuffer | None,
     desired: CellBuffer,
-    patch_rects: list[any],
+    patch_rects: list[Rect],
 ) -> CellDiff {
     parts: list[str] = [];
     written = 0;
@@ -346,7 +341,7 @@ def diff_buffers_ansi(
     rows_n = desired.rows;
     rects: list[any] = patch_rects;
     if not rects {
-        rects = [PatchRect(x=0, y=0, width=columns, height=rows_n)];
+        rects = [Rect(x=0, y=0, width=columns, height=rows_n)];
     }
     cur_attrs = StyleAttrs();
     sgr_on = False;
