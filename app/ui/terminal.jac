@@ -4,7 +4,7 @@ ProcessTerminal ports the required host behavior from the floor reference
 (raw mode, alternate screen, bracketed paste enable, synchronized output,
 SIGWINCH resize plus poll-tick size re-check, SIGTERM/SIGHUP clean restore,
 and reliable restoration) using Python stdlib only
-(`termios`, `tty`, `select`, `signal`, `fcntl`, `codecs`).
+(`termios`, `tty`, `select`, `signal`, `fcntl`).
 It does not import or modify `tui/pi_jac_floor`.
 
 VirtualTerminal (virtual_terminal.jac) is the primary test adapter.
@@ -151,14 +151,103 @@ bytes are buffered until they form a complete sequence; invalid bytes become
 U+FFFD replacement characters without losing the surrounding text.
 """
 obj Utf8StreamDecoder {
-    has _decoder: any = None;
+    has _pending: bytes = b"";
 
-    def init() {
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace");
-    }
+    def init() {}
 
     def feed(data: bytes) -> str {
-        return self._decoder.decode(data);
+        buf: bytes = self._pending;
+        if len(data) > 0 {
+            if len(buf) == 0 {
+                buf = data;
+            } else {
+                buf = buf + data;
+            }
+        }
+        out: str = "";
+        n: int = len(buf);
+        i: int = 0;
+        while i < n {
+            b0: int = buf[i];
+            need: int = 0;
+            lo: int = 0x80;
+            hi: int = 0xBF;
+            cp: int = 0;
+            ok: bool = True;
+            if b0 < 0x80 {
+                out += chr(b0);
+                i += 1;
+                continue;
+            } elif b0 >= 0xC2 and b0 <= 0xDF {
+                need = 1;
+                cp = b0 - 0xC0;
+            } elif b0 == 0xE0 {
+                need = 2;
+                lo = 0xA0;
+                cp = b0 - 0xE0;
+            } elif b0 >= 0xE1 and b0 <= 0xEC {
+                need = 2;
+                cp = b0 - 0xE0;
+            } elif b0 == 0xED {
+                need = 2;
+                hi = 0x9F;
+                cp = b0 - 0xE0;
+            } elif b0 >= 0xEE and b0 <= 0xEF {
+                need = 2;
+                cp = b0 - 0xE0;
+            } elif b0 == 0xF0 {
+                need = 3;
+                lo = 0x90;
+                cp = b0 - 0xF0;
+            } elif b0 >= 0xF1 and b0 <= 0xF3 {
+                need = 3;
+                cp = b0 - 0xF0;
+            } elif b0 == 0xF4 {
+                need = 3;
+                hi = 0x8F;
+                cp = b0 - 0xF0;
+            } else {
+                ok = False;
+            }
+            if not ok {
+                out += "\uFFFD";
+                i += 1;
+                continue;
+            }
+            if i + need > n - 1 {
+                break;
+            }
+            j: int = 1;
+            good: bool = True;
+            while j <= need {
+                bj: int = buf[i + j];
+                lim_lo: int = lo;
+                lim_hi: int = hi;
+                if j > 1 {
+                    lim_lo = 0x80;
+                    lim_hi = 0xBF;
+                }
+                if bj < lim_lo or bj > lim_hi {
+                    good = False;
+                    break;
+                }
+                cp = cp * 64 + (bj - 0x80);
+                j += 1;
+            }
+            if not good {
+                out += "\uFFFD";
+                i += j;
+                continue;
+            }
+            out += chr(cp);
+            i += need + 1;
+        }
+        if i >= n {
+            self._pending = b"";
+        } else {
+            self._pending = buf[i:n];
+        }
+        return out;
     }
 }
 

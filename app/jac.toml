@@ -36,7 +36,12 @@ default_codespace = "native"
 # sealed "server" even when they compiled natively. Pin them so the manifest
 # matches reality. Modules whose deps are server-pinned stay "server"
 # (placement overrides their pins) and are annotated below.
-"ui.width" = "native"
+# ui.width: lowers natively (unicodedata floor has exact EAW/category tables)
+# but native STRINGS are byte-oriented: ord() returns the first UTF-8 byte and
+# len() counts bytes, so every non-ASCII answer is wrong (CJK width = 1,
+# combining marks miss). Keep server until the na pathway gets codepoint-
+# oriented ord/chr/len/index (vendor issue, tracked 2026-08-29).
+"ui.width" = "server"
 # layout_types must be pinned native so native importers (renderer, cells)
 # see Rect/LayoutState layouts; unpinned it seals server and its types erase.
 "ui.layout_types" = "native"
@@ -48,8 +53,14 @@ default_codespace = "native"
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
-"ui.terminal" = "native"
-"ui.virtual_terminal" = "native"
+# ui.terminal / ui.virtual_terminal: Utf8StreamDecoder is now pure Jac
+# (correct server-side) but native chr() emits ONE byte for codepoints >
+# 0x7F (byte-oriented strings), so native builds would emit mojibake; and
+# the full-module native compile crashes the test harness (stale-JIR /
+# IR-gen bug, see vendor notes). Server until codepoint-oriented
+# ord/chr/len land in the na pathway.
+"ui.terminal" = "server"
+"ui.virtual_terminal" = "server"
 "ui.input" = "native"
 "ui.bindings" = "native"
 "ui.screen" = "native"

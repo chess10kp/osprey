@@ -218,7 +218,7 @@ def _compute_damage(
     proj: TranscriptProjection,
     new_messages: list[TranscriptMessage],
 ) -> bool {
-    old_snap = dict(proj.rev_snapshot);
+    old_snap: dict[str, str] = dict(proj.rev_snapshot);
     new_snap: dict[str, str] = {};
     for message in new_messages {
         new_snap[message.message_id] = _snapshot_key(
@@ -229,7 +229,7 @@ def _compute_damage(
     # Temporarily use new messages for visible-id calculation with current scroll.
     saved = proj.messages;
     proj.messages = new_messages;
-    visible = _visible_message_ids(proj);
+    visible: list[str] = _visible_message_ids(proj);
     proj.messages = saved;
 
     if proj.view.follow_tail {
