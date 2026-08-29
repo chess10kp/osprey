@@ -58,6 +58,7 @@ obj:pub IncrementalDecoder {
             need: int = 0;
             lo: int = 0x80;
             hi: int = 0xBF;
+            cp: int = 0;
             ok: bool = True;
             if b0 < 0x80 {
                 out += chr(b0);
@@ -65,23 +66,31 @@ obj:pub IncrementalDecoder {
                 continue;
             } elif b0 >= 0xC2 and b0 <= 0xDF {
                 need = 1;
+                cp = b0 - 0xC0;
             } elif b0 == 0xE0 {
                 need = 2;
+                cp = b0 - 0xE0;
                 lo = 0xA0;
             } elif b0 >= 0xE1 and b0 <= 0xEC {
                 need = 2;
+                cp = b0 - 0xE0;
             } elif b0 == 0xED {
                 need = 2;
+                cp = b0 - 0xE0;
                 hi = 0x9F;
             } elif b0 >= 0xEE and b0 <= 0xEF {
                 need = 2;
+                cp = b0 - 0xE0;
             } elif b0 == 0xF0 {
                 need = 3;
+                cp = b0 - 0xF0;
                 lo = 0x90;
             } elif b0 >= 0xF1 and b0 <= 0xF3 {
                 need = 3;
+                cp = b0 - 0xF0;
             } elif b0 == 0xF4 {
                 need = 3;
+                cp = b0 - 0xF0;
                 hi = 0x8F;
             } else {
                 ok = False;
@@ -109,7 +118,6 @@ obj:pub IncrementalDecoder {
                 }
                 break;
             }
-            cp: int = b0 & 0xFF;
             j: int = 1;
             good: bool = True;
             while j <= need {
@@ -124,7 +132,7 @@ obj:pub IncrementalDecoder {
                     good = False;
                     break;
                 }
-                cp = cp * 64 + (bj & 0x3F);
+                cp = cp * 64 + (bj - 0x80);
                 j += 1;
             }
             if not good {

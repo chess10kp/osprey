@@ -2447,6 +2447,12 @@ impl NaIRGenObjects._codegen_method_call(nd: uni.FuncCall) -> (ir.Value | None) 
             }
             return None;
         }
+        if method_name in ("init", "__init__", "postinit", "__post_init__") {
+            # No MRO ancestor defines an initializer: the call targets the
+            # root no-op initializer (CPython object.__init__), so lower it
+            # as a None-valued no-op instead of failing the whole method.
+            return ir.Constant(ir.IntType(8).as_pointer(), None);
+        }
         self.emit(
             E5092,
             node_override=nd,

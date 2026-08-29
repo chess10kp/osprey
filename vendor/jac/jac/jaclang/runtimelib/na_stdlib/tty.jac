@@ -7,7 +7,6 @@ as CPython. Divergence: errors raise ValueError where CPython propagates
 """
 import termios;
 
-glob O_NONBLOCK: int = 2048;
 
 
 def:pub setraw(fd: int, when: int = 1) -> None {  # TCSADRAIN
