@@ -3883,6 +3883,15 @@ impl NaIRGenObjects._codegen_field_assign(
         return;
     }
 
+    # OSP edge handles arrive as raw integers; narrow them to the edge
+    # layout the same way the read path (_narrow_receiver_ptr) does, so a
+    # field store on a bound edge (`e.rank = r`) addresses the layout.
+    if isinstance(obj_val.type, ir.IntType) and (type_name in self.struct_types) {
+        obj_val = self.builder.inttoptr(
+            obj_val, self.struct_types[type_name].as_pointer(), name="osp.handle.ptr"
+        );
+    }
+
     if _setter is not None {
         _fs_struct = self.struct_types.get(type_name);
         if _fs_struct is not None

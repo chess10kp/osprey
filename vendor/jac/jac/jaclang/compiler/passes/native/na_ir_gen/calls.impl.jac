@@ -1330,6 +1330,13 @@ impl NaIRGenCalls._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
             return self._emit_isinstance(nd);
         }
 
+        if func_name == "hasattr" {
+            _ha_res = self._emit_hasattr(nd);
+            if _ha_res is not None {
+                return _ha_res;
+            }
+        }
+
         if func_name == "type" {
             _cid_params = nd.params or [];
             if len(_cid_params) == 1 {
@@ -2504,6 +2511,112 @@ impl NaIRGenCalls._enum_union_tags(
     return (resolved, still, );
 }
 
+impl NaIRGenCalls._arch_member_names(arch_name: str) -> (list[str] | None) {
+    """Statically known field and ability names along an archetype's MRO.
+
+    None when any link has neither a field layout nor an AST node here, so
+    callers never answer `hasattr` from an incomplete name set.
+    """;
+    members: list[str] = [];
+    seen: set[str] = set();
+    for link in self._mro_of(arch_name) {
+        idx = self.struct_field_indices.get(link);
+        arch_nd = self.arch_ast_map.get(link);
+        if idx is None and arch_nd is None {
+            return None;
+        }
+        if idx is not None {
+            for fname in idx {
+                if fname not in seen {
+                    seen.add(fname);
+                    members.append(fname);
+                }
+            }
+        }
+        if arch_nd is not None and arch_nd.body is not None {
+            for stmt in arch_nd.body {
+                if isinstance(stmt, uni.Ability) and stmt.name_ref is not None {
+                    ability_name = stmt.name_ref.sym_name;
+                    if ability_name is not None and ability_name not in seen {
+                        seen.add(ability_name);
+                        members.append(ability_name);
+                    }
+                }
+            }
+        }
+    }
+    return members;
+}
+
+impl NaIRGenCalls._emit_hasattr(nd: uni.FuncCall) -> (ir.Value | None) {
+    """Lower hasattr(obj, name) against a statically known archetype chain.
+
+    The operand's declared (flow-narrowed) type supplies the MRO whose field
+    and ability names the native layout knows; a literal name folds to an
+    i1 constant, any other name expression compares against each member's
+    string constant. Fields that only a subclass outside the declared chain
+    would carry are not visible -- the same static-dispatch posture the
+    native subset applies to attribute access itself. Returns None (demote
+    to Python) when the operand's chain or the name's representation is not
+    statically answerable here.
+    """;
+    i1 = ir.IntType(1);
+    i8p = ir.IntType(8).as_pointer();
+    params = nd.params or [];
+    if len(params) != 2 {
+        return None;
+    }
+    arch_name = self._struct_name_of(params[0]);
+    if arch_name is None
+        or arch_name not in self.struct_types
+        or self._is_enum_arch(arch_name) {
+        return None;
+    }
+    members = self._arch_member_names(arch_name);
+    if members is None {
+        return None;
+    }
+
+    name_arg = params[1];
+    if isinstance(name_arg, uni.String) and isinstance(name_arg.lit_value, str) {
+        return ir.Constant(i1, 1 if name_arg.lit_value in members else 0);
+    }
+
+    name_val = self._str_norm(self._codegen_expr(name_arg));
+    if name_val is None or name_val.type != i8p {
+        return None;
+    }
+
+    hit: (ir.Value | None) = None;
+    for member in members {
+        _member_ptr = self._make_global_string(member, name_prefix=".ha.name");
+        _cmp = self._call_str_cmp(
+            self.builder, name_val, _member_ptr, name="ha.cmp"
+        );
+        _one = self.builder.icmp_signed(
+            "==", _cmp, ir.Constant(ir.IntType(32), 0), name="ha.eq"
+        );
+        hit = _one if hit is None else self.builder.or_(hit, _one, name="ha.or");
+    }
+    if hit is None {
+        return ir.Constant(i1, 0);
+    }
+
+    operand = self._codegen_expr(params[0]);
+    if operand is None {
+        return None;
+    }
+    if isinstance(operand.type, ir.PointerType) {
+        _ha_ok = self.builder.icmp_unsigned(
+            "!=", operand, ir.Constant(operand.type, None), name="ha.nonnull"
+        );
+        return self.builder.select(
+            _ha_ok, hit, ir.Constant(i1, 0), name="ha.res"
+        );
+    }
+    return hit;
+}
+
 impl NaIRGenCalls._emit_isinstance(nd: uni.FuncCall) -> (ir.Value | None) {
     i1 = ir.IntType(1);
     i8 = ir.IntType(8);
@@ -3244,7 +3357,7 @@ impl NaIRGenCalls._spec_from_container_ptr(t: (ir.Type | None)) -> (str | None) 
     if t is None or not isinstance(t, ir.PointerType) {
         return None;
     }
-    for _tbl in (self.list_types, self.set_types) {
+    for _tbl in (self.list_types, self.set_types, self.dict_types) {
         for (spec, lt) in _tbl.items() {
             if lt.as_pointer() == t {
                 return spec;
