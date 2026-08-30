@@ -1268,6 +1268,7 @@ def _handle_picker_key(app: LiveShell, key: str) {
         }
         app.dirty = True;
 }
+}
 """Open /login's provider picker. An optional provider argument skips the
 picker while retaining the same state machine and input overlay."""
 def _open_login_picker(app: LiveShell, provider_arg: str = "") -> str {
