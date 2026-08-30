@@ -28,9 +28,10 @@ default_codespace = "native"
 "core.edit" = "native"
 
 # 2026-08-30 vendor sync: graph-shaped edge traversals and walkers now lower
-# natively. ui.model still demotes because node_id() wraps unsupported native
-# jid(); dependent UI modules retain server placement until native object
-# identity is available.
+# natively. ui.model's remaining native failures are explicit bound-endpoint
+# edge references (`[edge origin ->:Edge:-> target]`); the compiler diagnostic
+# gives the supported hop-only forms. Dependent UI modules retain their
+# deliberate placement until that boundary is implemented.
 "ui.model" = "native"
 "ui.mutation" = "native"
 "ui.runtime" = "native"

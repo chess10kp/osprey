@@ -10,7 +10,7 @@ Jackal is a terminal-first coding agent with an fx-style form factor: a small na
 
 The product equation: **fx's form factor + Pi's ecosystem + Jac's codespace architecture.**
 
-> **Architecture (Aug 2026):** Jackal's all-Jac harness under `app/` and custom Jac differential TUI are authoritative. The former TypeScript + Ink stack and its legacy trees have been removed. New product development targets `app/`; see [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
+> **Architecture (Aug 2026):** Jackal's all-Jac harness under `app/` and custom Jac differential TUI are authoritative. The former TypeScript, Ink, and legacy Jac runtime trees have been removed; `tui/js2jac/` remains the active conversion workstream. New product development targets `app/`; see [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
 
 ---
 
@@ -29,7 +29,7 @@ The product equation: **fx's form factor + Pi's ecosystem + Jac's codespace arch
    ./jackal.sh
    ```
 
-   The launcher starts the native TUI when attached to a terminal. For headless use, run `./jackal.sh --repl` (line REPL) or `./jackal.sh --json` (JSONL protocol). Optionally symlink it with `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
+   The launcher starts the native TUI when attached to a terminal. Use `--mode normal|auto-accept|yolo|plan|ask` (or `JACKAL_MODE`) to select the development mode; Shift+Tab cycles modes in-shell. Use `/login` to save a provider API key. For headless use, run `./jackal.sh --repl` (line REPL) or `./jackal.sh --json` (JSONL protocol). Optionally symlink it with `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
 
 
 Run **`/jac-doctor`** inside the running Jackal shell to confirm `jac`, MCP, and provider setup.

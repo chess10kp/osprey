@@ -30,9 +30,27 @@ import from jaclang.compiler.backends.es.estree { Node as EsNode }
 import from jaclang.compiler.frontend.codeinfo { native_safe_sym }
 import from jaclang.compiler.driver.program { JacProgram }
 
-glob FIXTURES = str(
-         Path(jaclang.__file__).parent / "compiler" / "tests" / "fixtures"
-     ),
+def _fixture_root -> str {
+    # In dev mode the Jac test runner executes from a cached package tree, so
+    # jaclang.__file__ points at a runtime copy without the repository fixtures.
+    # Prefer the source checkout, then retain the installed-package fallback.
+    _cwd = os.getcwd();
+    _candidates: list[str] = [
+        os.path.join(
+            _cwd, "vendor", "jac", "jac", "jaclang", "compiler", "tests", "fixtures"
+        ),
+        os.path.join(_cwd, "jaclang", "compiler", "tests", "fixtures"),
+        str(Path(jaclang.__file__).parent / "compiler" / "tests" / "fixtures")
+    ];
+    for _candidate in _candidates {
+        if os.path.isfile(os.path.join(_candidate, "osp_acc.jac")) {
+            return _candidate;
+        }
+    }
+    return _candidates[len(_candidates) - 1];
+}
+
+glob FIXTURES = _fixture_root(),
      _FIXTURE_SHADOW: list[str] = [];
 
 # -----------------------------------------------------------------------
