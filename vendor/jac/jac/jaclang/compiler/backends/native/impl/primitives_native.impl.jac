@@ -1,3 +1,98 @@
+import from jaclang.compiler.frontend.codeinfo { HDR_ALLOC_ID_OFF }
+
+impl NativeBuiltinEmitter.emit_jid(
+    self: NativeBuiltinEmitter, ctx: NativeEmitCtx, args: list[ir.Value]
+) -> (ir.Value | None) {
+    if not args {
+        return None;
+    }
+
+    p = ctx.pass_ref;
+    b = get_builder(p);
+    i8p = ir.IntType(8).as_pointer();
+    i32 = ir.IntType(32);
+    i64 = ir.IntType(64);
+    arg_val = args[0];
+
+    _is_graph_type = False;
+    for _part in (ctx.type_key or "").replace(" ", "").split("|") {
+        if (
+            _part
+            and _part not in ("None", "NoneType")
+            and p._arch_is_osp_name(_part)
+        ) {
+            _is_graph_type = True;
+            break;
+        }
+    }
+
+    obj_ptr: ir.Value;
+    if p.jacval_type is not None and arg_val.type == p.jacval_type {
+        _tag = b.extract_value(arg_val, 0, name="jid.tag");
+        _payload = b.extract_value(arg_val, 1, name="jid.payload");
+        _is_graph = b.icmp_unsigned(
+            "==", _tag, ir.Constant(ir.IntType(8), 6), name="jid.is_graph"
+        );
+        _has_payload = b.icmp_unsigned(
+            "!=", _payload, ir.Constant(i64, 0), name="jid.has_payload"
+        );
+        _invalid = b.not_(b.and_(_is_graph, _has_payload), name="jid.invalid");
+        p._emit_runtime_raise(
+            _invalid, "TypeError", "jid() requires a graph object"
+        );
+        obj_ptr = b.inttoptr(_payload, i8p, name="jid.boxed_ptr");
+    elif p._opt_ptr_payload_of(arg_val.type) is not None:
+        if not _is_graph_type {
+            return None;
+        }
+        _payload = b.extract_value(arg_val, 1, name="jid.opt_payload");
+        _is_null = b.icmp_unsigned(
+            "==",
+            b.ptrtoint(_payload, i64, name="jid.opt_int"),
+            ir.Constant(i64, 0),
+            name="jid.opt_null",
+        );
+        p._emit_runtime_raise(
+            _is_null, "TypeError", "jid() requires a graph object"
+        );
+        obj_ptr = b.bitcast(_payload, i8p, name="jid.opt_ptr");
+    elif isinstance(arg_val.type, ir.PointerType):
+        if not _is_graph_type:
+            return None;
+        obj_ptr = b.bitcast(arg_val, i8p, name="jid.ptr");
+    else:
+        return None;
+
+    _header_id_ptr = b.gep(
+        obj_ptr, [ir.Constant(i64, HDR_ALLOC_ID_OFF)], name="jid.alloc_id_ptr"
+    );
+    _header_id = b.load(_header_id_ptr, name="jid.alloc_id");
+    _pointer_id = b.ptrtoint(obj_ptr, i64, name="jid.pointer_id");
+    _identity = b.select(
+        b.icmp_unsigned("==", _header_id, ir.Constant(i64, 0), name="jid.no_alloc_id"),
+        _pointer_id,
+        _header_id,
+        name="jid.identity",
+    );
+
+    _buf = p._str_alloc(b, ir.Constant(i64, 33), name="jid.buf");
+    _fmt = p._make_global_string("%032llx", name_prefix=".jid.fmt");
+    _fmt_ptr = b.gep(
+        _fmt, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="jid.fmt_ptr"
+    );
+    _snprintf = p._get_or_declare_extern(
+        "snprintf", i32, [i8p, i64, i8p], var_arg=True
+    );
+    b.call(
+        _snprintf,
+        [_buf, ir.Constant(i64, 33), _fmt_ptr, _identity],
+        name="jid.format",
+    );
+    p._str_finish(b, _buf, ir.Constant(i64, 32));
+    p._mark_owned(_buf);
+    return _buf;
+}
+
 impl NativeIntEmitter.emit_to_bytes(
     self: NativeIntEmitter, ctx: NativeEmitCtx, target: ir.Value, args: list[ir.Value]
 ) -> (ir.Value | None) {

@@ -1113,6 +1113,7 @@ class BuiltinEmitter[V, C] {
 
     def emit_type(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;
     def emit_id(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;
+    def emit_jid(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;
     def emit_hash(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;
     def emit_repr(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;
     def emit_chr(self: BuiltinEmitter, ctx: C, args: list[V]) -> (V | None) abst;

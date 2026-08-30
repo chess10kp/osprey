@@ -1534,6 +1534,10 @@ class NativeBuiltinEmitter(BuiltinEmitter[(ir.Value, NativeEmitCtx)]) {
         }
         return None;
     }
+ 
+    def emit_jid(
+        self: NativeBuiltinEmitter, ctx: NativeEmitCtx, args: list[ir.Value]
+    ) -> (ir.Value | None);
 
     def emit_hash(
         self: NativeBuiltinEmitter, ctx: NativeEmitCtx, args: list[ir.Value]
