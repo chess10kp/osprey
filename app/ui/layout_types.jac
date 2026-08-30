@@ -18,6 +18,11 @@ import from ui.model {
 }
 
 
+import from ui.layout_measure {
+    invalidate_measurement_cache,
+}
+
+
 """Axis-aligned terminal rectangle in cell coordinates (origin top-left)."""
 obj Rect {
     has x: int = 0,
@@ -563,6 +568,7 @@ def set_content(
         style_revision=style_revision,
     );
     state.measurement_cache.pop(id_str, None);
+    invalidate_measurement_cache(id_str);
     return _ok();
 }
 
@@ -608,6 +614,7 @@ def clear_node(state: LayoutState, target: UiNode) -> MutationResult {
     state.specs.pop(id_str, None);
     state.content.pop(id_str, None);
     state.measurement_cache.pop(id_str, None);
+    invalidate_measurement_cache(id_str);
     return _ok();
 }
 

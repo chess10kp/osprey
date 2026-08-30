@@ -16,11 +16,13 @@ api_key = ""
 default_codespace = "native"
 
 [placement.pins]
-# Constraint layout engine (LAYOUT-ENGINE-PLAN §3): the complete layout
-# path stays server-pinned; no implicit native fallback.
-"constraints.algebra" = "server"
+# Constraint layout engine: algebra + layout_relations lower natively
+# (N6 retires the §3 server pin — see how-to-lower-all-native). Suites
+# green: layout_relations 7/7, roundtrip 36/36. solver stays server
+# because its test annex uses time.perf_counter (no native time floor).
+"constraints.algebra" = "native"
 "constraints.solver" = "server"
-"constraints.layout_relations" = "server"
+"constraints.layout_relations" = "native"
 "core.edit" = "native"
 
 # 2026-08-29 cascade (vendor fixes: hasattr lowering, edge-field store,
@@ -36,12 +38,9 @@ default_codespace = "native"
 # sealed "server" even when they compiled natively. Pin them so the manifest
 # matches reality. Modules whose deps are server-pinned stay "server"
 # (placement overrides their pins) and are annotated below.
-# ui.width: lowers natively (unicodedata floor has exact EAW/category tables)
-# but native STRINGS are byte-oriented: ord() returns the first UTF-8 byte and
-# len() counts bytes, so every non-ASCII answer is wrong (CJK width = 1,
-# combining marks miss). Keep server until the na pathway gets codepoint-
-# oriented ord/chr/len/index (vendor issue, tracked 2026-08-29).
-"ui.width" = "server"
+# ui.width: lowers natively now that codepoint-oriented string ops from
+# 6fc6807bd landed (len/ord/index/slice return codepoints). Test 10/10.
+"ui.width" = "native"
 # layout_types must be pinned native so native importers (renderer, cells)
 # see Rect/LayoutState layouts; unpinned it seals server and its types erase.
 "ui.layout_types" = "native"
@@ -69,19 +68,13 @@ default_codespace = "native"
 "ui.layout" = "native"
 "ui.layout_measure" = "native"
 "ui.layout_quantize" = "native"
-# ui.layout_compile: BLOCKED native — imports server-pinned
-# constraints.algebra/solver; placement resolves the native pin to server.
-"ui.layout_compile" = "server"
+# ui.layout_compile: lowers natively once constraints.algebra is native
+# (solver is still server but compile_layout only uses algebra symbols).
+"ui.layout_compile" = "native"
 
-# --- Graph-cluster holds (2026-08-29) ---
-# ui.events: module lowers EXCEPT its test annex — the annex calls
-# create_session (ui.runtime) whose cross-unit native function layout is
-# not visible when events compiles before runtime in the seal order, and
-# walker archetypes in the annex (EchoRegion can on_insert with InsertText)
-# hit the same wall. Also still seam-aborts when any native annex path
-# reaches a demoted function (vendor B7-class gap: native->demoted calls
-# abort instead of bridging). Re-probe after jaclang lands per-unit
-# cross-module function layouts or demoted-call bridging.
+# ui.events: lowers (test annex passes 69/69) BUT seal-time demotes due
+# to cross-unit create_session from ui.runtime (UiSession boundary).
+# Until that lands natively, events stays server.
 "ui.events" = "server"
 # inspect/demos: hold for the events frontier above (walker dispatch +
 # annex walls); demos additionally spawn walkers (SetProgress).

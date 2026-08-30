@@ -5,7 +5,7 @@ Statically registered tag → archetype map. Unknown tag/property = error.
 no per-frame view, no runtime archetype generation.
 """
 
-import from re { compile as re_compile }
+
 
 import from ui.model {
     UiNode,
@@ -49,13 +49,174 @@ obj _MarkupElem {
 }
 
 
-glob _TAG_OPEN = re_compile(
-    r"""<\s*([A-Za-z_][A-Za-z0-9_]*)\s*([^>/]*?)\s*(/)?>"""
-);
-glob _TAG_CLOSE = re_compile(r"""</\s*([A-Za-z_][A-Za-z0-9_]*)\s*>""");
-glob _ATTR = re_compile(
-    r"""([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"""
-);
+
+# Codepoint-aware tag/attribute parser. Each pattern mirrors the original
+# regex semantics; `group(i)` is None for unmatched groups, `.end()` returns
+# the codepoint index just past the match.
+obj _MarkupMatch {
+    has _groups: list[str | None] = [],
+        _end: int = 0;
+
+    def group(i: int) -> str | None {
+        return self._groups[i - 1];
+    }
+
+    def end -> int {
+        return self._end;
+    }
+}
+
+
+def _is_name_start(c: str) -> bool {
+    return c.isalpha() or c == "_";
+}
+
+
+def _is_name_cont(c: str) -> bool {
+    return c.isalnum() or c == "_";
+}
+
+
+def _is_space(c: str) -> bool {
+    return c == " " or c == "\t" or c == "\r" or c == "\n";
+}
+
+
+"""Skip whitespace codepoints starting at `i`; return new index."""
+def _skip_ws(text: str, i: int) -> int {
+    n = len(text);
+    while i < n and _is_space(text[i]) {
+        i += 1;
+    }
+    return i;
+}
+
+
+"""Read identifier codepoints starting at `i`; (name, end_idx) or None."""
+def _read_name(text: str, i: int) -> (str, int) | None {
+    n = len(text);
+    if i >= n or not _is_name_start(text[i]) {
+        return None;
+    }
+    start = i;
+    i += 1;
+    while i < n and _is_name_cont(text[i]) {
+        i += 1;
+    }
+    return (text[start:i], i);
+}
+
+
+"""Match an open tag at `i`. Mirrors re pattern `<\\s*NAME\\s*ATTRS\\s*(/)?>`."""
+def _match_tag_open(text: str, i: int) -> _MarkupMatch | None {
+    n = len(text);
+    if i >= n or text[i] != "<" {
+        return None;
+    }
+    j = i + 1;
+    j = _skip_ws(text, j);
+    name_t = _read_name(text, j);
+    if name_t is None {
+        return None;
+    }
+    (name, j) = name_t;
+    j = _skip_ws(text, j);
+    attrs_start = j;
+    while j < n and text[j] != ">" and text[j] != "/" {
+        j += 1;
+    }
+    attrs = text[attrs_start:j];
+    j = _skip_ws(text, j);
+    slash: str | None = None;
+    if j < n and text[j] == "/" {
+        slash = "/";
+        j += 1;
+    }
+    if j >= n or text[j] != ">" {
+        return None;
+    }
+    j += 1;
+    return _MarkupMatch(_groups=[name, attrs, slash], _end=j);
+}
+
+
+"""Match a close tag at `i`. Mirrors re pattern `</\\s*NAME\\s*>`."""
+def _match_tag_close(text: str, i: int) -> _MarkupMatch | None {
+    n = len(text);
+    if i + 1 >= n or text[i] != "<" or text[i + 1] != "/" {
+        return None;
+    }
+    j = i + 2;
+    j = _skip_ws(text, j);
+    name_t = _read_name(text, j);
+    if name_t is None {
+        return None;
+    }
+    (name, j) = name_t;
+    j = _skip_ws(text, j);
+    if j >= n or text[j] != ">" {
+        return None;
+    }
+    j += 1;
+    return _MarkupMatch(_groups=[name], _end=j);
+}
+
+
+"""Match a single attribute at `i`. Mirrors `NAME = "..."` or `NAME = '...'`."""
+def _match_attr(text: str, i: int) -> _MarkupMatch | None {
+    n = len(text);
+    name_t = _read_name(text, i);
+    if name_t is None {
+        return None;
+    }
+    (name, j) = name_t;
+    j = _skip_ws(text, j);
+    if j >= n or text[j] != "=" {
+        return None;
+    }
+    j += 1;
+    j = _skip_ws(text, j);
+    if j >= n {
+        return None;
+    }
+    quote = text[j];
+    if quote != '"' and quote != "'" {
+        return None;
+    }
+    j += 1;
+    val_start = j;
+    while j < n and text[j] != quote {
+        j += 1;
+    }
+    if j >= n {
+        return None;
+    }
+    val = text[val_start:j];
+    j += 1;
+    return _MarkupMatch(_groups=[name, val, None], _end=j);
+}
+
+
+"""Yield every attribute match within `text[:end]`."""
+def _iter_attrs(text: str, end: int) -> list[_MarkupMatch] {
+    out: list[_MarkupMatch] = [];
+    i = 0;
+    while i < end {
+        i = _skip_ws(text, i);
+        if i >= end {
+            break;
+        }
+        m = _match_attr(text, i);
+        if m is None {
+            break;
+        }
+        out.append(m);
+        i = m._end;
+    }
+    return out;
+}
+
+
 
 
 def create_tag_registry() -> TagRegistry {
@@ -113,8 +274,9 @@ def _allowed_props(tag: str) -> set[str] {
 
 def _parse_attrs(raw: str) -> dict[str, str] {
     attrs: dict[str, str] = {};
-    for m in _ATTR.finditer(raw) {
-        name = m.group(1);
+    for m in _iter_attrs(raw, len(raw)) {
+        raw_name = m.group(1);
+        name: str = raw_name if raw_name is not None else "";
         val = m.group(2);
         if val is None {
             val = m.group(3);
@@ -150,9 +312,10 @@ def _parse_markup(source: str) -> (list[_MarkupElem], list[MarkupError]) {
             i = next_lt;
             continue;
         }
-        close_m = _TAG_CLOSE.match(text, i);
+        close_m = _match_tag_close(text, i);
         if close_m is not None {
-            tag = close_m.group(1);
+            g1 = close_m.group(1);
+            tag: str = g1 if g1 is not None else "";
             if not stack {
                 errors.append(
                     MarkupError(path="/" + tag, message="unexpected close tag " + tag)
@@ -173,14 +336,15 @@ def _parse_markup(source: str) -> (list[_MarkupElem], list[MarkupError]) {
             i = close_m.end();
             continue;
         }
-        open_m = _TAG_OPEN.match(text, i);
+        open_m = _match_tag_open(text, i);
         if open_m is None {
             errors.append(
                 MarkupError(path="", message="malformed tag near index " + str(i))
             );
             break;
         }
-        tag = open_m.group(1);
+        g1o = open_m.group(1);
+        tag: str = g1o if g1o is not None else "";
         attr_raw = open_m.group(2);
         if attr_raw is None {
             attr_raw = "";

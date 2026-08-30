@@ -432,3 +432,16 @@ def wrap_text(text: str, width: int) -> list[str] {
     }
     return result if result else [""];
 }
+
+
+"""Wrap `text` to `width` columns and return the lines joined with '\n'.
+
+Same wrapping semantics as `wrap_text`, but returns a single `str` so the
+result crosses the native->Python ctypes callback table. Native callers
+that need the list of lines can split on '\n'; callers that only need the
+count can count '\n' occurrences plus one (the trailing element is always
+present, even when empty, to match `wrap_text`'s minimum one-element
+contract)."""
+def wrap_text_joined(text: str, width: int) -> str {
+    return "\n".join(wrap_text(text, width));
+}
