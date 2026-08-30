@@ -1,6 +1,6 @@
 # Jackal Roadmap
 
-**Updated:** 2026-08-24
+**Updated:** 2026-08-30
 **Product:** a fast native coding agent with a compatible JavaScript extension layer.
 
 > **Positioning:** fx's form factor + Pi's ecosystem + Jac's codespace architecture. Jackal is a small native runtime with instant interactive startup; configured JavaScript extensions run in a concurrent Pi-compatible Node sidecar that must not block the first frame. See [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md), [`docs/PLUGIN-HOST-PLAN.md`](docs/PLUGIN-HOST-PLAN.md), and [`docs/decisions.org`](docs/decisions.org).
@@ -106,7 +106,7 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 ## 3. Binding decisions
 
 1. **All new product work lands in `app/`. The all-Jac harness IS Jackal.**
-2. **`src/`, `templates/`, `tui/*.tsx`, and `lib/jac/` are LEGACY-PENDING-REMOVAL** — frozen; deletion lands as a separate reviewable commit.
+2. **`src/` is absent; `lib/jac/`, `templates/`, `tui/*.tsx`, `tui/pi_jac/`, and `tui/pi_jac_floor/` are LEGACY-PENDING-REMOVAL** — frozen deletion targets; `tui/js2jac/` remains an active conversion workstream.
 3. **The line REPL is a debug adapter**, not a milestone UX (`app/main.jac` term mode).
 4. **MCP uses `jac mcp` as a subprocess**; an in-process rewrite needs profiling evidence.
 5. **Zero server-codespace product code.** The `server` tier is a contingency, not an architecture: every module in `app/` must eventually compile and execute native (see §N6). Server pins are temporary scaffolding, each annotated with its unblock condition; `default_codespace = "native"` in `app/jac.toml`.
@@ -133,11 +133,18 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 ### Known gaps
 
 - Auth UI not yet wired into the live shell (store + flow state machine exist; no `/login` surface in `tui.jac`)
-- Dev-mode cycle (normal/auto-accept/yolo/plan) exists as logic but approval policy in the shell is hardcoded to `normal`
+- Native in-shell mode cycling (normal/auto-accept/yolo/plan) and approval policy are landed
+- Native in-shell mode cycling is distinct from native `--mode` / `JACKAL_MODE` consumption; those flags and mode-specific prompt appendices remain pending
+- Native `jid()` lowering/object identity is the immediate compiler gap; graph edge lowering is landed
 - Packaging, install, upgrade, and recovery story for the native path is not settled
 - Session-data migration policy vs legacy runtime data is undecided (formats differ)
 - MCP integration breadth (status surfacing in the TUI, failure degradation UX) unverified
 - Headless `jackal run` on the native path (term/JSONL exist; CLI parity with the legacy launcher pending)
+
+### Current native frontier
+
+`app/jac.toml` currently contains 15 server pins; N6 requires reducing that count to
+zero. Lower-priority native compiler gaps and Cordis integration remain deferred.
 
 ## 5. Delivery phases
 
@@ -151,16 +158,15 @@ Terminal interface (process + virtual), raw mode/input buffering/key normalizati
 
 ### N2 — Daily-driver core — **largely landed on the native path**
 
-Landed: transcript/markdown/tool timeline/status, editor autocomplete, session persistence/resume/rename/export, turn abort and cooperative cancellation, approval overlay with structured diffs, MCP subprocess clients, plugin host control plane (D21, P0–P5).
+Landed: transcript/markdown/tool timeline/status, editor autocomplete, session persistence/resume/rename/export, turn abort and cooperative cancellation, in-shell mode cycling and approval policy, approval overlay with structured diffs, MCP subprocess clients, plugin host control plane (D21, P0–P5).
 
-Remaining for N2 closure: dev-mode cycle wiring, auth UI surface, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui.jac` before claiming any item done).
+Remaining for N2 closure: auth UI surface, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui.jac` before claiming any item done). Native `--mode` / `JACKAL_MODE` consumption and mode-specific prompt appendices are separate pending seams.
 
 ### N3 — Legacy deletion + packaging — **reframed**
 
 The feature port already happened; N3 is no longer "port and cutover." Remaining work:
 
-- Delete `src/`, `templates/`, `tui/*.tsx` (except `tui/js2jac/`, which stays as an active conversion workstream), `lib/jac/`, and the legacy TS test suites in one reviewable commit
-- Switch the default launcher (`jackal.sh` or replacement) to `app/tui.jac`
+- Delete `lib/jac/`, `templates/`, `tui/*.tsx`, `tui/pi_jac/`, and `tui/pi_jac_floor/` (with `tui/js2jac/` retained as an active conversion workstream), plus the legacy TS test suites, in one reviewable commit
 - Clean launcher, install, upgrade, and recovery documentation
 - Session-data migration or explicit compatibility policy for existing `.jackal/sessions/` data
 - No daily workflow may require jac-ink or the deleted trees
@@ -247,8 +253,8 @@ Acceptance:
 
 | Path | Policy |
 |---|---|
-| `app/` | Active product development — the product |
-| `src/` + `templates/` + `tui/*.tsx` + `lib/jac/` | LEGACY-PENDING-REMOVAL; frozen, deletion commit upcoming |
+| `src/` | Absent; deletion target already removed |
+| `lib/jac/` + `templates/` + `tui/*.tsx` + `tui/pi_jac/` + `tui/pi_jac_floor/` | LEGACY-PENDING-REMOVAL; frozen deletion targets |
 | `tui/js2jac/` | Active conversion workstream (own sync contract, `SYNC.md`) — not legacy |
 | `pi/` | Config/data bundle consumed by the native harness |
 | `app/core/` | Natively pinned kernels with benchmark gates |
@@ -268,38 +274,45 @@ Do not mix unrelated legacy edits into `app/` feature commits.
 
 **Goal:** no module under `app/` compiles to (or is placed in) the server codespace. The `server` tier remains a compiler-internal fallback only, never a product placement.
 
+**Current state:** `app/jac.toml` has 15 explicit `"server"` pins. They are temporary compiler/runtime frontiers, not an accepted steady state.
+
 **Acceptance criterion:** `app/jac.toml` contains zero `"server"` pins, every `[placement.pins]` entry is `"native"`, and the seal records every app module native. Old assumptions retired by this milestone: "session host = server placement", the constraints layout engine's §3 server policy pin, and kernel-only nativity (binding decision 5 supersedes).
 
 **Work queue (re-scoped against this criterion):**
 
 | # | Item | Unblocks |
 |---|---|---|
-| 1 | na lowering: edge-object access (`[edge p ->:C:-> c]`) + `jid()` | ui.model/mutation/events → runtime/inspect/demos cascade |
+| 1 | `jid()` native lowering/object identity (edge-object and walker lowering are landed) | ui.model/mutation/events → runtime/inspect/demos cascade |
 | 2 | B7: mirror native obj classes into Python (or lower all consumers) | tool_spec/registry/protocol/extensions + session/llm/mcp/plugin_bridge/tools |
 | 3 | na_stdlib floors: `json.load`, `os.path`, `unicodedata`; terminal set (`codecs/signal/select/termios/tty/fcntl`) | width, terminal, extensions, mcp |
 | 4 | B2 landing: bound-method `Callable` fields in na codegen (patch + analysis preserved in `~/notes/na-callable-wip.patch`, `~/notes/vendor-callable-bug-analysis.md`) | cordis, callback-holding runtime objs |
 | 5 | Per-module AOT at seal time + native branch in sealed import hook — today a `.jab` ships only CPython bytecode and nothing consumes the placement map (`~/notes/seal-native-execution.md`); alternative: whole-program `kind = "cli-native"` once everything lowers | actual native EXECUTION of the sealed app |
 | 6 | Delete constraints.* §3 server policy pin; audit remaining pins to zero | acceptance |
 
-Compiler bugs discovered en route are logged in `~/notes/jackal-native-lowering.md` (B1–B8); fixes land in `vendor/jac/**` first and sync upstream.
+Compiler bugs discovered en route are logged in `~/notes/jackal-native-lowering.md` (B1–B8); fixes land in `vendor/jac/**` first and sync upstream. Lower-priority compiler gaps and Cordis integration remain deferred.
 
 ## 9. Immediate next milestone
 
-Close the daily-driver gap on the native path:
+Close the remaining daily-driver and native-execution gaps:
 
 ```text
 auth UI surface (/login, provider pickers) ← store + flow already ported
         ↓
-dev-mode cycle (normal/auto-accept/yolo/plan) wired into the shell
-        ↓
-launcher switch: default boot = app/tui.jac
+native --mode/JACKAL_MODE consumption + mode-specific prompt appendices
         ↓
 packaging/install story + session-data policy
+        ↓
+N6 compiler frontier: jid() lowering/object identity, then zero server pins
         ↓
 N3 deletion commit (legacy trees removed)
 ```
 
-The milestone is complete when a fresh machine can install, launch the native TUI as the default surface, run an authenticated coding turn with approvals and mode switching, and old session data is migrated, read compatibly, or intentionally archived.
+The native launcher switch, in-shell mode cycling, and approval policy are already
+landed. The milestone is complete when a fresh machine can install, launch the
+native TUI as the default surface, run an authenticated coding turn with approvals
+and mode switching, and old session data is migrated, read compatibly, or
+intentionally archived.
+
 
 ## 10. Related documents
 

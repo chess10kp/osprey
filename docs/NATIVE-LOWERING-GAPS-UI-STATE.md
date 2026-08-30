@@ -36,6 +36,12 @@ bound-endpoint fixture because its native arm also exercises `jid()` and
 object-identity comparison. This is a narrower residual gap than the
 pre-sync graph/walker blocker.
 
+The current placement frontier is explicit in `app/jac.toml`: 15 modules remain
+server-pinned, while N6 requires zero server pins. Edge-object and walker
+lowering are landed; `jid()` native lowering/object identity is the immediate
+remaining compiler gap. Lower-priority compiler gaps and Cordis integration are
+deferred.
+
 The historical compiler findings and workarounds follow. They remain useful
 for primitive lowering, but must not be read as evidence that native OSP is
 unsupported upstream.

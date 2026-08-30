@@ -2388,6 +2388,10 @@ def _run_slash(app: LiveShell, line: str) -> str {
     if line == "/abort" {
         return "turn aborted" if cancel_active_turn() else "no active turn";
     }
+    if line == "/login" or line.startswith("/login ") {
+        arg = line[len("/login"):].strip();
+        return _open_login_picker(app, arg);
+    }
     if line == "/sessions" {
         rows = list_sessions(cwd);
         if not rows {
@@ -2774,15 +2778,11 @@ def _handle_key(app: LiveShell, key: str) {
         return;
     }
     # Dev-mode cycle (Shift+Tab): normal -> auto-accept -> yolo -> plan ->
-    # ask. Gating is enforced by requires_approval in the turn approver
-    # below; blocked tools surface as ERROR tool_result rows.
-    # TODO(mode-system-appendix): agent.modes.system_prompt_for_mode is NOT
-    # wired — run_turn (agent/session.jac, outside this file's ownership)
-    # seeds history with the static SYSTEM_PROMPT and exposes no per-turn
-    # appendix seam, so plan/ask prompt softening needs a session-side
-    # hook before it can light up from here.
+    # ask. The session prompt appendix and approval policy follow this same
+    # active mode; blocked tools surface as ERROR tool_result rows.
     if key == "shift+tab" {
         app.mode = cycle_mode(app.mode);
+        set_mode(app.mode);
         note: str = "mode → " + app.mode;
         if is_read_only_mode(app.mode) {
             note += "  (write tools blocked)";
@@ -2998,6 +2998,7 @@ def create_live_shell() -> LiveShell {
         progress=progress,
         columns=cols,
         rows=rows,
+        mode=get_mode(),
     );
     _install_layout(app);
     _push_turn(
@@ -3011,11 +3012,21 @@ def create_live_shell() -> LiveShell {
 
 
 def run_tui() {
+    requested_mode: str = os.environ.get("JACKAL_MODE", "");
+    if requested_mode {
+        try {
+            set_mode(requested_mode);
+        } except ValueError as e {
+            print("jackal: " + str(e));
+            raise SystemExit(2);
+        }
+    }
     # Extensions load per .jackal/extensions.json (parallel sidecar when declared).
     try {
         session_boot(interactive_ui=True);
     } except Exception {
     }
+    _hydrate_auth_environment();
     app = create_live_shell();
     app.cmd_q = queue.Queue();
     app.term.start();
