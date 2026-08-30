@@ -14,6 +14,14 @@ set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 JACKAL_DIR="$(cd "$(dirname "$(readlink -f "$SCRIPT_PATH")")" && pwd)"
+
+# Prefer the repository's editable compiler. The system `jac` may be an older
+# release whose native capability checker rejects edge-reference forms already
+# implemented by the vendored compiler.
+VENDORED_JAC_DIR="$JACKAL_DIR/vendor/jac/jac/zig-out/bin"
+if [[ -x "$VENDORED_JAC_DIR/jac" ]]; then
+  export PATH="$VENDORED_JAC_DIR:$PATH"
+fi
 PI_DIR="$JACKAL_DIR/pi"
 
 # Symlink auth.json from global config so provider credentials carry over.
