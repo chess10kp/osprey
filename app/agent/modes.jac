@@ -16,7 +16,6 @@ commands stay usable in plan/ask but destructive ones are refused
 (see requires_approval).
 """
 
-import re;
 
 glob DEV_MODES: list[str] = ["normal", "auto-accept", "yolo", "plan", "ask"];
 
@@ -78,7 +77,7 @@ glob DESTRUCTIVE_BASH_PATTERNS: list[str] = [
 
 """True when the mode restricts the session to read-only behavior."""
 def is_read_only_mode(mode: str) -> bool {
-    return mode in READ_ONLY_MODES;
+    return mode == "plan" or mode == "ask";
 }
 
 
@@ -105,52 +104,148 @@ def read_only_mode_block_reason(tool_name: str, mode: str) -> str {
 
 """Advance the Shift+Tab mode cycle; unknown modes reset to normal."""
 def cycle_mode(current: str) -> str {
-    idx = -1;
-    for i in range(len(DEV_MODES)) {
-        if DEV_MODES[i] == current {
-            idx = i;
-            break;
-        }
+    if current == "normal" {
+        return "auto-accept";
     }
-    if idx < 0 {
-        return DEV_MODES[0];
+    if current == "auto-accept" {
+        return "yolo";
     }
-    return DEV_MODES[(idx + 1) % len(DEV_MODES)];
+    if current == "yolo" {
+        return "plan";
+    }
+    if current == "plan" {
+        return "ask";
+    }
+    return "normal";
 }
 
 
 """Parse a --mode[=value] CLI flag; invalid values yield {"error": raw}."""
 def parse_mode_flag(args: list[str]) -> str | dict[str, str] | None {
-    for i in range(len(args)) {
-        raw: str | None = None;
-        arg = args[i];
-        if arg == "--mode" and i + 1 < len(args) {
-            raw = args[i + 1];
+    expecting_value = False;
+    for arg in args {
+        if expecting_value {
+            if (
+                arg == "normal"
+                or arg == "auto-accept"
+                or arg == "yolo"
+                or arg == "plan"
+                or arg == "ask"
+            ) {
+                return arg;
+            }
+            return {"error": arg};
+        }
+        if arg == "--mode" {
+            expecting_value = True;
         } elif arg.startswith("--mode=") {
-            raw = arg[len("--mode="):];
+            raw = arg[7:];
+            if (
+                raw == "normal"
+                or raw == "auto-accept"
+                or raw == "yolo"
+                or raw == "plan"
+                or raw == "ask"
+            ) {
+                return raw;
+            }
+            return {"error": raw};
         }
-        if raw is None {
-            continue;
-        }
-        if raw in DEV_MODES {
-            return raw;
-        }
-        return {"error": raw};
     }
     return None;
 }
 
 
-"""True when the shell command matches a destructive-bash pattern."""
+def _destructive_path_target(target: str) -> bool {
+    if (
+        target.startswith("~")
+        or target.startswith("$home")
+        or target.startswith("${home")
+    ) {
+        return True;
+    }
+    if not target.startswith("/") {
+        return False;
+    }
+    # The original rule flags `/` and slash-prefixed non-word targets, but
+    # intentionally does not flag ordinary paths such as `/usr`.
+    return target == "/" or target.startswith("//") or target.startswith("/~");
+}
+
+
+"""True when the shell command matches a destructive-bash pattern.
+
+This is deliberately a small token matcher instead of a regex import:
+`re` has no native floor, while these safety rules only need fixed command
+shapes and ASCII boundaries.
+"""
 def is_destructive_bash(cmd: str) -> bool {
-    command = cmd.strip();
+    command = cmd.strip().lower();
     if not command {
         return False;
     }
-    for pattern in DESTRUCTIVE_BASH_PATTERNS {
-        if re.search("(?i)" + pattern, command) is not None {
+    normalized = command.replace("\t", " ").replace("\n", " ");
+    raw_words: list[str] = normalized.split(" ");
+    words: list[str] = [];
+    for raw_word in raw_words {
+        if raw_word {
+            words.append(raw_word);
+        }
+    }
+    prev2: str = "";
+    prev1: str = "";
+    for token in words {
+        if prev2 == "rm" and prev1 == "-rf" and _destructive_path_target(token) {
             return True;
         }
+        if prev1 == "dd" and token.startswith("if=") {
+            return True;
+        }
+        if prev2 == "chmod" and prev1 == "-r" and token == "000" {
+            return True;
+        }
+        if prev2 == "git" {
+            if prev1 == "reset" and token.startswith("--hard") {
+                return True;
+            }
+            if prev1 == "push" and (
+                token.startswith("--force") or token == "-f"
+            ) {
+                return True;
+            }
+            if prev1 == "clean" and token.startswith("-f") {
+                return True;
+            }
+            if prev1 == "branch" and token == "-d" {
+                return True;
+            }
+            if prev1 == "stash" and token == "drop" {
+                return True;
+            }
+        }
+        if prev1 == "drop" and token == "database" {
+            return True;
+        }
+        if prev1 == "truncate" and token == "table" {
+            return True;
+        }
+        if token == "mkfs" or token.startswith("mkfs.") {
+            return True;
+        }
+        if (
+            token.startswith(">/dev/sd") and len(token) >= 9
+        ) or (
+            prev1 == ">"
+            and token.startswith("/dev/sd")
+            and len(token) >= 8
+        ) {
+            return True;
+        }
+        prev2 = prev1;
+        prev1 = token;
+    }
+    if ":(){:|:&};:" in command {
+        return True;
     }
     return False;
 }
