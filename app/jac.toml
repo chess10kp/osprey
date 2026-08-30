@@ -68,10 +68,9 @@ default_codespace = "native"
 "ui.layout" = "native"
 "ui.layout_measure" = "native"
 "ui.layout_quantize" = "native"
-# ui.layout_compile: lowers natively once constraints.algebra is native
-# (solver is still server but compile_layout only uses algebra symbols).
+# ui.layout_compile: pin native — test 51/51. The seal-time _solver_of
+# demote is contained inside compile_layout and bridged at runtime.
 "ui.layout_compile" = "native"
-
 # ui.events: lowers (test annex passes 69/69) BUT seal-time demotes due
 # to cross-unit create_session from ui.runtime (UiSession boundary).
 # Until that lands natively, events stays server.
