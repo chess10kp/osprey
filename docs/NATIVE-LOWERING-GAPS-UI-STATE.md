@@ -1,40 +1,44 @@
-# Native lowering gap report — OSP UI state modules (2026-08-25)
+# Native lowering status — OSP UI state modules
 
-Attempted to lift `[placement.pins]` server pins for `ui.model`, `ui.mutation`,
-`ui.events`, `ui.bindings` under `default_codespace = "native"` (vendored
-compiler 0.36.1-dev). Outcome: **only `ui.bindings` lowers** (pin removed,
-commit `fix(app/ui): lower ui.bindings natively`). The other three remain
-server-pinned; their blockers are compiler gaps, not app-code annotation gaps.
+**Updated:** 2026-08-30 after syncing `vendor/jac` to upstream Jac
+`fe4b7c760ae55d8259ab8f9da7a879fd45aa135e`.
 
-## ui.model — BLOCKED: graph constructs
+The 2026-08-25 report below was produced against the pre-graph-shaped native
+compiler and is superseded for graph/walker capability. Upstream now carries a
+native OSP kernel and equivalence coverage in
+`vendor/jac/jac/jaclang/compiler/tests/test_osp_equivalence.jac`.
 
-Module-level fallback: `error[E5092]: Native lowering failed for expression
-'UnaryExpr'`. Per-function demotions observed:
+## Upstream capability
 
-| Construct | Evidence |
-|---|---|
-| Edge traversal filter `[edge parent ->:Child:-> child]` | `Native pathway does not yet support expression 'EdgeRefTrailer'` (model.jac:112, :129) |
-| `jid(n)` builtin | `Native lowering failed for expression 'FuncCall'` (model.jac:99, `node_id`) |
-| Backward traversal `[current <-:Child:<-]` | same EdgeRefTrailer class (inside `child_parent` / `enclosing_screen` / `is_child_ancestor`) |
+The synced native backend implements native lowering for:
 
-The whole module is graph-native by design (`node UiNode*`, `edge Child` /
-`Owns` / `Feeds` / `FocusNext` / `Layer`). `jac-native` docs list
-"walkers/nodes/edges" as not supported in the native subset, so this is a
-hard capability gap, not a typing issue.
+- `spawn` / `visit` / `disengage` / `report` and entry/exit dispatch;
+- typed and untyped edge traversal, edge references, disconnect, and
+  predicate filters;
+- subtype and tuple-trigger dispatch.
 
-## ui.mutation / ui.events — BLOCKED: same graph gap + walkers
+The implementation is in
+`vendor/jac/jac/jaclang/compiler/backends/native/na_ir_gen/osp.impl.jac`.
+The upstream equivalence suite marks the supported native cases with
+`require=["na"]` or `require=["na", "cl"]`.
 
-- Both import `ui.model`'s node/edge types; placement solver anchors them
-  server via the import-closure once model is server (no independent verdict).
-- `mutation.jac`: edge connect/delete ops (`parent +>:Child(rank=r):+> child`,
-  `del e`) — no native lowering path exists.
-- `events.jac`: `walker UiEvent*` archetypes and `stop spawn event;`
-  dispatch — walkers are explicitly outside the native subset.
+## Jackal status
 
-**Recommended fix (jaclang):** native support for typed-edge storage +
-traversal (`->:Edge:->` / `<-:Edge:<-`, `[edge ...]` filters), `jid()`, and
-either walker lowering or an explicit structured-dispatch alternative.
-Until then the three pins must stay.
+The rebuilt vendored compiler was exercised against `app/ui/events.jac`.
+The graph edge-reference forms in `app/ui/model.jac`, including explicit
+endpoints such as `[edge parent ->:Child:-> child]`, no longer emit the old
+`EdgeRefTrailer` unsupported diagnostic. The remaining demotion is `jid(n)`:
+native lowering reports `FuncCall` at `model.jac:99`, so the model module has
+no native artifact and `ui.events` remains server-placed.
+
+The upstream OSP equivalence suite passes 30 tests and currently fails the
+bound-endpoint fixture because its native arm also exercises `jid()` and
+object-identity comparison. This is a narrower residual gap than the
+pre-sync graph/walker blocker.
+
+The historical compiler findings and workarounds follow. They remain useful
+for primitive lowering, but must not be read as evidence that native OSP is
+unsupported upstream.
 
 ## Compiler bugs hit while lowering ui.bindings (upstreamable)
 

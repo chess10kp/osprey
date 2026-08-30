@@ -378,7 +378,7 @@ Start with `jac guide jac-core-cheatsheet` and `jac guide jac-types`.
 - `jac check <file>` -- type-check and lint. Compiler diagnostics link to the
   relevant guide; follow the `-> run 'jac guide ...'` hints.
 - `jac run <file>` -- execute a Jac script.
-- `jac start --dev main.jac` -- start a web-app or service in dev mode
+- `jac run --dev main.jac` -- serve a web-app or service in dev mode
   (hot-reload for client files; restart for server changes). Use this instead
   of `jac run` for apps.
 - `jac browse <action>` -- QA a running app in a headless browser:
@@ -435,9 +435,10 @@ def _resolve_template(use: str, registry: TemplateRegistry) -> ProjectTemplate |
                     tmpl = load_template_from_json(use_path);
                     console.print(f"Using template '{tmpl.name}' from {use_path}");
                     return tmpl;
+                } else {
+                    console.error(f"Error: File must be a .jacpack file: {use}");
+                    return None;
                 }
-                console.error(f"Error: File must be a .jacpack file: {use}");
-                return None;
             } elif use_path.is_dir() {
                 tmpl = load_template_from_directory(use_path);
                 console.print(f"Using template '{tmpl.name}' from {use_path}");
@@ -548,10 +549,10 @@ def _create_root_gitignore(project_path: Path, entries: list[str]) {
 }
 
 impl install(
-    packages: list | None = None,
-    editable: list | None = None,
+    packages: list = [],
+    editable: list = [],
     dev: bool = False,
-    extras: list | None = None,
+    extras: list = [],
     no_save: bool = False,
     git: str = "",
     npm: bool | None = None,
@@ -569,15 +570,6 @@ impl install(
     plan: bool = False,
     as_json: bool = False
 ) -> int {
-    if packages is None {
-        packages = [];
-    }
-    if editable is None {
-        editable = [];
-    }
-    if extras is None {
-        extras = [];
-    }
     if plan {
         return deps(scale=scale, as_json=as_json);
     }
@@ -605,7 +597,7 @@ impl install(
         return run_shadcn_add(packages);
     }
     if npm {
-        import from jaclang.runtimelib.client.cli { run_npm_add }
+        import from jaclang.client.cli { run_npm_add }
         return run_npm_add(packages, dev, install_global);
     }
     import from pathlib { Path }
@@ -767,7 +759,7 @@ impl install(
 
     editable = [p for group in (editable or []) for p in group];
     if editable {
-        import from jaclang.publish.builder { WheelBuilder }
+        import from jaclang.dist.publish.builder { WheelBuilder }
 
         editable_targets: list = [];
         all_dep_specs: list[str] = [];
@@ -932,9 +924,10 @@ impl install(
     if install_success and not plugin_failed {
         console.success("All dependencies installed");
         return 0;
+    } else {
+        console.error("Some dependencies failed to install");
+        return 1;
     }
-    console.error("Some dependencies failed to install");
-    return 1;
 }
 
 def _bootstrap_project_deps(project_path: Path) -> bool {
@@ -959,20 +952,14 @@ def _bootstrap_project_deps(project_path: Path) -> bool {
 }
 
 impl remove(
-    packages: list | None = None,
-    dev: bool = False,
-    npm: bool = False,
-    shadcn: bool = False
+    packages: list = [], dev: bool = False, npm: bool = False, shadcn: bool = False
 ) -> int {
-    if packages is None {
-        packages = [];
-    }
     if shadcn {
         import from jaclang.cli.shadcn.cli { run_shadcn_remove }
         return run_shadcn_remove(packages);
     }
     if npm {
-        import from jaclang.runtimelib.client.cli { run_npm_remove }
+        import from jaclang.client.cli { run_npm_remove }
         return run_npm_remove(packages, dev);
     }
     import from jaclang.project.config { get_config }
@@ -1015,15 +1002,10 @@ def _major_minor(version: str) -> str {
     return version;
 }
 
-impl update(
-    packages: list | None = None, dev: bool = False, verbose: bool = False
-) -> int {
+impl update(packages: list = [], dev: bool = False, verbose: bool = False) -> int {
     import from jaclang.project.config { get_config }
     import from jaclang.project.pyvenv { make_git_spec }
     import from jaclang.project.providers { InstallContext, get_python_provider }
-    if packages is None {
-        packages = [];
-    }
     config = get_config();
     if config is None {
         console.error(
@@ -1218,7 +1200,7 @@ impl script(name: str = '', list_scripts: bool = False) -> int {
                 style="muted"
             );
             console.print('  [scripts]', style="muted");
-            console.print('  dev = "jac start main.jac"', style="muted");
+            console.print('  dev = "jac run --dev main.jac"', style="muted");
             console.print('  test = "jac test"', style="muted");
             return 0;
         }
@@ -1380,7 +1362,7 @@ impl jacpack(action: str = "", path: str = "", output: str = "") -> int {
         } else {
             jac_toml_path = template_dir / "jac.toml";
             if jac_toml_path.exists() {
-                import from jaclang.jac0core.tomlio { read_toml_with_encoding }
+                import from jaclang.project.tomlio { read_toml_with_encoding }
                 jac_config = read_toml_with_encoding(str(jac_toml_path));
                 name = jac_config.get("jacpack", {}).get("name", template_dir.name);
             } else {
@@ -1435,7 +1417,7 @@ impl jacpack(action: str = "", path: str = "", output: str = "") -> int {
 }
 
 def _bundle_wheel(config: any, output: str) -> int {
-    import from jaclang.publish.builder { WheelBuilder }
+    import from jaclang.dist.publish.builder { WheelBuilder }
 
     out_dir = Path(output);
     out_dir.mkdir(parents=True, exist_ok=True);
@@ -1516,7 +1498,7 @@ def _run_precompiler(src_dir: str, flags: list[str]) -> int {
         + repr(src_dir)
         + "] + "
         + repr(list(flags))
-        + "; from jaclang.utils.precompile_bytecode import main; main()"
+        + "; from jaclang.dist.precompile_bytecode import main; main()"
     );
     return subprocess.call([sys.executable, "-c", code]);
 }
@@ -1545,11 +1527,11 @@ def _resolve_entry_file(config: any) -> (Path | None) {
 
 def _build_serve_manifest(entry_file: Path, proj_root: Path) -> (dict | None) {
     import os;
-    import from jaclang.jac0core.runtime { JacRuntime as Jac }
-    import from jaclang.jac0core.constant { Tokens as Tok }
-    import from jaclang.jac0core.compiler { get_boundary_analysis_sched }
-    import from jaclang.runtimelib.client_bundle { _ensure_js_generated }
-    import from jaclang.utils.precompile_bytecode {
+    import from jaclang.runtime.runtime { JacRuntime as Jac }
+    import from jaclang.compiler.frontend.constant { Tokens as Tok }
+    import from jaclang.compiler.driver.schedules { get_boundary_analysis_sched }
+    import from jaclang.client.client_bundle { _ensure_js_generated }
+    import from jaclang.dist.precompile_bytecode {
         find_jac_files,
         _nested_project_dirs
     }
@@ -1696,8 +1678,8 @@ def _build_serve_manifest(entry_file: Path, proj_root: Path) -> (dict | None) {
 }
 
 def _ensure_client_dist(config: any, entry_file: Path) -> (Path | None) {
-    import from jaclang.runtimelib.client { get_bun }
-    import from jaclang.runtimelib.client.targets.web_target { WebTarget }
+    import from jaclang.client { get_bun }
+    import from jaclang.client.targets.web_target { WebTarget }
 
     client_dir: Path = config.get_client_dir();
     dist = client_dir / 'dist';
@@ -1735,15 +1717,15 @@ def _ensure_client_dist(config: any, entry_file: Path) -> (Path | None) {
 def _bake_native_payloads(config: any, pkg_copy: Path) -> bool {
     import os;
     import from jaclang.jac0core.ext_registry { base_stem }
-    import from jaclang.jac0core.placement_solver { native_default_path_ok }
-    import from jaclang.runtimelib.sealed_serve { NATIVE_DIR_REL, native_lib_name }
+    import from jaclang.compiler.placement.placement_solver { native_default_path_ok }
+    import from jaclang.server.sealed_serve { NATIVE_DIR_REL }
 
     entry_file = _resolve_entry_file(config);
     if entry_file is None or not native_default_path_ok(str(entry_file)) {
         return True;
     }
     try {
-        import jaclang.compiler.passes.native.llvm.binding as llvm;
+        import jaclang.compiler.backends.native.llvm.binding as llvm;
         triple = str(llvm.get_default_triple());
     } except Exception as e {
         console.error(f"Cannot resolve the native target triple: {e}");
@@ -1753,13 +1735,10 @@ def _bake_native_payloads(config: any, pkg_copy: Path) -> bool {
     out_dir = pkg_copy / NATIVE_DIR_REL / triple;
     out_dir.mkdir(parents=True, exist_ok=True);
     console.print(f"  Compiling native binary for {triple}", style="muted");
-    import from jaclang.cli.commands.nacompile { nacompile_sealed_pair }
-    if nacompile_sealed_pair(
-        filename=str(entry_file),
-        exe_output=str(out_dir / stem),
-        lib_output=str(out_dir / native_lib_name(stem))
-    )
-        != 0 {
+    import from jaclang.cli.commands.nacompile { nacompile }
+    rc = nacompile(filename=str(entry_file), output=str(out_dir / stem));
+    if rc != 0 {
+        console.error("Native compilation failed; seal aborted.");
         return False;
     }
     return True;
@@ -1768,7 +1747,7 @@ def _bake_native_payloads(config: any, pkg_copy: Path) -> bool {
 def _bake_serve_payloads(config: any, pkg_copy: Path) -> bool {
     import json;
     import shutil;
-    import from jaclang.runtimelib.sealed_serve { SERVE_MANIFEST_REL, CLIENT_DIST_REL }
+    import from jaclang.server.sealed_serve { SERVE_MANIFEST_REL, CLIENT_DIST_REL }
 
     entry_file = _resolve_entry_file(config);
     if entry_file is None {
@@ -1901,7 +1880,7 @@ def _bundle_sealed(config: any, output: str) -> int {
 def _vendor_jab_deps(config: any, img: Path) -> bool {
     import from jaclang.project.providers { resolve_plan, get_python_provider }
     import from jaclang.jac0core.sealed { python_tag }
-    import from jaclang.runtimelib.jab_vendor {
+    import from jaclang.dist.jab_vendor {
         wheels_dir,
         download_wheels,
         write_vendor_manifest
@@ -2001,12 +1980,12 @@ def _bundle_binary(config: any, output: str, fat: bool = False) -> int {
     import subprocess;
     import tempfile;
     import from jaclang.jac0core.sealed { MANIFEST_NAME }
-    import from jaclang.runtimelib.jab { jab_app_meta }
+    import from jaclang.dist.jab { jab_app_meta }
 
     name = config.project.name;
     jac_bin = os.path.realpath(sys.executable);
 
-    import from jaclang.runtimelib.fused_binary { has_runtime, append_overlay }
+    import from jaclang.dist.fused_binary { has_runtime, append_overlay }
     if not has_runtime(jac_bin) {
         console.error(
             "jac build --as binary needs a bundled single-file jac to carry the "
@@ -2094,8 +2073,8 @@ def _tar_gz_dir(top: Path) -> bytes {
 }
 
 def _bundle_npm(config: any, output: str) -> int {
-    import from jaclang.publish.npm_builder { NpmBuilder }
-    import from jaclang.publish.npm_sources { NpmBoundaryError }
+    import from jaclang.dist.publish.npm_builder { NpmBuilder }
+    import from jaclang.dist.publish.npm_sources { NpmBoundaryError }
 
     out_dir = Path(output);
     out_dir.mkdir(parents=True, exist_ok=True);
@@ -2120,7 +2099,7 @@ def _bundle_npm(config: any, output: str) -> int {
 }
 
 def _bundle_npm_runtime(output: str, framework: str = "") -> int {
-    import from jaclang.publish.runtime_npm { build_runtime_to, runtime_pkg_name }
+    import from jaclang.dist.publish.runtime_npm { build_runtime_to, runtime_pkg_name }
     import importlib.metadata;
 
     version = importlib.metadata.version("jaclang");

@@ -1,6 +1,6 @@
 # Vendored Jac compiler (`vendor/jac`)
 
-**Added:** 2026-08-24 · **Source:** `chess10kp/jaseci` branch `jac-one-compiler` @ `3730d76a2` (the jaseci-labs/jac PR #8370 stack) · **Form:** `git subtree --squash`
+**Updated:** 2026-08-30 · **Source:** `jaseci-labs/jac` `main` @ `fe4b7c760ae55d8259ab8f9da7a879fd45aa135e` · **Form:** `git subtree --squash`
 
 ## Why a vendor copy
 
@@ -17,8 +17,8 @@ vendor/jac/                  # upstream repo root (subtree root)
 ├── jac/                     # the compiler package
 │   ├── build.zig            # one-command entry (fetch-llvm, fetch-bun, -Ddev, release)
 │   ├── jaclang/             # compiler source — edits here run live under -Ddev
-│   │   ├── compiler/passes/native/   # na_ir_gen/, na_compile_pass, LLVM shim
-│   │   └── runtimelib/na_stdlib/     # native stdlib floors (json, os.path, ssl, ...)
+│   │   ├── compiler/backends/native/   # graph-shaped native compiler + LLVM IR
+│   │   └── runtime/na_stdlib/          # native stdlib floors
 │   ├── launcher/            # single-binary launcher internals
 │   └── native/              # llvmlite FFI shim (C++, verbatim upstream)
 └── scripts/                 # upstream helpers (fresh_env.sh — see gotchas)
@@ -45,8 +45,8 @@ Requirements: zig 0.16.0, network for the one-time pinned fetches (LLVM slice ~8
 ## Sync from upstream
 
 ```bash
-# from the local compiler checkout (fast) or the fork on GitHub
-git subtree pull --prefix=vendor/jac /home/jac/repos/jac-one-compiler jac-one-compiler --squash
+# from the Jackal root; use a clean checkout of upstream main
+git subtree pull --prefix=vendor/jac /home/jac/repos/jaseci main --squash
 # resolve conflicts inside vendor/jac/**, commit the merge
 ```
 
@@ -72,7 +72,8 @@ The gap analysis (`~/notes/jackal-native-gap-analysis.md`) lists the concrete up
 
 | Gap | Where it lands |
 |---|---|
-| `na_stdlib` modules (`re`, `threading`, `subprocess`, `tempfile`, `queue`, terminal FFI floors) | `vendor/jac/jac/jaclang/runtimelib/na_stdlib/` |
-| compiler intercepts (`os.environ`, `os.listdir`, `walk`, ...) | `vendor/jac/jac/jaclang/compiler/passes/native/na_ir_gen/` |
-| lowering failures (E1032, E5092) | same passes + `na_compile_pass` |
+| `na_stdlib` modules (`re`, `threading`, `subprocess`, `tempfile`, `queue`, terminal FFI floors) | `vendor/jac/jac/jaclang/runtime/na_stdlib/` |
+| compiler intercepts (`os.environ`, `os.listdir`, `walk`, ...) | `vendor/jac/jac/jaclang/compiler/backends/native/na_ir_gen/` |
+| graph-shaped OSP lowering | `vendor/jac/jac/jaclang/compiler/backends/native/na_ir_gen/osp.*.jac` |
+| lowering failures (E1032, E5092) | same backend + native driver |
 | new-module congruence tests | `vendor/jac/jac/jaclang/compiler/tests/fixtures/` + `test_prim_equivalence.jac` |

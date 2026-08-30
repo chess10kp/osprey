@@ -25,9 +25,10 @@ default_codespace = "native"
 "constraints.layout_relations" = "native"
 "core.edit" = "native"
 
-# 2026-08-29 cascade (vendor fixes: hasattr lowering, edge-field store,
-# empty-container-literal compare): model/mutation/runtime lower and pass
-# their suites natively (model 8/8, mutation 19/19, runtime 53/53).
+# 2026-08-30 vendor sync: the graph-shaped compiler now lowers UI edge
+# traversals and walkers. ui.model still demotes because node_id() wraps
+# unsupported native jid(); dependent UI modules therefore retain server
+# placement until native object identity is available.
 "ui.model" = "native"
 "ui.mutation" = "native"
 "ui.runtime" = "native"

@@ -9,9 +9,9 @@ EndpointEffectPass in the same schedule.
 
 import os;
 import tempfile;
-import jaclang.jac0core.unitree as uni;
-import from jaclang.jac0core.compile_options { CompileOptions }
-import from jaclang.jac0core.program { JacProgram }
+import jaclang.compiler.frontend.unitree as uni;
+import from jaclang.compiler.driver.compile_options { CompileOptions }
+import from jaclang.compiler.driver.program { JacProgram }
 
 def write_mods(mods: dict[str, str]) -> str {
     tmp = tempfile.mkdtemp(prefix="jac_interop_manifest_");
@@ -103,45 +103,6 @@ test "primitive na->sv signatures stay clean of E5093" {
     msgs = [e.pretty_print() for e in prog.errors_had];
     assert not any(["E5093" in m for m in msgs]) , (
         f"int/str/float are ctypes-mappable and must not raise E5093: {msgs}"
-    );
-}
-
-test "native module's pinned-server import records an na->sv binding" {
-    # The na -> sv edge (interop matrix row 8): a native-pinned module
-    # importing from a server-pinned provider. The binding is the one the
-    # sealed-pair gate reads -- `native_imports` non-empty is what drops the
-    # standalone exe at build time and keeps the run host-driven.
-    tmp = write_mods(
-        {
-            "jac.toml": ('[placement.pins]\nmain = "native"\nhelper = "server"\n'),
-            "helper.jac": (
-                "def:pub py_double(x: int) -> int {\n" "    return x * 2;\n" "}\n"
-            ),
-            "main.jac": (
-                "import from .helper { py_double }\n\n"
-                "def crunch(x: int) -> int {\n"
-                "    return py_double(x);\n"
-                "}\n"
-            )
-        }
-    );
-    prog = JacProgram();
-    mod = prog.compile(
-        os.path.join(tmp, "main.jac"),
-        options=CompileOptions(default_codespace='server')
-    );
-    imports = mod.gen.interop_manifest.native_imports;
-    names = [b.name for b in imports];
-    assert "py_double" in names , (
-        f"native caller of a pinned-server fn must land in native_imports; "
-        f"got: {names} (bindings: "
-        f"{list(mod.gen.interop_manifest.bindings.keys())})"
-    );
-    binding = mod.gen.interop_manifest.bindings["py_double"];
-    assert binding.source_context.value == "server";
-    assert "native" in {c.value for c in binding.callers};
-    assert binding.param_types == ["int"] , (
-        f"expected int param on the ctypes wire, got {binding.param_types}"
     );
 }
 

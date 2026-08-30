@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the vendored Jac compiler (vendor/jac) into the editable dev binary.
 #
-# vendor/jac is a git subtree of jaseci-labs/jac (branch jac-one-compiler);
+# vendor/jac is a git subtree of jaseci-labs/jac (main);
 # see docs/VENDOR-JAC.md. Upstream's scripts/fresh_env.sh assumes it runs at
 # the repository root (`git rev-parse --show-toplevel`), which inside a
 # subtree resolves to the jackal root -- so this wrapper runs the same steps
