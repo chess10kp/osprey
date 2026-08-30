@@ -106,7 +106,7 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 ## 3. Binding decisions
 
 1. **All new product work lands in `app/`. The all-Jac harness IS Jackal.**
-2. **`src/` is absent; `lib/jac/`, `templates/`, `tui/*.tsx`, `tui/pi_jac/`, and `tui/pi_jac_floor/` are LEGACY-PENDING-REMOVAL** — frozen deletion targets; `tui/js2jac/` remains an active conversion workstream.
+2. **`src/`, `lib/jac/`, `templates/`, `tui/*.tsx`, `tui/pi_jac/`, and `tui/pi_jac_floor/` are deleted;** `tui/js2jac/` remains an active conversion workstream.
 3. **The line REPL is a debug adapter**, not a milestone UX (`app/main.jac` term mode).
 4. **MCP uses `jac mcp` as a subprocess**; an in-process rewrite needs profiling evidence.
 5. **Zero server-codespace product code.** The `server` tier is a contingency, not an architecture: every module in `app/` must eventually compile and execute native (see §N6). Server pins are temporary scaffolding, each annotated with its unblock condition; `default_codespace = "native"` in `app/jac.toml`.
@@ -117,7 +117,7 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 
 ### Landed
 
-- [x] All-Jac application root under `app/`, compiled natively by default (`default_codespace = "native"`); app/ tree checks clean under `jac build`
+- [~] All-Jac application root under `app/`, compiled natively by default (`default_codespace = "native"`); the app tree type-checks, but native coverage still reports the documented UI and stdlib demotions
 - [x] Owned ReAct loop (`app/agent/session.jac`) with streaming transport, turn abort, and worker-thread execution off the TUI loop
 - [x] Tool surface: read/write/edit/bash/web tools plus edit/diff kernel natively pinned (`app/core/edit.jac`)
 - [x] OSP differential-TUI framework complete (`app/ui/`): terminal + virtual terminal, input normalization, renderer/screen/transcript/editor, layout engine over `app/constraints/` solver, markup/markdown projection, focus, overlays, keybinding probe
@@ -132,19 +132,20 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 
 ### Known gaps
 
-- Auth UI not yet wired into the live shell (store + flow state machine exist; no `/login` surface in `tui.jac`)
-- Native in-shell mode cycling (normal/auto-accept/yolo/plan) and approval policy are landed
-- Native in-shell mode cycling is distinct from native `--mode` / `JACKAL_MODE` consumption; those flags and mode-specific prompt appendices remain pending
-- Native `jid()` lowering/object identity is the immediate compiler gap; graph edge lowering is landed
-- Packaging, install, upgrade, and recovery story for the native path is not settled
-- Session-data migration policy vs legacy runtime data is undecided (formats differ)
-- MCP integration breadth (status surfacing in the TUI, failure degradation UX) unverified
-- Headless `jackal run` on the native path (term/JSONL exist; CLI parity with the legacy launcher pending)
-
+- [x] Auth UI wired into the live shell as `/login` (API-key providers; OAuth reports the native runtime limitation honestly)
+- [x] Native in-shell mode cycling and approval policy (normal/auto-accept/yolo/plan/ask)
+- [x] Native `--mode` / `JACKAL_MODE` consumption and mode-specific prompt appendices
+- [x] Native `jid()` builtin lowering and object identity formatting
+- [~] Packaging, install, upgrade, and recovery story for the native path is not settled
+- [~] Session-data migration policy vs legacy runtime data is explicit backup/incompatibility work, not an implicit conversion
+- [~] MCP integration breadth (status surfacing in the TUI, failure degradation UX) unverified
+- [x] Headless native term/JSONL launch through `jackal.sh`; broader CLI parity remains pending
 ### Current native frontier
 
 `app/jac.toml` currently contains 15 server pins; N6 requires reducing that count to
-zero. Lower-priority native compiler gaps and Cordis integration remain deferred.
+zero. The immediate residual UI compiler wall is bound-endpoint `EdgeRefTrailer`
+lowering; lower-priority native compiler gaps and Cordis integration remain deferred.
+
 
 ## 5. Delivery phases
 
@@ -158,20 +159,17 @@ Terminal interface (process + virtual), raw mode/input buffering/key normalizati
 
 ### N2 — Daily-driver core — **largely landed on the native path**
 
-Landed: transcript/markdown/tool timeline/status, editor autocomplete, session persistence/resume/rename/export, turn abort and cooperative cancellation, in-shell mode cycling and approval policy, approval overlay with structured diffs, MCP subprocess clients, plugin host control plane (D21, P0–P5).
+Landed: transcript/markdown/tool timeline/status, editor autocomplete, session persistence/resume/rename/export, turn abort and cooperative cancellation, in-shell mode cycling and approval policy, approval overlay with structured diffs, MCP subprocess clients, plugin host control plane (D21, P0–P5), `/login`, and native CLI mode selection.
 
-Remaining for N2 closure: auth UI surface, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui.jac` before claiming any item done). Native `--mode` / `JACKAL_MODE` consumption and mode-specific prompt appendices are separate pending seams.
+Remaining for N2 closure: auth OAuth/browser continuation, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui.jac` before claiming any item done). N6 native placement remains a separate compiler/runtime workstream.
 
-### N3 — Legacy deletion + packaging — **reframed**
+### N3 — Legacy deletion + packaging — **deletion landed**
 
-The feature port already happened; N3 is no longer "port and cutover." Remaining work:
+- Packaging, install, upgrade, and recovery documentation
+- Explicit session-data migration/incompatibility policy for legacy `.jackal/sessions/` data
+- No daily workflow may require jac-ink or deleted trees
 
-- Delete `lib/jac/`, `templates/`, `tui/*.tsx`, `tui/pi_jac/`, and `tui/pi_jac_floor/` (with `tui/js2jac/` retained as an active conversion workstream), plus the legacy TS test suites, in one reviewable commit
-- Clean launcher, install, upgrade, and recovery documentation
-- Session-data migration or explicit compatibility policy for existing `.jackal/sessions/` data
-- No daily workflow may require jac-ink or the deleted trees
-
-Acceptance: default `jackal` launch uses `app/`; repo-root build/check is green with the legacy trees gone.
+Acceptance: default `jackal` launch uses `app/`; native launcher smoke checks pass with the legacy trees gone. Full `app/` native closure remains N6 work.
 
 ### N4 — Composition and extensibility integration
 
