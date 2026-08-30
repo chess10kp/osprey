@@ -9,22 +9,7 @@ Two frontends, one session:
 import sys;
 import os;
 import json;
-import from agent.session {
-    run_turn,
-    set_model,
-    clear_history,
-    model,
-    json_event,
-    list_commands,
-    run_command,
-    cancel_active_turn,
-    get_history,
-    restore_history,
-    set_current_session_id,
-    plugins,
-    session_boot,
-    session_dispose,
-}
+import agent.session as _session;
 import from agent.sessions {
     list_sessions,
     latest_session_id,
@@ -37,7 +22,7 @@ import from agent.sessions {
 
 def print_banner {
     print("jackal - all-Jac agent harness");
-    print(f"model: {model}   cwd: {os.getcwd()}");
+    print(f"model: {_session.model}   cwd: {os.getcwd()}");
     print("/help for commands, /exit to quit");
 }
 
@@ -63,9 +48,9 @@ def print_help {
 def handle_command(line: str) -> str | None {
     if line in ("/exit", "/quit") { return None; }
     if line == "/help" { print_help(); return ""; }
-    if line == "/clear" { clear_history(); return "history cleared"; }
+    if line == "/clear" { _session.clear_history(); return "history cleared"; }
     if line == "/abort" {
-        return "turn aborted" if cancel_active_turn() else "no active turn";
+        return "turn aborted" if _session.cancel_active_turn() else "no active turn";
     }
     if line == "/sessions" {
         rows = list_sessions(os.getcwd());
@@ -93,18 +78,18 @@ def handle_command(line: str) -> str | None {
         if not isinstance(msgs, list) or not msgs {
             return "session has no transcript: " + sid;
         }
-        restore_history(msgs as list);
+        _session.restore_history(msgs as list);
         rec_model: any = rec.get("model");
         reply: str = "resumed " + sid + " (" + str(len(msgs)) + " messages)";
-        if isinstance(rec_model, str) and rec_model and rec_model != model {
-            reply += "\nmodel -> " + set_model(rec_model);
+        if isinstance(rec_model, str) and rec_model and rec_model != _session.model {
+            reply += "\nmodel -> " + _session.set_model(rec_model);
         }
         return reply;
     }
     if line.startswith("/export") {
         arg = line[len("/export"):].strip();
         path = arg if arg else "jackal-transcript.md";
-        hist = get_history();
+        hist = _session.get_history();
         has_content = False;
         for m in hist {
             if isinstance(m, dict) and str(m.get("role", "")) != "system" {
@@ -114,12 +99,12 @@ def handle_command(line: str) -> str | None {
         }
         if not has_content { return "nothing to export yet"; }
         # Export needs a saved record; persist the live transcript first.
-        if not is_valid_session_id(str(plugins.session_id)) {
-            set_current_session_id("");
+        if not is_valid_session_id(str(_session.plugins.session_id)) {
+            _session.set_current_session_id("");
         }
         try {
             meta = save_session(
-                os.getcwd(), hist, session_id=plugins.session_id,
+                os.getcwd(), hist, session_id=_session.plugins.session_id,
             );
         } except Exception as e {
             return "ERROR: could not save transcript: " + str(e);
@@ -130,7 +115,7 @@ def handle_command(line: str) -> str | None {
         return "ERROR: could not write " + path;
     }
     if line == "/commands" {
-        cmds = list_commands();
+        cmds = _session.list_commands();
         if not cmds { return "no extension commands loaded"; }
         lines: list[str] = ["extension commands:"];
         for raw_name in sorted(cmds.keys()) {
@@ -151,7 +136,7 @@ def handle_command(line: str) -> str | None {
     }
     if line.startswith("/model ") {
         name = line[len("/model "):].strip();
-        if name { return "model -> " + set_model(name); }
+        if name { return "model -> " + _session.set_model(name); }
         return "usage: /model NAME";
     }
     if line.startswith("/") {
@@ -159,8 +144,8 @@ def handle_command(line: str) -> str | None {
         parts = line[1:].split(None, 1);
         name = parts[0] if parts else "";
         args = parts[1].strip() if len(parts) > 1 else "";
-        if name and name in list_commands() {
-            return run_command(name, args);
+        if name and name in _session.list_commands() {
+            return _session.run_command(name, args);
         }
         hint = " (/commands for extension commands)";
         return "unknown command: " + line + " (/help for list)" + hint;
@@ -173,10 +158,10 @@ with entry:__main__ {
     # Pi lifecycle: boot loads .jackal/extensions.json and warms the Node
     # sidecar without blocking the first frame; run_turn awaits extension
     # readiness before the first model request.
-    session_boot();
+    _session.session_boot();
     json_mode = "--json" in sys.argv;
     if json_mode {
-        json_event("session_ready", {"model": model, "cwd": os.getcwd()});
+        _session.json_event("session_ready", {"model": _session.model, "cwd": os.getcwd()});
     } else {
         print_banner();
     }
@@ -192,7 +177,7 @@ with entry:__main__ {
                 try {
                     req: any = json.loads(text_in);
                 } except ValueError {
-                    json_event("error", {"message": "bad json: " + text_in[:80]});
+                    _session.json_event("error", {"message": "bad json: " + text_in[:80]});
                     continue;
                 }
                 text = str(req.get("text", ""));
@@ -213,32 +198,32 @@ with entry:__main__ {
             if kind == "command" {
                 reply = handle_command(text);
                 if reply is None {
-                    if json_mode { json_event("session_end", {}); ended = True; }
+                    if json_mode { _session.json_event("session_end", {}); ended = True; }
                     break;
                 }
                 if reply {
-                    if json_mode { json_event("info", {"text": reply}); }
+                    if json_mode { _session.json_event("info", {"text": reply}); }
                     else { print(reply); }
                 }
                 continue;
             }
             try {
                 if json_mode {
-                    run_turn(text, json_event);
+                    _session.run_turn(text, _session.json_event);
                 } else {
-                    run_turn(text);
+                    _session.run_turn(text);
                 }
             } except KeyboardInterrupt {
-                if json_mode { json_event("error", {"message": "interrupted"}); }
+                if json_mode { _session.json_event("error", {"message": "interrupted"}); }
                 else { print("\n[interrupted]"); }
             }
         }
     } finally {
         # Every exit path (EOF, /exit, fatal error) shuts extensions down:
         # session_shutdown hook fires, sidecar is disposed.
-        session_dispose();
+        _session.session_dispose();
     }
     if json_mode {
-        if not ended { json_event("session_end", {}); }
+        if not ended { _session.json_event("session_end", {}); }
     } else { print("bye."); }
 }
