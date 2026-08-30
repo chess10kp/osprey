@@ -88,6 +88,8 @@ default_codespace = "native"
 # agent.modes: pure native safety policy; regex dependency replaced with
 # fixed-shape token matching (15/15 modes tests pass).
 "agent.modes" = "native"
+# agent.system: static prompt data plus native os.getcwd floor.
+"agent.system" = "native"
 # agent.tool_spec: LOWERS clean natively when explicitly pinned native
 # (verified 2026-08-25: placement=native, build green) but CANNOT be used
 # natively while its consumers stay server: server-codespace code that
