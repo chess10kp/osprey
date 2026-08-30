@@ -41,7 +41,7 @@ impl NativeBuiltinEmitter.emit_jid(
             _invalid, "TypeError", "jid() requires a graph object"
         );
         obj_ptr = b.inttoptr(_payload, i8p, name="jid.boxed_ptr");
-    elif p._opt_ptr_payload_of(arg_val.type) is not None:
+    } elif p._opt_ptr_payload_of(arg_val.type) is not None {
         if not _is_graph_type {
             return None;
         }
@@ -56,12 +56,14 @@ impl NativeBuiltinEmitter.emit_jid(
             _is_null, "TypeError", "jid() requires a graph object"
         );
         obj_ptr = b.bitcast(_payload, i8p, name="jid.opt_ptr");
-    elif isinstance(arg_val.type, ir.PointerType):
-        if not _is_graph_type:
+    } elif isinstance(arg_val.type, ir.PointerType) {
+        if not _is_graph_type {
             return None;
+        }
         obj_ptr = b.bitcast(arg_val, i8p, name="jid.ptr");
-    else:
+    } else {
         return None;
+    }
 
     _header_id_ptr = b.gep(
         obj_ptr, [ir.Constant(i64, HDR_ALLOC_ID_OFF)], name="jid.alloc_id_ptr"
