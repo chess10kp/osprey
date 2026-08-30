@@ -30,6 +30,7 @@ import from .compaction {
 }
 import from .tools { default_registry }
 import from .system { SYSTEM_PROMPT }
+import from .modes { DEV_MODES, system_prompt_for_mode }
 import from .plugin_bridge {
     PluginBridge,
     create_bridge,
@@ -109,7 +110,27 @@ glob history: list[dict[str, any]] = [],
      show_stats: bool = True,
      model: str = os.environ.get("JACKAL_MODEL", "openrouter/anthropic/claude-sonnet-5"),
      thinking_level: str = "",
+     mode: str = "normal",
      plugins: SessionPlugins = SessionPlugins();
+
+
+"""Set the active dev mode used for system-prompt and tool policy seams."""
+def set_mode(next_mode: str) -> str {
+    if next_mode not in DEV_MODES {
+        raise ValueError(
+            "invalid mode '" + next_mode
+            + "' (expected normal, auto-accept, yolo, plan, or ask)"
+        );
+    }
+    mode = next_mode;
+    return mode;
+}
+
+
+"""Return the active dev mode for native UI clients."""
+def get_mode() -> str {
+    return mode;
+}
 
 glob _t0: float = 0.0,
      _n_tools: int = 0;
@@ -509,6 +530,8 @@ def session_boot(
     wait_budget_s: float = 5.0,
     interactive_ui: bool = False,
 ) -> ExtensionStatus {
+    requested_mode: str = os.environ.get("JACKAL_MODE", "");
+    set_mode(requested_mode if requested_mode else "normal");
     plugins.session_id = sid if sid else "session";
     plugins.cwd = cwd if cwd else os.getcwd();
     plugins.interactive_ui = interactive_ui;
@@ -834,6 +857,30 @@ def _maybe_auto_compact(bridge: PluginBridge | None) {
 }
 
 
+"""Seed or refresh the session system prompt for the active dev mode."""
+def _ensure_mode_system_prompt {
+    desired: str = system_prompt_for_mode(SYSTEM_PROMPT, mode);
+    if not history {
+        history.append({"role": "system", "content": desired});
+        return;
+    }
+    for i in range(len(history)) {
+        if str(history[i].get("role", "")) != "system" {
+            continue;
+        }
+        current: str = str(history[i].get("content", ""));
+        if (
+            current == SYSTEM_PROMPT
+            or "## Plan mode (active)" in current
+            or "## Ask mode (active)" in current
+        ) {
+            history[i]["content"] = desired;
+        }
+        return;
+    }
+}
+
+
 """Run one agent turn: wait for extension snapshot, then stream the loop.
 
 on_event(kind, data) is the UI boundary: the term renderer prints, the
@@ -885,9 +932,7 @@ def run_turn(
             message = str(igate.get("text", message));
         }
     }
-    if not history {
-        history.append({"role": "system", "content": SYSTEM_PROMPT});
-    }
+    _ensure_mode_system_prompt();
     history.append({"role": "user", "content": message});
     # Auto-compact seam: threshold check after the user message lands.
     _maybe_auto_compact(bridge);

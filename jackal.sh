@@ -103,17 +103,14 @@ run_native() {
   # Imports inside the app resolve siblings relative to app/.
   export JACPATH="${JACPATH:-.}"
 
-  # NOTE: the native shell does not read JACKAL_MODE yet (grep app/ for
-  # environ/getenv — only JACKAL_MODEL/JACKAL_CONTEXT_MAX/JACKAL_AGENT_DIR/
-  # JACKAL_ROOT/JACKAL_NODE_BIN are consumed). We still accept and export
-  # --mode so day-one mode wiring can land without launcher changes; until
-  # then this flag is inert on the native path.
+  # JACKAL_MODE is validated by the launcher and consumed by the native
+  # session seam. A command-line --mode (parsed below) overrides the env.
   exec jac run "$entry" "$@"
 }
 
 # ---- flag parsing -----------------------------------------------------------
 
-JACKAL_MODE=""
+JACKAL_MODE="${JACKAL_MODE:-}"
 MODE_SEEN=0
 
 while [[ $# -gt 0 ]]; do
@@ -142,7 +139,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE_SEEN" == 1 ]]; then
+if [[ "$MODE_SEEN" == 1 || -n "$JACKAL_MODE" ]]; then
   case "$JACKAL_MODE" in
     normal|auto-accept|yolo|plan|ask) ;;
     *)

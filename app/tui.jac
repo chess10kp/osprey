@@ -36,11 +36,25 @@ import from agent.session {
     plugins,
     new_session_id,
     model_preferences,
+    get_mode,
+    set_mode,
 }
 import from agent.llm {
     PROVIDER_ROUTES,
     credential_error,
     provider_for,
+}
+import from agent.auth {
+    load_auth_file,
+    save_auth_file,
+    resolve_auth_path,
+    credential_set,
+    stored_api_key,
+    get_auth_status,
+    transition_auth_flow,
+    initial_auth_flow_state,
+    format_provider_label,
+    oauth_start_login,
 }
 import from agent.modes {
     requires_approval,
@@ -192,6 +206,7 @@ glob SLASH_BUILTINS: dict[str, str] = {
     "quit": "quit jackal",
     "clear": "clear conversation history",
     "abort": "abort the active turn",
+    "login": "configure provider authentication",
     "sessions": "list saved sessions",
     "resume": "resume a saved session",
     "export": "export transcript to markdown",
@@ -242,6 +257,8 @@ obj LiveShell {
         picker: any = None,
         mode: str = "normal",
         cmd_q: any = None,
+        auth_flow: dict = {},
+        auth_data: dict = {},
         slash_sel: int = 0,
         slash_dismissed: str = "";
 }
@@ -281,6 +298,175 @@ def _model_picker_entries() -> dict {
         }
     }
     return {"rows": rows, "ids": ids};
+}
+
+
+"""Provider rows for /login. Native routes use API-key auth today; routes
+that advertise an OAuth authType are retained so their explicit network seam
+can report a useful error instead of pretending to log in."""
+def _login_provider_entries() -> dict {
+    stored = load_auth_file(resolve_auth_path());
+    rows: list[str] = [];
+    ids: list[str] = [];
+    for prov in PROVIDER_ROUTES {
+        provider_id = str(prov);
+        route: any = PROVIDER_ROUTES[prov];
+        meta: dict = route if isinstance(route, dict) else {};
+        key_env = str(meta.get("key_env", "") or "");
+        auth_type = str(meta.get("authType", "api_key" if key_env else "env"));
+        if auth_type == "env" {
+            continue;
+        }
+        status = get_auth_status(
+            provider_id,
+            stored,
+            env_api_key=os.environ.get(key_env, "") if key_env else "",
+        );
+        item = {
+            "id": provider_id,
+            "displayName": provider_id,
+            "authType": auth_type,
+            "configured": bool(status.get("configured", False)),
+            "modelCount": len(meta.get("models", []) or []),
+        };
+        rows.append(format_provider_label(item));
+        ids.append(provider_id);
+    }
+    return {"rows": rows, "ids": ids, "stored": stored};
+}
+
+
+"""Apply a stored native API key only when the process does not already
+have an explicit environment override. This keeps provider routing intact
+across launches without changing persisted credentials or leaking them into
+the transcript."""
+def _hydrate_auth_environment() {
+    stored = load_auth_file(resolve_auth_path());
+    for prov in PROVIDER_ROUTES {
+        provider_id = str(prov);
+        route: any = PROVIDER_ROUTES[prov];
+        meta: dict = route if isinstance(route, dict) else {};
+        key_env = str(meta.get("key_env", "") or "");
+        if not key_env or os.environ.get(key_env, "") {
+            continue;
+        }
+        key = stored_api_key(stored, provider_id);
+        if key {
+            os.environ[key_env] = key;
+        }
+    }
+}
+
+
+def _login_error(app: LiveShell, message: str) {
+    app.auth_flow = transition_auth_flow(
+        app.auth_flow,
+        "set_error",
+        {"message": message, "providerId": app.picker.get("providerId", "") if app.picker is not None else ""},
+    );
+    if app.picker is not None {
+        _close_picker(app);
+    }
+    _push_turn(app, "tool", "login error: " + message);
+    app.status_hint = "login failed · /login to retry";
+    app.dirty = True;
+}
+
+
+def _cancel_login(app: LiveShell) {
+    app.auth_flow = transition_auth_flow(app.auth_flow, "cancel");
+    if app.picker is not None {
+        _close_picker(app);
+    }
+    _push_turn(app, "tool", "login cancelled");
+    app.status_hint = "login cancelled · enter · ↑↓ history · esc quit";
+    app.dirty = True;
+}
+
+
+def _start_login_provider(app: LiveShell, provider_id: str) {
+    entries = _login_provider_entries();
+    stored: dict = entries.get("stored", {});
+    found: dict | None = None;
+    for item in PROVIDER_ROUTES {
+        if str(item) == provider_id {
+            route: any = PROVIDER_ROUTES[item];
+            found = route if isinstance(route, dict) else {};
+            break;
+        }
+    }
+    if found is None {
+        _login_error(app, "unknown provider: " + provider_id);
+        return;
+    }
+    key_env = str(found.get("key_env", "") or "");
+    auth_type = str(found.get("authType", "api_key" if key_env else "env"));
+    app.auth_data = stored;
+    app.auth_flow = transition_auth_flow(
+        app.auth_flow,
+        "set_logging_in",
+        {"providerId": provider_id, "status": "starting"},
+    );
+    if auth_type == "oauth" {
+        result = oauth_start_login(provider_id);
+        detail = str(result.get("detail", "") or "") if isinstance(result, dict) else "";
+        _login_error(
+            app,
+            "OAuth login is unavailable in the native runtime"
+            + (": " + detail if detail else ""),
+        );
+        return;
+    }
+    if not key_env {
+        _login_error(app, "provider " + provider_id + " has no interactive login");
+        return;
+    }
+    if app.picker is None {
+        _login_error(app, "login overlay unavailable");
+        return;
+    }
+    app.picker["mode"] = "input";
+    app.picker["providerId"] = provider_id;
+    app.picker["authType"] = auth_type;
+    app.picker["keyEnv"] = key_env;
+    app.picker["draft"] = "";
+    app.auth_flow = transition_auth_flow(
+        app.auth_flow,
+        "set_api_key_input",
+        {"providerId": provider_id},
+    );
+    app.status_hint = "paste API key · enter save · esc cancel";
+    app.dirty = True;
+}
+
+def _complete_api_key_login(app: LiveShell, provider_id: str, key: str) {
+    if not key {
+        _login_error(app, "API key cannot be empty");
+        return;
+    }
+    next_data = credential_set(app.auth_data, provider_id, {"type": "api_key", "key": key});
+    path = resolve_auth_path();
+    if not save_auth_file(path, next_data) {
+        _login_error(app, "could not save credentials to " + path);
+        return;
+    }
+    app.auth_data = next_data;
+    route: any = PROVIDER_ROUTES.get(provider_id, {});
+    key_env = str(route.get("key_env", "") or "") if isinstance(route, dict) else "";
+    if key_env {
+        os.environ[key_env] = key;
+    }
+    app.auth_flow = transition_auth_flow(
+        app.auth_flow,
+        "set_logged_in",
+        {"providerId": provider_id, "nextStep": "done"},
+    );
+    if app.picker is not None {
+        _close_picker(app);
+    }
+    _push_turn(app, "tool", "logged in to " + provider_id + "; credentials saved to " + path);
+    app.status_hint = "login complete · enter · ↑↓ history · esc quit";
+    app.dirty = True;
 }
 
 
@@ -718,7 +904,13 @@ def _picker_lines(app: LiveShell) -> list[str] {
     body: list[str] = [];
     if str(p.get("mode", "select")) == "input" {
         draft = str(p.get("draft", ""));
-        shown = draft if draft else "(type a model id)";
+        if str(p.get("title", "")) == "LOGIN" {
+            provider_id = str(p.get("providerId", ""));
+            body.append("  provider: " + provider_id[:inner - 14]);
+            shown = ("*" * len(draft)) if draft else "(paste API key)";
+        } else {
+            shown = draft if draft else "(type a model id)";
+        }
         body.append("  > " + shown[:inner - 8] + "▌");
     } elif bool(p.get("multi", False)) {
         # Multi-select (EXPLORER): optional type-to-filter row, [x]/[ ]
@@ -769,7 +961,11 @@ def _picker_lines(app: LiveShell) -> list[str] {
     }
     body.append("");
     if str(p.get("mode", "select")) == "input" {
-        body.append("  type id · [enter] submit   [esc] cancel");
+        if str(p.get("title", "")) == "LOGIN" {
+            body.append("  paste API key · [enter] save · [esc] cancel");
+        } else {
+            body.append("  type id · [enter] submit   [esc] cancel");
+        }
     } elif bool(p.get("multi", False)) {
         body.append("  type filter · [space] toggle · enter insert · esc");
     } else {
@@ -912,6 +1108,12 @@ def _handle_picker_key(app: LiveShell, key: str) {
     }
     title = str(p.get("title", ""));
     if key == "escape" {
+        # Login cancellation is a state-machine transition, not merely an
+        # overlay close; the transcript makes the outcome explicit.
+        if title == "LOGIN" {
+            _cancel_login(app);
+            return;
+        }
         # Multi-select (EXPLORER): first esc clears an active type-to-filter,
         # second esc closes — the filter is cheap to abandon, the overlay is
         # not.
@@ -927,11 +1129,15 @@ def _handle_picker_key(app: LiveShell, key: str) {
     if str(p.get("mode", "select")) == "input" {
         draft = str(p.get("draft", ""));
         if key == "enter" {
-            name = draft.strip();
-            _close_picker(app);
-            if name {
-                _push_turn(app, "tool", "model -> " + set_model(name));
-                app.dirty = True;
+            if title == "LOGIN" {
+                _complete_api_key_login(app, str(p.get("providerId", "")), draft.strip());
+            } else {
+                name = draft.strip();
+                _close_picker(app);
+                if name {
+                    _push_turn(app, "tool", "model -> " + set_model(name));
+                    app.dirty = True;
+                }
             }
         } elif key == "backspace" or key == "\x7f" {
             if draft {
@@ -1005,6 +1211,10 @@ def _handle_picker_key(app: LiveShell, key: str) {
             app.dirty = True;
             return;
         }
+        if title == "LOGIN" {
+            _start_login_provider(app, chosen_id);
+            return;
+        }
         if chosen_id == "__header__" {
             # Header/divider/summary rows are separators, not choices
             # (provider headers in MODEL, board furniture in TASKS).
@@ -1057,7 +1267,61 @@ def _handle_picker_key(app: LiveShell, key: str) {
             _insert_into_draft(app, "/skill:" + chosen_id + " ");
         }
         app.dirty = True;
+}
+"""Open /login's provider picker. An optional provider argument skips the
+picker while retaining the same state machine and input overlay."""
+def _open_login_picker(app: LiveShell, provider_arg: str = "") -> str {
+    entries = _login_provider_entries();
+    rows: list[str] = list(entries.get("rows", []));
+    ids: list[str] = list(entries.get("ids", []));
+    if provider_arg {
+        if provider_arg not in ids {
+            return "unknown login provider: " + provider_arg;
+        }
+        app.auth_flow = initial_auth_flow_state();
+        app.picker = {
+            "title": "LOGIN",
+            "options": [],
+            "ids": [],
+            "selected": 0,
+            "mode": "select",
+            "draft": "",
+            "multi": False,
+            "toggled": [],
+            "filter": "",
+            "prev_hint": app.status_hint,
+            "providerId": provider_arg,
+        };
+        shell_open_approval(app.session, app.shell);
+        app.auth_data = entries.get("stored", {});
+        _start_login_provider(app, provider_arg);
+        return "";
     }
+    if not rows {
+        return "no interactive providers available";
+    }
+    if not _open_picker(app, "LOGIN", rows, ids) {
+        return "login unavailable (overlay busy)";
+    }
+    app.auth_data = entries.get("stored", {});
+    app.auth_flow = transition_auth_flow(
+        initial_auth_flow_state(),
+        "open_provider_picker",
+        {"providers": [
+            {
+                "id": ids[i],
+                "displayName": ids[i],
+                "authType": "api_key",
+                "configured": False,
+                "modelCount": 0,
+            }
+            for i in range(len(ids))
+        ]},
+    );
+    app.status_hint = "↑↓ provider · enter choose · esc cancel";
+    app.dirty = True;
+    return "";
+
 }
 
 
