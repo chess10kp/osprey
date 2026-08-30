@@ -10,7 +10,7 @@ Jackal is a terminal-first coding agent with an fx-style form factor: a small na
 
 The product equation: **fx's form factor + Pi's ecosystem + Jac's codespace architecture.**
 
-> **Architecture transition (Aug 2026):** Jackal is moving to an all-Jac harness under `app/` with a custom Jac differential TUI. The current `src/` + Ink shell remains the runnable daily-driver and parity reference until the new path reaches the cutover gate. New product development targets `app/`. See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
+> **Architecture (Aug 2026):** Jackal's all-Jac harness under `app/` and custom Jac differential TUI are authoritative. The former TypeScript + Ink stack and its legacy trees have been removed. New product development targets `app/`; see [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
 
 ---
 
@@ -18,17 +18,19 @@ The product equation: **fx's form factor + Pi's ecosystem + Jac's codespace arch
 
 ### On your machine
 
-1. Install Node.js (for `npm install` in this repo).
-2. Install Jac so `jac` and `jac mcp` work (`pip install jaclang` or your team’s standard installer).
+1. Install Node.js (the native harness uses Node for its plugin-host sidecar), then install dependencies:
+   ```bash
+   npm install
+   ```
+2. Install Jac so `jac` and `jac mcp` work (`pip install jaclang` or your team's standard installer).
 3. Clone this repo, then from the repo root:
 
    ```bash
-   npm install
-   npm run build:agent   # compile the Jackal agent runtime
    ./jackal.sh
    ```
 
-   `./jackal.sh` launches the **Jackal shell** (Ink TUI + headless agent runtime). Optional: `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
+   The launcher starts the native TUI when attached to a terminal. For headless use, run `./jackal.sh --repl` (line REPL) or `./jackal.sh --json` (JSONL protocol). Optionally symlink it with `ln -s "$(pwd)/jackal.sh" ~/.local/bin/jackal` and run `jackal` from anywhere.
+
 
 Run **`/jac-doctor`** inside the running Jackal shell to confirm `jac`, MCP, and provider setup.
 
@@ -38,14 +40,11 @@ Use **`./jackal.sh`** from the directory you want as the agent’s working tree 
 
 ### Troubleshooting
 
-- If first launch fails with missing `dist/index.js`, run:
+- If first launch fails because `jac` is missing, install Jac and ensure the `jac` executable is on `PATH`.
+- For headless operation, use:
   ```bash
-  npm run build:agent
-  ```
-- Verify Jac + MCP wiring with:
-  ```bash
-  npm run check          # headless smoke (CI-friendly)
-  ./jackal.sh --check    # same via launcher
+  ./jackal.sh --repl
+  ./jackal.sh --json
   ```
   Or inside the running shell: `/jac-doctor`
 
