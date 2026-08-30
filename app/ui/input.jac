@@ -10,7 +10,8 @@ Raw terminal bytes never become UiEvent walkers. This module:
 Does not import ui.events — walker construction stays with the host loop.
 """
 
-import re;
+# `re` replaced by hand-rolled parsers at the bottom of this module — the
+# native pathway has no `re` support.
 
 
 glob ESC = "\x1b";
@@ -112,7 +113,7 @@ def _is_complete_csi(data: str) -> str {
     if code >= 64 and code <= 126 {
         if payload.startswith("<") {
             # SGR mouse: ESC [ < btn ; x ; y M/m
-            if re.match(r"^<\d+;\d+;\d+[Mm]$", payload) is not None {
+            if _match_sgr_mouse_body(payload) {
                 return "complete";
             }
             if last == "M" or last == "m" {
@@ -238,22 +239,7 @@ glob LEGACY_KEYS: dict[str, str] = {
 
 
 def _parse_sgr_mouse(seq: str) -> MouseEvent | None {
-    m = re.match(r"^\x1b\[<(\d+);(\d+);(\d+)([Mm])$", seq);
-    if m is None {
-        return None;
-    }
-    button = int(m.group(1));
-    x = int(m.group(2));
-    y = int(m.group(3));
-    pressed = m.group(4) == "M";
-    motion = (button & 32) != 0;
-    return MouseEvent(
-        button=button & ~32,
-        x=x,
-        y=y,
-        pressed=pressed,
-        motion=motion,
-    );
+    return _parse_sgr_mouse_native(seq);
 }
 
 
@@ -287,20 +273,21 @@ glob CSI_LETTER_KEYS: dict[str, str] = {
 
 """Decode modified CSI keys: ESC [ 1 ; <mod> <ABCDHF> and ESC [ <n> ; <mod> ~."""
 def _parse_modified_csi(seq: str) -> KeyEvent | None {
-    m = re.match(r"^\x1b\[1?;(\d+)([ABCDHF])$", seq);
-    if m is not None {
-        base = CSI_LETTER_KEYS[m.group(2)];
-        key_name = _modified_key(int(m.group(1)), base);
+    lr = _parse_modified_letter_csi(seq);
+    if lr is not None {
+        (modifier, base) = lr;
+        key_name = _modified_key(modifier, base);
         if key_name is not None {
             return KeyEvent(key=key_name);
         }
         return None;
     }
-    t = re.match(r"^\x1b\[(\d+);(\d+)~$", seq);
-    if t is not None {
-        plain = "\x1b[" + t.group(1) + "~";
+    dr = _parse_modified_digit_csi(seq);
+    if dr is not None {
+        (digit, modifier) = dr;
+        plain = "\x1b[" + str(digit) + "~";
         if plain in LEGACY_KEYS {
-            key_name = _modified_key(int(t.group(2)), LEGACY_KEYS[plain]);
+            key_name = _modified_key(modifier, LEGACY_KEYS[plain]);
             if key_name is not None {
                 return KeyEvent(key=key_name);
             }
@@ -613,4 +600,144 @@ def coalesce_events(events: list[HostEvent]) -> list[HostEvent] {
         out.append(StreamChunkEvent(text=stream_acc));
     }
     return out;
+}
+
+
+# --- re replacements (native pathway has no `re` support) ---
+def _parse_int_seq(text: str, start: int) -> list[int] | None {
+    out: list[int] = [];
+    i = start;
+    n = len(text);
+    expect_int = True;
+    while i < n {
+        if expect_int {
+            j = i;
+            while j < n and text[j] >= "0" and text[j] <= "9" {
+                j += 1;
+            }
+            if j == i {
+                return None;
+            }
+            out.append(int(text[i:j]));
+            i = j;
+            expect_int = False;
+        } else {
+            if text[i] != ";" {
+                return None;
+            }
+            i += 1;
+            expect_int = True;
+        }
+    }
+    if expect_int {
+        return None;
+    }
+    return out;
+}
+
+
+# Equivalent to prior `re.match(r"^<\d+;\d+;\d+[Mm]$", payload)`.
+def _match_sgr_mouse_body(payload: str) -> bool {
+    if not payload.startswith("<") or len(payload) < 5 {
+        return False;
+    }
+    last = payload[len(payload) - 1];
+    if last != "M" and last != "m" {
+        return False;
+    }
+    parts = _parse_int_seq(payload, 1);
+    if parts is None or len(parts) != 3 {
+        return False;
+    }
+    return True;
+}
+
+
+# Equivalent to prior `re.match(r"^\x1b\[<(\d+);(\d+);(\d+)([Mm])$", seq)`.
+def _parse_sgr_mouse_native(seq: str) -> MouseEvent | None {
+    if not seq.startswith("\x1b[<") or len(seq) < 8 {
+        return None;
+    }
+    last = seq[len(seq) - 1];
+    if last != "M" and last != "m" {
+        return None;
+    }
+    parts = _parse_int_seq(seq, 3);
+    if parts is None or len(parts) != 3 {
+        return None;
+    }
+    button = parts[0];
+    x = parts[1];
+    y = parts[2];
+    pressed = last == "M";
+    motion = (button & 32) != 0;
+    return MouseEvent(
+        button=button & ~32,
+        x=x,
+        y=y,
+        pressed=pressed,
+        motion=motion,
+    );
+}
+
+
+# Equivalent to prior `re.match(r"^\x1b\[1?;(\d+)([ABCDHF])$", seq)`.
+def _parse_modified_letter_csi(seq: str) -> tuple[int, str] | None {
+    if not seq.startswith("\x1b[") {
+        return None;
+    }
+    inner = seq[2:];
+    semi = inner.find(";");
+    if semi < 0 or semi + 2 >= len(inner) {
+        return None;
+    }
+    head = inner[:semi];
+    tail = inner[semi + 1:];
+    if not head or not tail or len(tail) != 2 {
+        return None;
+    }
+    for ch in head {
+        if ch < "0" or ch > "9" {
+            return None;
+        }
+    }
+    base = CSI_LETTER_KEYS.get(tail[1]);
+    if base is None {
+        return None;
+    }
+    if head == "1" {
+        return (1, base);
+    }
+    return (int(head), base);
+}
+
+
+# Equivalent to prior `re.match(r"^\x1b\[(\d+);(\d+)~$", seq)`.
+def _parse_modified_digit_csi(seq: str) -> tuple[int, int] | None {
+    if not seq.startswith("\x1b[") or len(seq) < 6 {
+        return None;
+    }
+    if seq[len(seq) - 1] != "~" {
+        return None;
+    }
+    semi = seq.find(";", 2);
+    if semi < 0 {
+        return None;
+    }
+    n_str = seq[2:semi];
+    m_str = seq[semi + 1:len(seq) - 1];
+    if not n_str or not m_str {
+        return None;
+    }
+    for ch in n_str {
+        if ch < "0" or ch > "9" {
+            return None;
+        }
+    }
+    for ch in m_str {
+        if ch < "0" or ch > "9" {
+            return None;
+        }
+    }
+    return (int(n_str), int(m_str));
 }

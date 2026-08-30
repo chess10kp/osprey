@@ -59,9 +59,9 @@ obj Fiber {
 
 """The unified context: coeffect store + per-fiber inverse accumulators."""
 obj EffectContext {
-    has store: dict = {},
-         registry: dict = {},
-         frames: dict = {},
+    has store: dict[str, object] = {},
+         registry: dict[str, Fiber] = {},
+         frames: dict[str, list[Inverse]] = {},
          root_frame: list[Inverse] = [],
          current_fiber: str = "",
          verbose: bool = False;
