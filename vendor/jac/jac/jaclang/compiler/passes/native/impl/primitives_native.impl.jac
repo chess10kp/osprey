@@ -786,16 +786,20 @@ impl NativeStrEmitter.emit_find(
     strstr_fn = p._get_or_declare_extern("strstr", i8p, [i8p, i8p]);
     search_from = target;
     if len(args) >= 2 {
-        slen = p._call_str_len(b, target, name="find.slen");
+        blen = p._call_str_len(b, target, name="find.blen");
+        cplen = p._call_utf8_cplen(b, target, blen, name="find.cplen");
         start = p._coerce_type(args[1], i64);
         neg = b.icmp_signed("<", start, ir.Constant(i64, 0), name="find.st.neg");
-        wrapped = b.add(start, slen, name="find.st.wrap");
+        wrapped = b.add(start, cplen, name="find.st.wrap");
         start = b.select(neg, wrapped, start, name="find.st.pos");
         below = b.icmp_signed("<", start, ir.Constant(i64, 0), name="find.st.lo");
         start = b.select(below, ir.Constant(i64, 0), start, name="find.st.lo.c");
-        above = b.icmp_signed(">", start, slen, name="find.st.hi");
-        start = b.select(above, slen, start, name="find.st.hi.c");
-        search_from = b.gep(target, [start], name="find.from");
+        above = b.icmp_signed(">", start, cplen, name="find.st.hi");
+        start = b.select(above, cplen, start, name="find.st.hi.c");
+        start_off = p._call_utf8_cp_off(
+            b, target, blen, start, name="find.st.off"
+        );
+        search_from = b.gep(target, [start_off], name="find.from");
     }
     found = b.call(strstr_fn, [search_from, args[0]], name="find.ptr");
     null_ptr = ir.Constant(i8p, None);
@@ -803,7 +807,8 @@ impl NativeStrEmitter.emit_find(
     target_int = b.ptrtoint(target, i64, name="find.tgt.int");
     found_int = b.ptrtoint(found, i64, name="find.fnd.int");
     diff = b.sub(found_int, target_int, name="find.diff");
-    return b.select(is_null, ir.Constant(i64, -1), diff, name="find.result");
+    cp_pos = p._call_utf8_cplen(b, target, diff, name="find.cppos");
+    return b.select(is_null, ir.Constant(i64, -1), cp_pos, name="find.result");
 }
 
 impl NativeStrEmitter.emit_rfind(
@@ -818,6 +823,7 @@ impl NativeStrEmitter.emit_rfind(
     i64 = ir.IntType(64);
     strstr_fn = p._get_or_declare_extern("strstr", i8p, [i8p, i8p]);
     slen = p._call_str_len(b, target, name="rfind.slen");
+    cplen = p._call_utf8_cplen(b, target, slen, name="rfind.cplen");
     sub_len = p._call_str_len(b, args[0], name="rfind.sub.len");
     null_ptr = ir.Constant(i8p, None);
     target_int = b.ptrtoint(target, i64, name="rfind.tgt.int");
@@ -847,7 +853,8 @@ impl NativeStrEmitter.emit_rfind(
     b.cbranch(is_null, done_bb, found_bb);
     b.position_at_start(found_bb);
     found_int = b.ptrtoint(found, i64, name="rfind.fnd.int");
-    new_pos = b.sub(found_int, target_int, name="rfind.pos");
+    new_pos_b = b.sub(found_int, target_int, name="rfind.pos.b");
+    new_pos = p._call_utf8_cplen(b, target, new_pos_b, name="rfind.pos");
     next_int = b.add(found_int, sub_len, name="rfind.next.int");
     next_ptr = b.inttoptr(next_int, i8p, name="rfind.next.ptr");
     cur_ptr.add_incoming(next_ptr, found_bb);
@@ -855,7 +862,7 @@ impl NativeStrEmitter.emit_rfind(
     b.branch(loop_bb);
     b.position_at_start(done_bb);
     result = b.phi(i64, name="rfind.result");
-    result.add_incoming(slen, empty_bb);
+    result.add_incoming(cplen, empty_bb);
     result.add_incoming(last_pos, loop_bb);
     return result;
 }
@@ -877,7 +884,8 @@ impl NativeStrEmitter.emit_index(
     p._emit_runtime_raise(is_null, "ValueError", "substring not found");
     target_int = b.ptrtoint(target, i64, name="index.tgt.int");
     found_int = b.ptrtoint(found, i64, name="index.fnd.int");
-    return b.sub(found_int, target_int, name="index.result");
+    diff_idx = b.sub(found_int, target_int, name="index.diff");
+    return p._call_utf8_cplen(b, target, diff_idx, name="index.result");
 }
 
 impl NativeStrEmitter.emit_rindex(

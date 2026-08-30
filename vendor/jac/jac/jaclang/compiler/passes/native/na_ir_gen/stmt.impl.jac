@@ -4097,7 +4097,13 @@ impl NaIRGenStmt._codegen_for_indexed(
             self.builder.store(key_val, allocas[0]);
             self.builder.store(val_val, allocas[1]);
         } elif kind == "str" {
-            char_str = self._codegen_string_index(collection_val, body_idx);
+            _old_c = self.builder.load(allocas[0], name="for.str.old");
+            self._emit_rc_release_simple(
+                _old_c, op="for_str_elem", loc=_rc_loc
+            );
+            char_str = self._call_utf8_cp_at_off(
+                self.builder, collection_val, body_idx, name="for.str.ch"
+            );
             if char_str is not None {
                 self.builder.store(char_str, allocas[0]);
             }
@@ -4173,9 +4179,15 @@ impl NaIRGenStmt._codegen_for_indexed(
         range_step = self.builder.load(_gen_step_slot, name="for.step.inc");
     }
     inc_idx = self.builder.load(idx_alloca, name="for.inc.idx");
-    _idx_delta = range_step
-        if kind == "range" and range_step is not None
-        else ir.Constant(i64, 1);
+    if kind == "str" {
+        _idx_delta = self._call_utf8_cp_len_at(
+            self.builder, collection_val, inc_idx, name="for.str.adv"
+        );
+    } else {
+        _idx_delta = range_step
+            if kind == "range" and range_step is not None
+            else ir.Constant(i64, 1);
+    }
     next_idx = self.builder.add(inc_idx, _idx_delta, name="for.next.idx");
     self.builder.store(next_idx, idx_alloca);
     self.builder.branch(cond_bb);

@@ -1631,17 +1631,9 @@ class NativeBuiltinEmitter(BuiltinEmitter[(ir.Value, NativeEmitCtx)]) {
         arg_val = args[0];
         p = ctx.pass_ref;
         b = get_builder(p);
-        i8 = ir.IntType(8);
         i64 = ir.IntType(64);
-        rc_alloc_fn = p.rc_alloc_fn;
-        p._set_rc_ctx("chr", "");
-        buf = b.call(rc_alloc_fn, [ir.Constant(i64, 2)], name="chr.buf");
-        p._clear_rc_ctx();
-        byte_val = b.trunc(arg_val, i8, name="chr.byte");
-        b.store(byte_val, buf);
-        null_ptr = b.gep(buf, [ir.Constant(i64, 1)], name="chr.null_ptr");
-        b.store(ir.Constant(i8, 0), null_ptr);
-        return buf;
+        cp_val = p._coerce_type(arg_val, i64);
+        return p._call_utf8_chr(b, cp_val, name="chr.buf");
     }
 
     def emit_ord(
@@ -1651,9 +1643,9 @@ class NativeBuiltinEmitter(BuiltinEmitter[(ir.Value, NativeEmitCtx)]) {
             return None;
         }
         arg_val = args[0];
-        b = ctx.pass_ref.builder;
-        byte_val = b.load(arg_val, name="ord.byte");
-        return b.zext(byte_val, ir.IntType(64), name="ord.val");
+        p = ctx.pass_ref;
+        b = get_builder(p);
+        return p._call_utf8_ord(b, arg_val, name="ord.val");
     }
 
     def emit_hex(
