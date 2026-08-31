@@ -645,7 +645,7 @@ def _match_sgr_mouse_body(payload: str) -> bool {
     if last != "M" and last != "m" {
         return False;
     }
-    parts = _parse_int_seq(payload, 1);
+    parts = _parse_int_seq(payload[0:len(payload) - 1], 1);
     if parts is None or len(parts) != 3 {
         return False;
     }
@@ -662,7 +662,7 @@ def _parse_sgr_mouse_native(seq: str) -> MouseEvent | None {
     if last != "M" and last != "m" {
         return None;
     }
-    parts = _parse_int_seq(seq, 3);
+    parts = _parse_int_seq(seq[0:len(seq) - 1], 3);
     if parts is None or len(parts) != 3 {
         return None;
     }
@@ -693,10 +693,13 @@ def _parse_modified_letter_csi(seq: str) -> tuple[int, str] | None {
     }
     head = inner[:semi];
     tail = inner[semi + 1:];
-    if not head or not tail or len(tail) != 2 {
+    if head != "" and head != "1" {
         return None;
     }
-    for ch in head {
+    if len(tail) != 2 {
+        return None;
+    }
+    for ch in tail[0:1] {
         if ch < "0" or ch > "9" {
             return None;
         }
@@ -705,12 +708,9 @@ def _parse_modified_letter_csi(seq: str) -> tuple[int, str] | None {
     if base is None {
         return None;
     }
-    if head == "1" {
-        return (1, base);
-    }
-    return (int(head), base);
+    mod_str = tail[0:1];
+    return (int(mod_str), base);
 }
-
 
 # Equivalent to prior `re.match(r"^\x1b\[(\d+);(\d+)~$", seq)`.
 def _parse_modified_digit_csi(seq: str) -> tuple[int, int] | None {

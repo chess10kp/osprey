@@ -16,8 +16,9 @@ api_key = ""
 default_codespace = "native"
 
 [placement.pins]
-# Current frontier: 15 explicit server pins remain; N6 requires reducing this
-# count to zero. Keep each temporary pin annotated with its compiler/runtime wall.
+# Current frontier: 13 explicit server pins remain (was 15; terminal/vt went
+# native 2026-08-31); N6 requires reducing this count to zero. Keep each
+# temporary pin annotated with its compiler/runtime wall.
 # Constraint layout engine: algebra, layout_relations and solver all lower
 # natively (N6 retires the §3 server pin — see how-to-lower-all-native).
 # Suites green: layout_relations 7/7, roundtrip 36/36, solver 26/26.
@@ -58,21 +59,28 @@ default_codespace = "native"
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
-# ui.terminal / ui.virtual_terminal: the 2026-08-29 wall notes are stale —
-# native chr() is codepoint-correct (verified chr(20013) len/ord/eq) and the
-# stale-JIR crash is gone after vendor sync 2ef57028b. Held at server only
-# because they have not been re-pinned/tested natively yet; next re-probe
-# candidates.
-"ui.terminal" = "server"
-"ui.virtual_terminal" = "server"
-# ui.input: BLOCKED native (2026-08-30, instruction-level root cause) —
-# InputNormalizer.feed segfaults natively: the inlined dict helper for the
-# union-valued dict dict[str, list[str] | str] built by extract_sequences
-# corrupts the constant-key pointer (gdb: rdi=10 == len("sequences") passed
-# as char*, vpcmpeqb/strlen scan of address 0xa). Same lookups pass when the
-# dict crosses units (no same-unit inlining), so the bug is in the native
-# dict entry store/load for union value specs under inlining. Vendor fix
-# pending (na_ir_gen/dicts.impl.jac helper emission); suite 9/9 server-side.
+# ui.terminal / ui.virtual_terminal: native since the 2026-08-31 re-probe —
+# the 2026-08-29 wall notes (chr codepoints, stale JIR) were indeed the only
+# walls. Suites green natively: terminal 6/6, virtual_terminal 15/15;
+# dependent renderer suite 146/146; full `jac build` green.
+"ui.terminal" = "native"
+"ui.virtual_terminal" = "native"
+# ui.input: BLOCKED native (updated 2026-08-31). Source parsers fixed (SGR
+# mouse terminator, modified-letter CSI modifier) — suite 21/21 server-side.
+# Vendor: emit_find strstr-miss OOB scan fixed in primitives_native.impl.jac
+# (negative diff fed to __jac_utf8_cplen whose ult bound scans unboundedly;
+# crashed on any str.find miss on a non-NUL-terminated view). RESIDUAL wall:
+# with ui.input native the suite SIGSEGVs in InputNormalizer.feed on a fresh
+# compile (both O0 and O2; stale artifacts from an older compile run clean):
+# an inlined __jac_str_unwrap probe (strlen via vpcmpeqb) reads a key/element
+# slot holding foreign memory — observed values 0x6000000000000000 (the
+# __rc_alloc header aid-magic, i.e. an uninitialized fresh allocation) and
+# 8 (rdi=10==len("sequences") in the 2026-08-30 probe). The dict literal IR
+# (Dict.ptr.jacval new/set_ph/find_ph, static FNV hashes, struct layout) is
+# verified correct in the emitted module, so the corruption is runtime-side
+# (RC/allocator interplay) in the full-module context only; minimal
+# faithful repros pass at both opt levels. Next probe: RC release audit of
+# the concat/field-store path in feed (`self.buffer += data`).
 "ui.input" = "server"
 "ui.bindings" = "native"
 "ui.screen" = "native"
