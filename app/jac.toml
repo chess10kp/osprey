@@ -32,24 +32,32 @@ default_codespace = "native"
 
 # 2026-08-30 vendor sync: graph-shaped edge traversals and walkers now lower
 # natively. ui.model's remaining native failures are explicit bound-endpoint
-# edge references (`[edge origin ->:Edge:-> target]`); the compiler diagnostic
-# gives the supported hop-only forms. Dependent UI modules retain their
-# deliberate placement until that boundary is implemented.
+# edge references (`[edge origin ->:Edge:-> target]`); the compiler
+# diagnostic gives the supported hop-only forms.
+# SEAL walls (2026-08-31 honest seal read): model E5092 UnaryExpr; mutation
+# E5092 MainScreen; runtime E5092 attribute access 'key' — dev-native,
+# seal-server until fixed.
 "ui.model" = "native"
 "ui.mutation" = "native"
 "ui.runtime" = "native"
 
-# Verified-lowering UI modules pinned native (2026-08-25 probe): each lowers
-# with zero fallback notes under default_codespace=native, but the seal only
-# RECORDS/places natively modules with explicit pins — unpinned modules are
-# sealed "server" even when they compiled natively. Pin them so the manifest
-# matches reality. Modules whose deps are server-pinned stay "server"
-# (placement overrides their pins) and are annotated below.
+# Native-path pins: each module lowers natively in dev runs (dev placement
+# honors pins; `jac test` runs pre-seal and ignores them). Seal-time lowering
+# is a DIFFERENT context: the precompile may demote a pinned module to the
+# server codespace (build-log note). Since the 2026-08-31 vendor fix
+# (precompile_bytecode placement join) the sealed MANIFEST placement map
+# records the demoted truth, so the artifact is self-describing. Per-module
+# seal walls annotated below; unpinned preferred-native modules also demote
+# at seal (2026-08-31: ui.cells E5092 UnaryExpr, cordis/core comprehension
+# over an element-erased collection, constraints/oracle_driver E5092
+# for-loop iterable Name).
 # ui.width: lowers natively now that codepoint-oriented string ops from
 # 6fc6807bd landed (len/ord/index/slice return codepoints). Test 10/10.
 "ui.width" = "native"
 # layout_types must be pinned native so native importers (renderer, cells)
 # see Rect/LayoutState layouts; unpinned it seals server and its types erase.
+# SEAL wall (2026-08-31): E5092 UnaryExpr — dev-native, seal-server.
+# ui.markup SEAL wall (2026-08-31): E5092 create_session.
 "ui.layout_types" = "native"
 "ui.markup" = "native"
 # ui.gates: BLOCKED native (2026-08-29 re-probe) — imports InsertText from
@@ -59,11 +67,14 @@ default_codespace = "native"
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
-# ui.terminal / ui.virtual_terminal: native since the 2026-08-31 re-probe —
-# the stale 2026-08-29 walls (chr codepoints, stale JIR) were the only ones.
-# Suites green natively: terminal 6/6, virtual_terminal 15/15 (re-verified in
-# a no-server sandbox so the runs execute native code, since `jac test`
-# ignores placement pins); dependent renderer suite 146/146; jac build green.
+# ui.terminal / ui.virtual_terminal: native in dev since the 2026-08-31
+# re-probe (the stale 2026-08-29 walls were the only dev walls); suites
+# green in a no-server sandbox so the runs execute native code (6/6, 15/15;
+# `jac test` ignores placement pins). SEAL walls differ (2026-08-31 first
+# honest seal read): virtual_terminal E5089 — inherited Terminal.move_cursor
+# dispatches self.write across the Python-shadow boundary — FIXED with a
+# VT-owned move_cursor override; now demotes on E5092 synchronized_write.
+# terminal demotes on E1127 int->u64. Both seal server until those lower.
 "ui.terminal" = "native"
 "ui.virtual_terminal" = "native"
 # ui.input: BLOCKED native (updated 2026-08-31). Source parsers fixed (SGR
@@ -83,6 +94,11 @@ default_codespace = "native"
 # faithful repros pass at both opt levels. Next probe: RC release audit of
 # the concat/field-store path in feed (`self.buffer += data`).
 "ui.input" = "server"
+# SEAL walls (2026-08-31 honest seal read) — dev-native, seal-server:
+# screen E5092 create_session; transcript E5092 TranscriptView; renderer
+# E1127 int->u64; layout ICE (_ScopedNode already defined — compiler bug;
+# JAC_NATIVE_ICE_RAISE=1 surfaces the traceback); layout_compile E5092
+# _shell_state. bindings/layout_measure/layout_quantize seal native.
 "ui.bindings" = "native"
 "ui.screen" = "native"
 "ui.transcript" = "native"
@@ -90,10 +106,9 @@ default_codespace = "native"
 "ui.layout" = "native"
 "ui.layout_measure" = "native"
 "ui.layout_quantize" = "native"
-# ui.layout_compile: pin native — test 51/51. The seal-time _solver_of
-# demote is contained inside compile_layout and bridged at runtime.
-"ui.layout_compile" = "native"
-# ui.events: lowers (test annex passes 69/69) BUT seal-time demotes due
+# ui.layout_compile: test 51/51; the seal-time demote is NOT contained (the
+# old note was wrong) — seals server on E5092 _shell_state (2026-08-31).
+# ui.events: lowers in dev (test annex passes 69/69) BUT seal-time demotes due
 # to cross-unit create_session from ui.runtime (UiSession boundary).
 # Until that lands natively, events stays server.
 "ui.events" = "server"
@@ -107,28 +122,25 @@ default_codespace = "native"
 # drive_screen pokes shell.transcript/status attributes of server-pinned
 # ui.screen ShellScreen across the boundary.
 "agent.protocol" = "server"
-# agent.tool_spec: LOWERS clean natively when explicitly pinned native
-# (verified 2026-08-25: placement=native, build green) but CANNOT be used
-# natively while its consumers stay server: server-codespace code that
-# constructs a native-pinned obj class dies at runtime with NameError
-# (registry.test.jac "as_tool_specs" -> ToolSpec(...) in registry.jac).
-# Same wall as E5093 for classes. Unblocks when jaclang gives native objs a
-# Python-side mirror, or when llm/session/plugin_bridge/tools/web_tools all
-# lower too.
-# 2026-08-31 probe notes: (a) `jac test` does NOT honor [placement.pins] —
-# suites always run pre-seal/server-side, so a pin flip MUST be validated by
-# `jac build` + running the sealed artifact (a `jac test` pass under a native
-# pin proves nothing); (b) candidate unblock without the vendor mirror: a
-# native factory fn (e.g. make_tool_spec in tool_spec.jac) + swapping direct
-# `ToolSpec(...)` constructions in server consumers to that call — the
-# server->native FUNCTION seam (imports, args, returns) already works; the
-# experiment was staged but reverted pending one seal+artifact validation
-# round-trip (~11 min build). Field reads (s.name) across the seam remain
-# unproven either way until that run.
-"agent.tool_spec" = "server"
-# agent.registry: same class-boundary wall (ToolSpec/RegisteredTool used by
-# server llm/plugin_bridge/session); additionally stores handler callables in
-# obj fields (B2, fix in flight) and invoke() calls ent.handler(**args).
+# agent.tool_spec: NATIVE since the 2026-08-31 seal round-trip. The class-
+# boundary wall (server code constructing a native-pinned obj class dies with
+# NameError) is bypassed with the native factory fn `make_tool_spec` in
+# tool_spec.jac: server consumers (tools.jac tool_specs(), registry.jac
+# as_tool_specs()) construct through that seam; only test annexes still call
+# ToolSpec(...) directly (jac test runs pre-seal, so it is unaffected by
+# placement). Validated in the sealed artifact 2026-08-31 (dist/jackal.jab,
+# temporary /seam probe): construction through the native factory, str/dict
+# field reads, callable-field round-trip and registry invoke() all pass
+# server<->native; seals native with no demotion.
+# `jac test` does NOT honor [placement.pins] — suites always run pre-seal/
+# server-side, so a pin flip MUST be validated by `jac build` + running the
+# agent.registry: BLOCKED native (2026-08-31 seal probe; pin flipped and
+# reverted after one honest round-trip). Its own constructions (create_registry
+# /register_native/register_js) never hit the class-boundary wall — the seal
+# refuses the module on three narrower walls: invoke's `ent.handler(**args)`
+# call-argument unpacking (E5092, unsupported natively); openai_tools' list
+# append; `any` unbox to JacStr. Fix those and re-flip; the manifest
+# placement map (vendor fix 2026-08-31) reports the demotion either way.
 "agent.registry" = "server"
 "agent.plugin_bridge" = "server"
 "agent.session" = "server"
