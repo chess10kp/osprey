@@ -585,6 +585,33 @@ def seal_finalize(
     }
     placement = placement_facts_map(str(pkg_path)) if pkg_name != "jaclang" else {};
     if placement {
+        # placement_facts_map records the solver's intended codespaces, but a
+        # module that failed native lowering during precompile ships a
+        # server-compiled JIR. The demotion registry (persisted in sidecars by
+        # placement_pins, so it survives the compile/finalize process split)
+        # knows the outcome -- join it in so the manifest placement map
+        # describes what the artifact actually executes.
+        import from jaclang.compiler.placement.placement_pins {
+            _is_demoted_native
+        }
+        demoted_count = 0;
+        for (rel, spaces) in placement.items() {
+            if "native" not in spaces {
+                continue;
+            }
+            if not _is_demoted_native(str(pkg_path / rel)) {
+                continue;
+            }
+            honest = [s for s in spaces if s != "native"];
+            placement[rel] = honest if honest else ["server"];
+            demoted_count += 1;
+        }
+        if demoted_count {
+            console.print(
+                f"  Placement: {demoted_count} module(s) preferred native but "
+                "demoted; manifest records them as server."
+            );
+        }
         console.print(f"  Placement facts: {len(placement)} modules");
         app_meta = dict(app_meta);
         app_meta["placement"] = placement;
