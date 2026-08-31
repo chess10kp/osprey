@@ -60,9 +60,10 @@ default_codespace = "native"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
 # ui.terminal / ui.virtual_terminal: native since the 2026-08-31 re-probe —
-# the 2026-08-29 wall notes (chr codepoints, stale JIR) were indeed the only
-# walls. Suites green natively: terminal 6/6, virtual_terminal 15/15;
-# dependent renderer suite 146/146; full `jac build` green.
+# the stale 2026-08-29 walls (chr codepoints, stale JIR) were the only ones.
+# Suites green natively: terminal 6/6, virtual_terminal 15/15 (re-verified in
+# a no-server sandbox so the runs execute native code, since `jac test`
+# ignores placement pins); dependent renderer suite 146/146; jac build green.
 "ui.terminal" = "native"
 "ui.virtual_terminal" = "native"
 # ui.input: BLOCKED native (updated 2026-08-31). Source parsers fixed (SGR
@@ -114,6 +115,16 @@ default_codespace = "native"
 # Same wall as E5093 for classes. Unblocks when jaclang gives native objs a
 # Python-side mirror, or when llm/session/plugin_bridge/tools/web_tools all
 # lower too.
+# 2026-08-31 probe notes: (a) `jac test` does NOT honor [placement.pins] —
+# suites always run pre-seal/server-side, so a pin flip MUST be validated by
+# `jac build` + running the sealed artifact (a `jac test` pass under a native
+# pin proves nothing); (b) candidate unblock without the vendor mirror: a
+# native factory fn (e.g. make_tool_spec in tool_spec.jac) + swapping direct
+# `ToolSpec(...)` constructions in server consumers to that call — the
+# server->native FUNCTION seam (imports, args, returns) already works; the
+# experiment was staged but reverted pending one seal+artifact validation
+# round-trip (~11 min build). Field reads (s.name) across the seam remain
+# unproven either way until that run.
 "agent.tool_spec" = "server"
 # agent.registry: same class-boundary wall (ToolSpec/RegisteredTool used by
 # server llm/plugin_bridge/session); additionally stores handler callables in
