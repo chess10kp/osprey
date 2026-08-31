@@ -3747,6 +3747,105 @@ impl NaIRGenTypes._emit_comparison(
                 break;
             }
         }
+        for (dk, dt) in self.dict_types.items() {
+            if left.type == dt.as_pointer() and right.type == dt.as_pointer() {
+                dhelpers = self.dict_helpers.get(dk);
+                if dhelpers is not None and (op == Tok.EE or op == Tok.NE) {
+                    i64_t = ir.IntType(64);
+                    i1_t = ir.IntType(1);
+                    dlen_a = self.builder.call(
+                        dhelpers["len"], [left], name="dcmp.la"
+                    );
+                    dlen_b = self.builder.call(
+                        dhelpers["len"], [right], name="dcmp.lb"
+                    );
+                    dlen_eq = self.builder.icmp_unsigned(
+                        "==", dlen_a, dlen_b, name="dcmp.leq"
+                    );
+                    func = self.builder.basic_block.function;
+                    entry_bb = self.builder.basic_block;
+                    loop_bb = func.append_basic_block(name="dcmp.loop");
+                    key_bb = func.append_basic_block(name="dcmp.key");
+                    val_bb = func.append_basic_block(name="dcmp.val");
+                    false_bb = func.append_basic_block(name="dcmp.false");
+                    true_bb = func.append_basic_block(name="dcmp.true");
+                    done_bb = func.append_basic_block(name="dcmp.done");
+                    self.builder.cbranch(dlen_eq, loop_bb, false_bb);
+                    self.builder.position_at_start(loop_bb);
+                    dcmp_i = self.builder.phi(i64_t, name="dcmp.i");
+                    dcmp_i.add_incoming(ir.Constant(i64_t, 0), entry_bb);
+                    dcmp_at_end = self.builder.icmp_unsigned(
+                        ">=", dcmp_i, dlen_a, name="dcmp.atend"
+                    );
+                    self.builder.cbranch(dcmp_at_end, true_bb, key_bb);
+                    self.builder.position_at_start(key_bb);
+                    dcmp_k = self.builder.call(
+                        dhelpers["get_key"], [left, dcmp_i], name="dcmp.k"
+                    );
+                    dcmp_has = self.builder.call(
+                        dhelpers["contains"], [right, dcmp_k], name="dcmp.has"
+                    );
+                    self.builder.cbranch(dcmp_has, val_bb, false_bb);
+                    self.builder.position_at_start(val_bb);
+                    dcmp_la = self.builder.call(
+                        dhelpers["get"], [left, dcmp_k], name="dcmp.va"
+                    );
+                    dcmp_rb = self.builder.call(
+                        dhelpers["get"], [right, dcmp_k], name="dcmp.vb"
+                    );
+                    dcmp_vt = dhelpers["val_type"];
+                    if isinstance(dcmp_vt, (ir.DoubleType, ir.FloatType)) {
+                        dcmp_vne = self.builder.fcmp_ordered(
+                            "!=", dcmp_la, dcmp_rb, name="dcmp.vne"
+                        );
+                    } elif self?.jacval_type and dcmp_vt == self.jacval_type {
+                        dcmp_vne = self.builder.not_(
+                            self._emit_jacval_eq(dcmp_la, dcmp_rb), name="dcmp.vne"
+                        );
+                    } elif dcmp_vt == ir.IntType(8).as_pointer() {
+                        dcmp_scmp = self._call_str_cmp(
+                            self.builder, dcmp_la, dcmp_rb, name="dcmp.scmp"
+                        );
+                        dcmp_vne = self.builder.icmp_signed(
+                            "!=",
+                            dcmp_scmp,
+                            ir.Constant(ir.IntType(32), 0),
+                            name="dcmp.vne"
+                        );
+                    } elif isinstance(dcmp_vt, ir.IntType) {
+                        dcmp_vne = self.builder.icmp_signed(
+                            "!=", dcmp_la, dcmp_rb, name="dcmp.vne"
+                        );
+                    } else {
+                        dcmp_vne = self.builder.icmp_unsigned(
+                            "!=", dcmp_la, dcmp_rb, name="dcmp.vne"
+                        );
+                    }
+                    dcmp_next_bb = func.append_basic_block(name="dcmp.next");
+                    self.builder.cbranch(dcmp_vne, false_bb, dcmp_next_bb);
+                    self.builder.position_at_start(dcmp_next_bb);
+                    dcmp_ni = self.builder.add(
+                        dcmp_i, ir.Constant(i64_t, 1), name="dcmp.ni"
+                    );
+                    dcmp_i.add_incoming(dcmp_ni, dcmp_next_bb);
+                    self.builder.branch(loop_bb);
+                    self.builder.position_at_start(false_bb);
+                    self.builder.branch(done_bb);
+                    self.builder.position_at_start(true_bb);
+                    self.builder.branch(done_bb);
+                    self.builder.position_at_start(done_bb);
+                    dcmp_result = self.builder.phi(i1_t, name="dcmp.eq.result");
+                    dcmp_result.add_incoming(ir.Constant(i1_t, 1), true_bb);
+                    dcmp_result.add_incoming(ir.Constant(i1_t, 0), false_bb);
+                    if op == Tok.NE {
+                        return self.builder.not_(dcmp_result, name="dcmp.ne");
+                    }
+                    return dcmp_result;
+                }
+                break;
+            }
+        }
+
 
         rtype_ptr = self.range_struct_type.as_pointer();
         if left.type == rtype_ptr
