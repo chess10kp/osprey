@@ -69,7 +69,7 @@ def _fail_flags() -> list[int] {
 # or -1 markers on failure.
 def:pub get_attrs(fd: int) -> tuple[(bytes, list[int])] {
     buf: bytes = _new_buf();
-    rc: int = tcgetattr(fd, buf);
+    rc: int = tcgetattr(i32(fd), buf);
     if rc != 0 {
         return (buf, _fail_flags());
     }
@@ -88,7 +88,7 @@ def:pub get_attrs(fd: int) -> tuple[(bytes, list[int])] {
 
 
 def:pub set_attrs(fd: int, when: int, blob: bytes) -> int {
-    return tcsetattr(fd, when, blob);
+    return tcsetattr(i32(fd), i32(when), blob);
 }
 
 
@@ -96,12 +96,12 @@ def:pub set_flags(
     fd: int, when: int, iflag: int, oflag: int, cflag: int, lflag: int
 ) -> int {
     buf: bytes = _new_buf();
-    if tcgetattr(fd, buf) != 0 {
+    if tcgetattr(i32(fd), buf) != 0 {
         return -1;
     }
     _put_u32(buf, _OFF_IFLAG, iflag);
     _put_u32(buf, _OFF_OFLAG, oflag);
     _put_u32(buf, _OFF_CFLAG, cflag);
     _put_u32(buf, _OFF_LFLAG, lflag);
-    return tcsetattr(fd, when, buf);
+    return tcsetattr(i32(fd), i32(when), buf);
 }
