@@ -18,12 +18,14 @@ default_codespace = "native"
 [placement.pins]
 # Current frontier: 15 explicit server pins remain; N6 requires reducing this
 # count to zero. Keep each temporary pin annotated with its compiler/runtime wall.
-# Constraint layout engine: algebra + layout_relations lower natively
-# (N6 retires the §3 server pin — see how-to-lower-all-native). Suites
-# green: layout_relations 7/7, roundtrip 36/36. solver stays server
-# because its test annex uses time.perf_counter (no native time floor).
+# Constraint layout engine: algebra, layout_relations and solver all lower
+# natively (N6 retires the §3 server pin — see how-to-lower-all-native).
+# Suites green: layout_relations 7/7, roundtrip 36/36, solver 26/26.
+# Solver unblocked by vendor commit: bare from-imported stdlib calls
+# (from time import perf_counter) now lower natively; perf_counter maps to
+# CLOCK_MONOTONIC via the existing time floor.
 "constraints.algebra" = "native"
-"constraints.solver" = "server"
+"constraints.solver" = "native"
 "constraints.layout_relations" = "native"
 "core.edit" = "native"
 
@@ -56,15 +58,22 @@ default_codespace = "native"
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
-# ui.terminal / ui.virtual_terminal: Utf8StreamDecoder is now pure Jac and
-# server-correct. Native ord/len are codepoint-oriented, but native chr() still
-# emits ONE byte for codepoints > 0x7F (byte-oriented strings), which would
-# produce mojibake; and full-module native compile hits a stale-JIR / IR-gen
-# crash (see vendor notes). Server until native chr and the compile crash are
-# resolved.
+# ui.terminal / ui.virtual_terminal: the 2026-08-29 wall notes are stale —
+# native chr() is codepoint-correct (verified chr(20013) len/ord/eq) and the
+# stale-JIR crash is gone after vendor sync 2ef57028b. Held at server only
+# because they have not been re-pinned/tested natively yet; next re-probe
+# candidates.
 "ui.terminal" = "server"
 "ui.virtual_terminal" = "server"
-"ui.input" = "native"
+# ui.input: BLOCKED native (2026-08-30, instruction-level root cause) —
+# InputNormalizer.feed segfaults natively: the inlined dict helper for the
+# union-valued dict dict[str, list[str] | str] built by extract_sequences
+# corrupts the constant-key pointer (gdb: rdi=10 == len("sequences") passed
+# as char*, vpcmpeqb/strlen scan of address 0xa). Same lookups pass when the
+# dict crosses units (no same-unit inlining), so the bug is in the native
+# dict entry store/load for union value specs under inlining. Vendor fix
+# pending (na_ir_gen/dicts.impl.jac helper emission); suite 9/9 server-side.
+"ui.input" = "server"
 "ui.bindings" = "native"
 "ui.screen" = "native"
 "ui.transcript" = "native"
