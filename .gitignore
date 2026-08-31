@@ -28,12 +28,18 @@ __pycache__/
 
 # Subagent runtime artifacts
 .pi-subagents/
+.pi/
+.ralph/
+
+# Vendored compiler build/download artifacts
+vendor/jac/jac/jaclang/runtimelib/
 
 # App test runtime state (embedded postgres, session fixtures)
 app/.jac-test-home/
 
 # planning docs (local only)
 /docs/
+/DESLOP.md
 /ROADMAP.md
 /PLAN.md
 /TODO.md
