@@ -3,7 +3,7 @@
 Cross-backend equivalence fixture.
 Covers: case, search, modify, split/join, alignment, char tests, comparisons,
 operators (in, *, expandtabs), index/rindex/center, partition/splitlines/rsplit,
-format_map, translate, title, rfind, zfill.
+format_map, translate, title, rfind, zfill, startswith/endswith regions.
 """
 
 # --- All string methods and operators ---
@@ -83,6 +83,24 @@ def str_py() -> dict {
         "count_single": "abcabc".count("a"),
         "count_none": "hello".count("xyz"),
         "count_overlap": "aaa".count("aa"),
+        "startswith_empty": 1 if "hello".startswith("") else 0,
+        "sw2_t": 1 if "hello world".startswith("world", 6) else 0,
+        "sw2_f": 1 if "hello world".startswith("hello", 6) else 0,
+        "sw2_neg": 1 if "hello world".startswith("world", -5) else 0,
+        "sw3_t": 1 if "hello world".startswith("ell", 1, 4) else 0,
+        "sw3_f": 1 if "hello world".startswith("ell", 1, 3) else 0,
+        "sw_mb_cp": 1 if "ééx".startswith("x", 2) else 0,
+        "sw_mb_1arg": 1 if "ééx".startswith("é", 0) else 0,
+        "sw_empty_region": 1 if "abc".startswith("", 3) else 0,
+        "sw_inverted": 1 if "abc".startswith("b", 2, 1) else 0,
+        "ew2_t": 1 if "hello world".endswith("hello", 0, 5) else 0,
+        "ew2_f": 1 if "hello world".endswith("hello", 1, 5) else 0,
+        "ew3_t": 1 if "hello world".endswith(" wo", 4, 7) else 0,
+        "ew_neg": 1 if "hello world".endswith("world", 0, -1) else 0,
+        "ew2_full": 1 if "hello".endswith("hello", 0) else 0,
+        "rfind_start2": "hello world hello".rfind("hello", 5),
+        "rfind_start_miss": "hello world hello".rfind("hello", 13),
+        "rfind_start_neg": "abcabc".rfind("bc", -3),
         # modify
         "replace": s2.replace("world", "jac"),
         "replace_basic": "hello world".replace("world", "python"),
@@ -622,6 +640,24 @@ def str_na() -> dict[str, any] {
         "startswith_false": sw_false,
         "endswith_true": ew_true,
         "endswith_false": ew_false,
+        "startswith_empty": 1 if "hello".startswith("") else 0,
+        "sw2_t": 1 if "hello world".startswith("world", 6) else 0,
+        "sw2_f": 1 if "hello world".startswith("hello", 6) else 0,
+        "sw2_neg": 1 if "hello world".startswith("world", -5) else 0,
+        "sw3_t": 1 if "hello world".startswith("ell", 1, 4) else 0,
+        "sw3_f": 1 if "hello world".startswith("ell", 1, 3) else 0,
+        "sw_mb_cp": 1 if "ééx".startswith("x", 2) else 0,
+        "sw_mb_1arg": 1 if "ééx".startswith("é", 0) else 0,
+        "sw_empty_region": 1 if "abc".startswith("", 3) else 0,
+        "sw_inverted": 1 if "abc".startswith("b", 2, 1) else 0,
+        "ew2_t": 1 if "hello world".endswith("hello", 0, 5) else 0,
+        "ew2_f": 1 if "hello world".endswith("hello", 1, 5) else 0,
+        "ew3_t": 1 if "hello world".endswith(" wo", 4, 7) else 0,
+        "ew_neg": 1 if "hello world".endswith("world", 0, -1) else 0,
+        "ew2_full": 1 if "hello".endswith("hello", 0) else 0,
+        "rfind_start2": "hello world hello".rfind("hello", 5),
+        "rfind_start_miss": "hello world hello".rfind("hello", 13),
+        "rfind_start_neg": "abcabc".rfind("bc", -3),
         # str_advanced_na
         "capitalize_hello": "hello world".capitalize(),
         "capitalize_upper": "HELLO".capitalize(),
