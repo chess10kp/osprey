@@ -619,7 +619,9 @@ impl NaIRGenLists._codegen_any_len(jacval: ir.Value) -> ir.Value {
     b.cbranch(is_str, str_bb, cont_bb);
     b.position_at_end(str_bb);
     sp = b.inttoptr(payload, i8p, name="anylen.sp");
-    sl = self._call_str_len(b, sp, name="anylen.strlen");
+    sl = self._call_utf8_cplen(
+        b, sp, self._call_str_len(b, sp, name="anylen.strlen.b"), name="anylen.cplen"
+    );
     b.branch(merge_bb);
     b.position_at_end(cont_bb);
     lp = b.inttoptr(payload, i64.as_pointer(), name="anylen.lp");
