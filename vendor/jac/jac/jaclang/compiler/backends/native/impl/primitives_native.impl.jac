@@ -904,6 +904,10 @@ impl NativeStrEmitter.emit_find(
     target_int = b.ptrtoint(target, i64, name="find.tgt.int");
     found_int = b.ptrtoint(found, i64, name="find.fnd.int");
     diff = b.sub(found_int, target_int, name="find.diff");
+    # On a strstr miss `found` is NULL, so the raw diff goes negative; the
+    # cplen bound check is unsigned and would scan unboundedly. Clamp the
+    # miss to a zero-length scan — the select below still reports -1.
+    diff = b.select(is_null, ir.Constant(i64, 0), diff, name="find.diff.ok");
     cp_pos = p._call_utf8_cplen(b, target, diff, name="find.cppos");
     return b.select(is_null, ir.Constant(i64, -1), cp_pos, name="find.result");
 }
