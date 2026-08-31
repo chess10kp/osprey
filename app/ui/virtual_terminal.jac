@@ -90,6 +90,14 @@ obj VirtualTerminal(Terminal) {
         self._apply_output(data);
     }
 
+    """Override the base one-liner so calls resolve this body: the inherited
+    Terminal.move_cursor dispatches self.write, which the seal-time checker
+    refuses across the native/Python shadow boundary (E5089) and demotes the
+    whole module to the server codespace."""
+    def move_cursor(row: int, col: int) -> None {
+        self.write(f"\x1b[{row};{col}H");
+    }
+
     def start() -> None {
         if self.started {
             return;

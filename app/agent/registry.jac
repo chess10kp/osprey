@@ -8,6 +8,7 @@ js tools carry schema only and dispatch through a PluginBridge.
 
 import from .tool_spec {
     ToolSpec,
+    make_tool_spec,
 }
 
 
@@ -133,7 +134,7 @@ def as_tool_specs(reg: ToolRegistry) -> list[ToolSpec] {
     out: list[ToolSpec] = [];
     for (_name, ent) in reg.tools.items() {
         out.append(
-            ToolSpec(
+            make_tool_spec(
                 name=ent.name,
                 description=ent.description,
                 parameters=ent.parameters,

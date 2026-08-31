@@ -17,3 +17,26 @@ obj ToolSpec {
         parameters: dict[str, any] = {},
         handler: Callable | None = None;
 }
+
+
+"""Factory for ToolSpec, callable from server-codespace consumers.
+
+After the native pin, the ToolSpec constructor itself is not reachable from
+server code (native obj classes have no Python-side mirror), but a plain
+native function call - args in, obj out - is. All production constructions
+go through this seam; direct ToolSpec(...) calls survive only in test
+annexes, which run pre-seal.
+"""
+def make_tool_spec(
+    name: str,
+    description: str = "",
+    parameters: dict[str, any] = {},
+    handler: Callable | None = None,
+) -> ToolSpec {
+    return ToolSpec(
+        name=name,
+        description=description,
+        parameters=parameters,
+        handler=handler,
+    );
+}

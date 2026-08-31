@@ -14,7 +14,7 @@ import shutil;
 import fnmatch;
 import re;
 import from core.edit { apply_edit }
-import from .tool_spec { ToolSpec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
+import from .tool_spec { ToolSpec, make_tool_spec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
 import from .web_tools { tool_specs_web }
 
 glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
@@ -257,7 +257,7 @@ derivation). When tools become Cordis fibers, live providers of "tools.*"
 keys build this list dynamically."""
 def tool_specs() -> list[ToolSpec] {
     return [
-        ToolSpec(
+        make_tool_spec(
             name="read_file",
             description="Read a text file and return its contents. Use this before editing a file you have not seen this session.",
             parameters={
@@ -269,7 +269,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=read_file,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="write_file",
             description="Create or completely overwrite a file with the given content. Prefer edit_file for small changes to existing files.",
             parameters={
@@ -282,7 +282,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=write_file,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="edit_file",
             description="Replace an exact, unique snippet in a file. old_text must match the file byte-for-byte and appear exactly once.",
             parameters={
@@ -296,7 +296,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=edit_file,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="list_dir",
             description="List immediate entries of a directory (dotfiles hidden, directories suffixed with /).",
             parameters={
@@ -308,7 +308,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=list_dir,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="run_command",
             description="Run a shell command in the project root and return exit code plus combined stdout/stderr.",
             parameters={
@@ -321,7 +321,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=run_command,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="jac_check",
             description="Check Jac files for syntax and type errors using the Jac toolchain (jac check). Prefer this over run_command for validating .jac edits.",
             parameters={
@@ -333,7 +333,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=jac_check,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="jac_format",
             description="Format Jac files in place with the Jac formatter (jac format). Modifies files; blocked in plan/ask modes.",
             parameters={
@@ -345,7 +345,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=jac_format,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="glob",
             description="Find files matching a pattern under the project root, skipping hidden and generated directories.",
             parameters={
@@ -359,7 +359,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=file_glob,
         ),
-        ToolSpec(
+        make_tool_spec(
             name="grep",
             description="Search file contents for a literal or regular-expression pattern under the project root.",
             parameters={
@@ -374,7 +374,7 @@ def tool_specs() -> list[ToolSpec] {
             },
             handler=content_grep,
         ),
-    ] + [ToolSpec(**s) for s in tool_specs_web()];
+    ] + [make_tool_spec(**s) for s in tool_specs_web()];
 }
 
 
