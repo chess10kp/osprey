@@ -1340,6 +1340,34 @@ impl NaIRGenCalls._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
         }
     }
 
+    if _call_kind != "method" and func_name in self._native_stdlib_bare_names {
+        (_bare_mod, _orig_name) = self._native_stdlib_bare_names[func_name];
+        if _bare_mod == "time" {
+            return self._emit_time_call(_orig_name, nd);
+        }
+        if _bare_mod == "math" {
+            _mres = self._emit_math_call(_orig_name, nd);
+            if _mres is not None {
+                return _mres;
+            }
+        }
+        if _bare_mod == "os" {
+            return self._emit_os_call(_orig_name, nd);
+        }
+        if _bare_mod == "os.path" {
+            return self._emit_ospath_call(_orig_name, nd);
+        }
+        if _bare_mod == "random" {
+            return self._emit_random_call(_orig_name, nd);
+        }
+        if _bare_mod == "struct" {
+            _sres = self._emit_struct_call(_orig_name, nd);
+            if _sres is not None {
+                return _sres;
+            }
+        }
+    }
+
     import from jaclang.compiler.types { types as jtypes }
     _callee_t = nd.target?.type;
     if isinstance(_callee_t, jtypes.ClassType)

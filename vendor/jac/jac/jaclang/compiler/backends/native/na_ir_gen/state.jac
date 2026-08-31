@@ -216,6 +216,7 @@ obj NaIRGenState(ModuleCodegenPass) {
         set_release_fns: dict[str, ir.Function] = {},
         _struct_bodies_done: set[str] = set(),
         _native_stdlib_modules: set[str] = set(),
+        _native_stdlib_bare_names: dict[str, tuple] = {},
         _native_module_imports: set[str] = set(),
         _stdlib_helpers_emitted: set[str] = set(),
         _global_origins: dict[str, str] = {},

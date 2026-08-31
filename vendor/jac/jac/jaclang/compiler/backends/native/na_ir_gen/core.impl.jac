@@ -1333,7 +1333,11 @@ impl NaIRGenCore._process_clib_imports(module: uni.Module) -> None {
                 for item in stmt.items {
                     import os;
                     import from jaclang.compiler.passes.capability_check_pass {
-                        classify_native_import
+                        classify_native_import,
+                        import_bound_name
+                    }
+                    import from jaclang.compiler.backends.native.na_ir_gen.constants {
+                        NATIVE_STDLIB_FUNC_TABLES
                     }
                     import from jaclang.compiler.frontend.codeinfo {
                         is_bundled_native_module,
@@ -1342,6 +1346,22 @@ impl NaIRGenCore._process_clib_imports(module: uni.Module) -> None {
                     (mod_name, _supported) = classify_native_import(item);
                     if _supported {
                         self._native_stdlib_modules.add(mod_name);
+                        if isinstance(item, uni.ModuleItem) {
+                            _fns = NATIVE_STDLIB_FUNC_TABLES.get(mod_name);
+                            if (
+                                _fns is not None
+                                and isinstance(item.name, uni.Name)
+                                and item.name.value in _fns
+                            ) {
+                                _bound = import_bound_name(item);
+                                if _bound is not None {
+                                    self._native_stdlib_bare_names[_bound] = (
+                                        mod_name,
+                                        item.name.value
+                                    );
+                                }
+                            }
+                        }
                     } elif mod_name is not None
                         and is_bundled_native_module(mod_name) {
                         self._native_module_imports.add(mod_name);
