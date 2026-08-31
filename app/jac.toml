@@ -67,16 +67,24 @@ default_codespace = "native"
 "ui.gates" = "server"
 "ui.progress_bar" = "native"
 "ui.focus" = "server"
-# ui.terminal / ui.virtual_terminal: native in dev since the 2026-08-31
-# re-probe (the stale 2026-08-29 walls were the only dev walls); suites
-# green in a no-server sandbox so the runs execute native code (6/6, 15/15;
-# `jac test` ignores placement pins). SEAL walls differ (2026-08-31 first
-# honest seal read): virtual_terminal E5089 — inherited Terminal.move_cursor
-# dispatches self.write across the Python-shadow boundary — FIXED with a
-# VT-owned move_cursor override; now demotes on E5092 synchronized_write.
-# terminal demotes on E1127 int->u64. Both seal server until those lower.
-"ui.terminal" = "native"
-"ui.virtual_terminal" = "native"
+ # ui.terminal / ui.virtual_terminal: native in dev (6/6, 15/15 in a
+ # no-server sandbox; `jac test` ignores placement pins). SEAL walls
+ # re-read 2026-08-31 after the vendor floor-cast fix (vendor 2be42fa04:
+ # fcntl/termios FFI boundaries now cast int -> i32/u64, killing the old
+ # E1127 int->u64 headline) and the startswith region fix (vendor
+ # faba56250). terminal now demotes per-function on: ioctl/tcsetattr
+ # call-arg narrowing (user call still resolves against the C-ABI
+ # signature -- "ioctl parameter 1"), struct.unpack 'non-bytes buffer',
+ # sys.stdin attribute access, a FuncCall expression (line 465) and
+ # _on_terminate_signal emitter error. virtual_terminal demotes on the
+ # inherited shadow-dispatch class: Terminal.enable_bracketed_paste /
+ # enter_alternate_screen / hide_cursor / end_synchronized_update /
+ # disable_bracketed_paste / leave_alternate_screen run on a Python
+ # shadow that does not carry VirtualTerminal.write (the VT-owned
+ # move_cursor override fixed only that one method), plus inherited
+ # on_input / on_resize / on_interrupt calls.
+ "ui.terminal" = "native"
+ "ui.virtual_terminal" = "native"
 # ui.input: BLOCKED native (updated 2026-08-31). Source parsers fixed (SGR
 # mouse terminator, modified-letter CSI modifier) — suite 21/21 server-side.
 # Vendor: emit_find strstr-miss OOB scan fixed in primitives_native.impl.jac
@@ -94,11 +102,18 @@ default_codespace = "native"
 # faithful repros pass at both opt levels. Next probe: RC release audit of
 # the concat/field-store path in feed (`self.buffer += data`).
 "ui.input" = "server"
-# SEAL walls (2026-08-31 honest seal read) — dev-native, seal-server:
-# screen E5092 create_session; transcript E5092 TranscriptView; renderer
-# E1127 int->u64; layout ICE (_ScopedNode already defined — compiler bug;
-# JAC_NATIVE_ICE_RAISE=1 surfaces the traceback); layout_compile E5092
-# _shell_state. bindings/layout_measure/layout_quantize seal native.
+ # SEAL walls (2026-08-31 re-seal read) -- dev-native, seal-server:
+ # screen E5092 create_session; transcript E5092 TranscriptView;
+ # model/mutation/runtime E5092 UnaryExpr / MainScreen / attribute 'key'
+ # (unchanged); layout's _ScopedNode ICE is GONE -- it now demotes on
+ # signature-type erasure (UiNode / UiContainer / Screen / Overlay /
+ # LayoutDiagnostic params, same class as renderer); renderer demotes on
+ # signature-type erasure too (UiNode / LayoutSpec / CellBuffer /
+ # StyleAttrs|None) -- the old E1127 int->u64 was the same C-ABI
+ # narrowing terminal hit, fixed at the floor; the residue is erased
+ # app types crossing the seal boundary. layout_compile SEALED (no
+ # demotion note this round; the old E5092 _shell_state wall did not
+ # reappear). bindings/layout_measure/layout_quantize seal native.
 "ui.bindings" = "native"
 "ui.screen" = "native"
 "ui.transcript" = "native"
