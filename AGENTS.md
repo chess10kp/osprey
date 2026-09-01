@@ -170,3 +170,11 @@ Pruned as stale (legacy-runtime-bound, moot after deletion): jac-ink install/bun
 - `agent-session`-style dependencies flow through `agent/session.jac`; leaf-module changes propagate upward.
 - After editing a `.jac` module, check it compiles/lowers before running the dependent test file.
 - The TUI paint/layout logic lives in `app/ui/demo_live_shell.jac` (upstream of `tui.jac`); change paint behavior there, not in the shell driver.
+- Toolchain: use the installed release jac at `~/.local/share/jac/bin/jac`
+  (symlinked `~/.local/bin/jac`) — a self-contained 0.36.1 payload built from
+  `vendor/jac` — NOT `/usr/bin/jac` (stale 0.30.9; phantom `own` errors,
+  incompatible `.jac` cache) and not the `-Ddev` launcher in
+  `vendor/jac/jac/zig-out/bin` (slow, source-linked). Rebuild after vendor
+  edits with `cd vendor/jac/jac && zig build -Dskip-precompile
+  -Dpayload-progress`; the full precompile needs >9 GB RSS and OOM-kills on
+  a 14 GB box. First use compiles the compiler on demand (one slow run).
