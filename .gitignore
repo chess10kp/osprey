@@ -9,7 +9,7 @@ pi/mcp-npx-cache.json
 pi/mcp-onboarding.json
 pi/__pycache__/
 
-# Ink runtime artifacts (jackal/ agent dir + per-project session dir)
+# jackal/ agent dir + per-project session artifacts
 jackal/auth.json
 jackal/mcp-cache.json
 jackal/mcp-npx-cache.json

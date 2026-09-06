@@ -39,7 +39,6 @@ Upstream AVA specs synced from [Nano-Collective/nanocoder](https://github.com/Na
 
 Jackal runs **ported** equivalents in:
 
-- `tests/tui/*.test.mjs` — ink-testing-library render tests
 - `tests/adapter/*.test.ts` — runtime/CLI tests
 
 Re-sync upstream specs:

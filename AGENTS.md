@@ -9,7 +9,7 @@ Jac-native terminal coding agent.
 ## Rules for agents working in this repo
 
 1. **Commit** after each feature or bugfix (unless the user says otherwise).
-2. **Do not modify** `jac-ink` or `jac-client`. **Exception — vendored compiler:** `vendor/jac/` (subtree of jaseci-labs/jac, see [`docs/VENDOR-JAC.md`](docs/VENDOR-JAC.md)) is ours to fix: native-path fixes land there first so product work never waits on upstream PR latency. Keep vendor changes upstream-able and sync them back.
+2. **Do not modify** `jac-client`. **Exception — vendored compiler:** `vendor/jac/` (subtree of jaseci-labs/jac, see [`docs/VENDOR-JAC.md`](docs/VENDOR-JAC.md)) is ours to fix: native-path fixes land there first so product work never waits on upstream PR latency. Keep vendor changes upstream-able and sync them back.
 3. **Native lowering discipline:** write Jac that lowers natively — annotate types (including kwargs and intermediates) so modules lower without implicit server fallback; keep `jac build` green on `app/`; change `[placement.pins]` in `app/jac.toml` only via deliberate commits with a stated reason.
 4. **Do not extend legacy code.** `src/`, `templates/`, `tui/*.tsx`, `lib/jac/`, and the TS test suites are frozen pending deletion. No new features, no fixes unless a deletion commit depends on it.
 5. **Framework/plugin gaps** → stop, document symptom + owning repo + minimal recommended fix for the **human** (see [Human handoff](#human-handoff)).
@@ -29,7 +29,7 @@ cd app && jac build            # native compile check over app/
 jac test app/<file>.test.jac   # per-file jac tests
 ```
 
-**Launcher status:** at HEAD, `./jackal.sh` still boots the **legacy Ink shell** (`templates/shell.cl.jac` via jac-ink); switching its default to the native TUI is in flight. Until then use `jac run tui.jac` for the native surface. Headless flags on `jackal.sh` (`--check`, `run "…"`) exercise the legacy TS adapter only.
+**Launcher status:** `./jackal.sh` boots the native TUI (`app/tui.jac`); headless passthroughs are `--repl` (line REPL) and `--json` (JSONL protocol).
 
 **Requirements:** Python env with `jac` CLI (vendored compiler under `vendor/jac/`, wrapper in `scripts/setup-vendor-jac.sh`); a TTY for the TUI; provider API keys via env or auth.json (see below).
 
@@ -86,7 +86,6 @@ These paths are frozen. A deletion commit is upcoming — do not extend them:
 | Path | Was |
 |------|-----|
 | `src/` | TypeScript headless runtime (`dist/index.js`) |
-| `templates/` | Ink TUI (`shell.cl.jac`) + facade/postprocess inputs for `jackal.sh` |
 | `tui/*.tsx` + `tui/pi_jac/` | Temporary protocol client against the old seam |
 | `lib/jac/` | Python toolchain mirror of the TS runtime (bridge superseded by native port) |
 | `tests/` (vitest), npm scripts | Legacy adapter/session/TUI tests |
@@ -107,7 +106,7 @@ These paths are frozen. A deletion commit is upcoming — do not extend them:
 | `JACKAL_ROOT` | `skills.jac`, `chains.jac` | Repo-root fallback for catalogs |
 | `JACKAL_NODE_BIN` | `agent/plugin_bridge.jac` | Node binary for the plugin sidecar |
 
-Legacy vars (`JACKAL_HEAP_MB`, `JACKAL_TUI_OUT`, `JACKAL_SKIP_TUI_COMPILE`, `JACKAL_MODE` CLI flag) belong to `jackal.sh`/Ink and die with the launcher switch. Provider keys come from env (e.g. `OPENROUTER_API_KEY`) or `auth.json` (byte-compatible with the legacy pi-ai shape; see `app/agent/auth.jac`).
+Legacy vars (`JACKAL_HEAP_MB`, `JACKAL_TUI_OUT`, `JACKAL_SKIP_TUI_COMPILE`) belong to the old launcher path and die with the launcher cleanup. Provider keys come from env (e.g. `OPENROUTER_API_KEY`) or `auth.json` (byte-compatible with the legacy pi-ai shape; see `app/agent/auth.jac`).
 
 ---
 
@@ -132,7 +131,7 @@ Only entries still true after the native-first pivot:
 | Native lowering failures in `app/` | jaclang (via `vendor/jac/`) | Fix lands in vendor first, syncs back upstream |
 | `js2jac` converter gaps | jac_llm_data fork | Sync contract in `tui/js2jac/SYNC.md` |
 
-Pruned as stale (legacy-runtime-bound, moot after deletion): jac-ink install/bundling, `@jac/pi` hook naming, facade copy workarounds, formal `--adapter` flag.
+Pruned as stale (legacy-runtime-bound, moot after deletion): `@jac/pi` hook naming, facade copy workarounds, formal `--adapter` flag.
 
 ---
 

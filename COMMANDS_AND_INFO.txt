@@ -7,7 +7,7 @@ Source: /home/jac/repos/jackal/AGENTS.md, templates/shell.cl.jac, src/runtime/to
 A Jac-native terminal coding agent. Launch with ./jackal.sh from any project directory.
 
 Stack:
-- Ink TUI: templates/shell.cl.jac (compiled via jac-ink)
+- TUI: app/tui.jac (native Jac LiveShell)
 - Headless runtime: src/ (adapter, store, bridge, auth, MCP client)
 - System prompt: pi/SYSTEM.md
 - MCP config: pi/mcp.json (jac mcp server)
@@ -29,7 +29,7 @@ First-time setup from the jackal repo:
   npm run build:agent
   ./jackal.sh
 
-=== Shell slash commands (Ink TUI) ===
+=== Shell slash commands ===
 
 Implemented in templates/shell.cl.jac and/or src/runtime/tools.ts:
 

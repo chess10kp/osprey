@@ -167,7 +167,7 @@ Remaining for N2 closure: auth OAuth/browser continuation, MCP status/failure UX
 
 - Packaging, install, upgrade, and recovery documentation
 - Explicit session-data migration/incompatibility policy for legacy `.jackal/sessions/` data
-- No daily workflow may require jac-ink or deleted trees
+- No daily workflow may require the deleted trees
 
 Acceptance: default `jackal` launch uses `app/`; native launcher smoke checks pass with the legacy trees gone. Full `app/` native closure remains N6 work.
 
@@ -262,7 +262,7 @@ Do not mix unrelated legacy edits into `app/` feature commits.
 ## 8. Non-goals
 
 - A line-oriented product interface
-- Restoring jac-ink, the removed Jac plugin system, or the TypeScript runtime
+- Restoring the removed Jac plugin system or the TypeScript runtime
 - A broad C FFI terminal layer
 - A single executable containing HTTP, model providers, MCP, and the TUI
 - Full IDE/LSP replacement

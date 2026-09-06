@@ -9,8 +9,6 @@ set -euo pipefail
 # Native headless:
 #   ./jackal.sh --repl          line REPL on stdio (app/main.jac)
 #   ./jackal.sh --json          JSONL protocol on stdio (app/main.jac -- --json)
-#
-# Legacy Ink support was removed. Use the native Jac paths below.
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 JACKAL_DIR="$(cd "$(dirname "$(readlink -f "$SCRIPT_PATH")")" && pwd)"
@@ -64,7 +62,6 @@ options:
   --repl               native line REPL on stdio (headless)
   --json               native JSONL protocol on stdio (headless)
   --mode MODE          dev mode: normal|auto-accept|yolo|plan|ask
-  --ink                unsupported; use the native TUI, --repl, or --json
   --help               this help
 
 env: JACKAL_AGENT_DIR, JACKAL_ROOT, JACKAL_MODEL, JACKAL_CONTEXT_MAX,
@@ -81,8 +78,6 @@ Headless options at HEAD:
   ./jackal.sh --repl            line REPL on stdio
   ./jackal.sh --json            JSONL protocol on stdio
                                 (one JSON object per line in, events out)
-
-The legacy Ink stack was removed. Use the native paths above.
 EOF
   exit 1
 }
@@ -156,14 +151,6 @@ if [[ "$MODE_SEEN" == 1 || -n "$JACKAL_MODE" ]]; then
       ;;
   esac
   export JACKAL_MODE
-fi
-
-# ---- removed legacy Ink stack (--ink) ---------------------------------------
-
-if [[ "${1:-}" == "--ink" ]]; then
-  echo "jackal: --ink is no longer supported; the legacy Ink stack was deleted." >&2
-  echo "Use ./jackal.sh for the native TUI, ./jackal.sh --repl, or ./jackal.sh --json." >&2
-  exit 1
 fi
 
 # ---- native paths -----------------------------------------------------------

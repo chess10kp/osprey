@@ -1,15 +1,8 @@
 [project]
 name = "jackal-shell"
 version = "0.1.0"
-description = "Jackal Ink shell — wired to the headless Jackal agent runtime via @jac/pi hooks"
+description = "Jackal agent harness"
 entry-point = "app/main.jac"
 
 [dependencies]
 httpx = "latest"
-
-[dependencies.npm]
-ink = "^7.0.3"
-react = "^19.2.4"
-"@inkjs/ui" = "*"
-"@earendil-works/pi-agent-core" = "0.75.4"
-"@earendil-works/pi-ai" = "0.75.4"

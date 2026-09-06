@@ -558,7 +558,7 @@ function makePiApi(state, extensionId) {
 
     // ---- P11 renderers: real — fn returns plain data, normalized to the
     // native content-line currency app/ui paints into semantic regions.
-    // Ink components cannot cross the JSONL bridge by design.
+    // Terminal-UI components cannot cross the JSONL bridge by design.
     registerMessageRenderer(type, renderer) {
       if (typeof renderer !== "function") {
         throw new Error("registerMessageRenderer requires a function");

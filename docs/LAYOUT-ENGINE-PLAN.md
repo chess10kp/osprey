@@ -847,9 +847,9 @@ Stop implementation and report the smallest reproducer if any of these occur:
 - the required Jac source cannot compile in the explicit server codespace without
   compiler fallback;
 - the existing `app/` project cannot import the new in-tree modules directly;
-- correct OSP `Child`/`Layer` traversal requires a jaclang or jac-ink change;
+- correct OSP `Child`/`Layer` traversal requires a jaclang change;
 - finite float/dict behavior is incorrect on the supported server target;
-- a stable public interface would require editing `jaclang`, `jac-ink`, or `jac-client`;
+- a stable public interface would require editing `jaclang` or `jac-client`;
 - passing tests would require a compile-pipeline shim, vendored runtime, or production
   Python/C bridge; or
 - the solver cannot meet correctness before the layout layer depends on it.
@@ -870,8 +870,8 @@ workaround permanent.
 - a general CSS flexbox/grid clone;
 - compile-time validation of runtime graph layout;
 - scroll represented as constraints;
-- Ink, `src/`, or `templates/` changes;
-- edits to jaclang, jac-ink, or jac-client; and
+- legacy `src/` or `templates/` changes;
+- edits to jaclang or jac-client; and
 - keeping the old engine as a runtime safety path.
 
 ---
