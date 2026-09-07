@@ -568,38 +568,19 @@ def _rewrite_turn(app: LiveShell, message_id: str, role: str, body: str) {
 
 def _install_layout(app: LiveShell) {
     # Permanent shell specs first (screen fill/fill, transcript grow+scroll,
-    # status/prompt legacy heights), then this shell's parity overrides:
-    # header 2 rows, prompt 3 rows (mirrors the pre-M6 contracts).
+    # status/prompt legacy heights), then this shell's parity override:
+    # hide the framework header and keep the prompt at three rows.
     configure_main_shell_layout(app.renderer.layout, app.shell);
     set_node_contract(
         app.renderer,
         app.shell.header,
-        LayoutSpec(width=fill_axis(), height=fixed_axis(2)),
+        LayoutSpec(width=fill_axis(), height=fixed_axis(0)),
     );
     set_node_contract(
         app.renderer,
         app.shell.prompt,
         LayoutSpec(width=fill_axis(), height=fixed_axis(3)),
     );
-}
-
-
-def _header_lines(app: LiveShell) -> list[str] {
-    brand = " JACKAL ";
-    tag = " osp live ";
-    right = (
-        str(app.columns)
-        + "×"
-        + str(app.rows)
-        + "  r"
-        + str(app.session.graph_revision)
-    );
-    mid_pad = app.columns - display_width(brand) - display_width(tag) - display_width(right) - 2;
-    if mid_pad < 1 {
-        mid_pad = 1;
-    }
-    top = brand + tag + (" " * mid_pad) + right;
-    return [_pad_to(top, app.columns), _rule(app.columns, "━")];
 }
 
 
@@ -2014,7 +1995,6 @@ def _transcript_lines(app: LiveShell) -> list[str] {
 
 
 def _paint(app: LiveShell) {
-    header = _header_lines(app);
     lines = _transcript_lines(app);
     status = _status_line(app);
     prompt_lines = _prompt_lines(app);
@@ -2049,11 +2029,9 @@ def _paint(app: LiveShell) {
         _paint_overlay(app, overlay);
     }
 
-    set_node_content(app.renderer, app.shell.header, header);
     set_node_content(app.renderer, app.shell.transcript, lines);
     set_node_content(app.renderer, app.shell.status, [status]);
     set_node_content(app.renderer, app.shell.prompt, popup_rows + prompt_lines);
-    mark_semantic_dirty(app.renderer, app.shell.header);
     mark_semantic_dirty(app.renderer, app.shell.transcript);
     mark_semantic_dirty(app.renderer, app.shell.status);
     mark_semantic_dirty(app.renderer, app.shell.prompt);
@@ -2975,13 +2953,12 @@ def create_live_shell() -> LiveShell {
     handle = create_session();
     session = handle.session;
     shell = build_main_shell(session);
-    shell.header.title = "Jackal";
     install_shell_contracts(session, shell, "live.transcript");
     proj = bind_transcript(
         shell.transcript,
         "live.transcript",
         width=max(12, cols - 2),
-        height=max(4, rows - 7),
+        height=max(4, rows - 5),
     );
     set_follow_tail(proj, True);
     term = ProcessTerminal();
