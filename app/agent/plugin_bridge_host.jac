@@ -5,7 +5,7 @@ import subprocess;
 import time;
 
 import from .protocol { Envelope, make_envelope }
-import from .fake_host { ensure_host, touch_bridge }
+import from .fake_host { ensure_host, touch_bridge, apply_hello }
 import from .plugin_bridge_support { resolve_host_mjs, resolve_node_bin }
 def _emit_host_status(bridge: any, phase: str, detail: str = "") {
     bridge.status_phase = phase;

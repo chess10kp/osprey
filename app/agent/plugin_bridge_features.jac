@@ -7,6 +7,7 @@ import from .fake_host { FakePluginHost, touch_bridge }
 import from .plugin_bridge_core { PluginBridge, _alloc_corr, _node_alive }
 import from .plugin_bridge_io { _write_node, _prepare_corr, _read_node_until }
 import from .plugin_bridge_traffic { _absorb_payload, _absorb_pending_fake }
+import from .plugin_bridge_hooks { fire_hook_data, _ok_verdicts }
 
 def transform_markdown(
     bridge: PluginBridge | None,
