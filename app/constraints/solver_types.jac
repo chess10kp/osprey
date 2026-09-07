@@ -29,15 +29,6 @@ import from constraints.results {
     SolveResult,
     SolverSnapshot,
 }
-import from constraints.solver_types {
-    SymbolKind,
-    MutationJournal,
-    Tag,
-    Row,
-    CostRow,
-    StoredConstraint,
-    EditInfo,
-}
 
 enum SymbolKind {
     INVALID = "invalid",
