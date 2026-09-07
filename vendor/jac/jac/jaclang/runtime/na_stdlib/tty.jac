@@ -10,7 +10,7 @@ import termios;
 
 
 def:pub setraw(fd: int, when: int = 1) -> None {  # TCSADRAIN
-    mode = termios.tcgetattr(fd);
+    mode: list = termios.tcgetattr(fd);
     mode[0] = mode[0] & ~(
         termios.BRKINT | termios.ICRNL | termios.INPCK
         | termios.ISTRIP | termios.IXON
@@ -33,7 +33,7 @@ def:pub setraw(fd: int, when: int = 1) -> None {  # TCSADRAIN
 
 
 def:pub setcbreak(fd: int, when: int = 1) -> None {  # TCSADRAIN
-    mode = termios.tcgetattr(fd);
+    mode: list = termios.tcgetattr(fd);
     mode[3] = mode[3] & ~(termios.ECHO | termios.ICANON);
     cc: list[int] = mode[6];
     if len(cc) > termios.VMIN {

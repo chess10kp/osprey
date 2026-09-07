@@ -43,6 +43,7 @@ walker NaIRGenCore(NaIRGenState) {
 
     def _rename_demoted_symbol(name: str, func: ir.Function) -> None;
     def _process_clib_imports(module: uni.Module) -> None;
+    def _own_body_ability_names -> set;
     def _resolve_clib_lib_name(components: list[str], level: int) -> str;
     def _llvm_type_str(ty: ir.Type) -> str;
     def _export_native_layout -> None;

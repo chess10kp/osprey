@@ -79,13 +79,13 @@ def:pub install_dispatcher(signum: int) -> bool {
     act: _SigAction = _fresh_action();
     act.handler = _on_signal;
     old: bytes = b"\x00" * _SA_SIZE;
-    return sigaction(signum, act, old) == 0;
+    return sigaction(i32(signum), act, old) == 0;
 }
 
 
 def:pub install_raw(signum: int, handler_word: int) -> bool {
     # Install SIG_DFL (0) / SIG_IGN (1) via bsd_signal.
-    rc: i64 = bsd_signal(signum, handler_word);
+    rc: i64 = bsd_signal(i32(signum), i64(handler_word));
     return rc != -1;
 }
 
@@ -114,5 +114,5 @@ def:pub last_signal -> int {
 
 
 def:pub raise_to_self(signum: int) -> bool {
-    return kill(getpid(), signum) == 0;
+    return kill(getpid(), i32(signum)) == 0;
 }

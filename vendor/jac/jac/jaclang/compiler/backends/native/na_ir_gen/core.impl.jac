@@ -145,7 +145,13 @@ impl NaIRGenCore._run_impl(ir_in: uni.Module) -> uni.Module {
             self._codegen_ability(stmt);
         } elif isinstance(stmt, uni.ModuleCode) {
             _entry_nodes.append(stmt);
-        } elif isinstance(stmt, uni.Test) {
+        }
+    }
+    # Tests lower LAST: a test that calls a function demoted during this
+    # pass must observe the completed skip set, otherwise it emits a direct
+    # call into the demoted function's abort() stub and dies at runtime.
+    for stmt in ModuleCodegenPass.iter_context_stmts(self.ir_in, CodeContext.NATIVE) {
+        if isinstance(stmt, uni.Test) {
             self._codegen_test(stmt);
         }
     }
@@ -1468,6 +1474,19 @@ impl NaIRGenCore._process_clib_imports(module: uni.Module) -> None {
                     self.emit(E5060, name=fn_name);
                     continue;
                 }
+                # When walking an IMPORTED module's clib decls, an extern whose
+                # name the current module defines itself (e.g. surface fn
+                # `fcntl.ioctl` vs the libc extern `ioctl` declared inside
+                # `_fcntl_native`) must not be forward-declared: the surface
+                # definition wins, and the imported module's own calls stay
+                # bound inside its own IR.
+                if (
+                    module is not self.ir_in
+                    and fn_name is not None
+                    and fn_name in self._own_body_ability_names()
+                ) {
+                    continue;
+                }
                 self._declare_clib_ability(decl);
                 if fn_name {
                     self.clib_extern_names.add(fn_name);
@@ -1484,6 +1503,19 @@ impl NaIRGenCore._process_clib_imports(module: uni.Module) -> None {
             self.has_native_code = True;
         }
     }
+}
+
+impl NaIRGenCore._own_body_ability_names -> set {
+    names: set = set();
+    if self.ir_in is None {
+        return names;
+    }
+    for stmt_ in self.ir_in.body {
+        if isinstance(stmt_, uni.Ability) and stmt_.name_ref is not None {
+            names.add(str(stmt_.name_ref.sym_name));
+        }
+    }
+    return names;
 }
 
 impl NaIRGenCore._resolve_clib_lib_name(components: list[str], level: int) -> str {

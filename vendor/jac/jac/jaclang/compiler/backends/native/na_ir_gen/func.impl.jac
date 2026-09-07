@@ -535,6 +535,15 @@ impl NaIRGenFunc._codegen_test(nd: uni.Test) -> None {
         self._declare_exception_runtime();
     }
     test_name = nd.name.sym_name;
+    # A test that calls a Python-only (demoted) function cannot execute
+    # natively -- the demoted symbol is an abort stub at runtime. Leave such
+    # tests out of the native test table so they run server-side instead.
+    for _tfc in nd.get_all_sub_nodes(uni.FuncCall) {
+        _tname = self._get_name(_tfc.target);
+        if _tname is not None and _tname in self._native_skipped_methods {
+            return;
+        }
+    }
     line = nd.loc.first_line if nd.loc else 0;
     symbol = native_test_symbol(test_name, line);
     fnty = ir.FunctionType(i8p, []);

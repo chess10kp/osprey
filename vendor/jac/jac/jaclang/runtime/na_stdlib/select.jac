@@ -116,7 +116,7 @@ def:pub select(
     if timeout >= 0.0 {
         tmo = int(timeout * 1000.0);
     }
-    rc: int = poll(buf, n, tmo);
+    rc: int = poll(buf, u64(n), i32(tmo));
     if rc < 0 {
         raise ValueError("poll failed");
     }

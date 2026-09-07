@@ -1700,10 +1700,10 @@ impl NaIRGenCalls._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
                 );
                 return ptr;
             }
-        }
+    }
 
         if func_name
-            in ("abs", "min", "max", "pow", "divmod", "sum", "any", "all", "format") {
+            in ("abs", "min", "max", "pow", "divmod", "sum", "any", "all", "format", "hasattr") {
             params_l = nd.params or [];
             arg_vals: list[ir.Value] = [];
             arg_nodes: list = [];
@@ -1716,7 +1716,12 @@ impl NaIRGenCalls._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
             }
             if arg_vals {
                 result = self._dispatch_builtin(
-                    func_name, arg_vals, arg_nodes=arg_nodes
+                    func_name,
+                    arg_vals,
+                    type_key=(
+                        self._type_key_of(arg_nodes[0]) if arg_nodes else ""
+                    ),
+                    arg_nodes=arg_nodes
                 );
 
                 for _barg in arg_vals {

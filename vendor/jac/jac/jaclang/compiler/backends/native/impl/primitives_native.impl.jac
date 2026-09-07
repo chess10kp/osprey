@@ -65,10 +65,13 @@ impl NativeBuiltinEmitter.emit_jid(
         return None;
     }
 
-    _header_id_ptr = b.gep(
-        obj_ptr, [ir.Constant(i64, HDR_ALLOC_ID_OFF)], name="jid.alloc_id_ptr"
+    _alloc_slot = b.gep(
+        obj_ptr, [ir.Constant(i64, HDR_ALLOC_ID_OFF)], name="jid.alloc_id.slot"
     );
-    _header_id = b.load(_header_id_ptr, name="jid.alloc_id");
+    _header_id = b.load(
+        b.bitcast(_alloc_slot, i64.as_pointer(), name="jid.alloc_id.p"),
+        name="jid.alloc_id"
+    );
     _pointer_id = b.ptrtoint(obj_ptr, i64, name="jid.pointer_id");
     _identity = b.select(
         b.icmp_unsigned("==", _header_id, ir.Constant(i64, 0), name="jid.no_alloc_id"),
@@ -79,15 +82,12 @@ impl NativeBuiltinEmitter.emit_jid(
 
     _buf = p._str_alloc(b, ir.Constant(i64, 33), name="jid.buf");
     _fmt = p._make_global_string("%032llx", name_prefix=".jid.fmt");
-    _fmt_ptr = b.gep(
-        _fmt, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="jid.fmt_ptr"
-    );
     _snprintf = p._get_or_declare_extern(
         "snprintf", i32, [i8p, i64, i8p], var_arg=True
     );
     b.call(
         _snprintf,
-        [_buf, ir.Constant(i64, 33), _fmt_ptr, _identity],
+        [_buf, ir.Constant(i64, 33), _fmt, _identity],
         name="jid.format",
     );
     p._str_finish(b, _buf, ir.Constant(i64, 32));
@@ -5247,7 +5247,63 @@ impl NativeBuiltinEmitter.emit_setattr(
 impl NativeBuiltinEmitter.emit_hasattr(
     self: NativeBuiltinEmitter, ctx: NativeEmitCtx, args: list[ir.Value]
 ) -> (ir.Value | None) {
-    return None;
+    # Native objects are fixed-layout structs, so a literal-name hasattr is
+    # decidable at compile time: True iff the receiver archetype's layout
+    # (which includes inherited fields) declares the attribute. Dynamic
+    # names compare against the same static field list at runtime.
+    p = ctx.pass_ref;
+    arch_name: str = "";
+    for _part in (ctx.type_key or "").replace(" ", "").split("|") {
+        if (
+            _part
+            and _part not in ("None", "NoneType")
+            and p._arch_is_osp_name(_part)
+        ) {
+            arch_name = _part.split(".")[-1];
+            break;
+        }
+    }
+    if not arch_name {
+        return None;
+    }
+    fields = p.struct_field_order.get(arch_name);
+    if fields is None {
+        return None;
+    }
+    b = get_builder(p);
+    i8p = ir.IntType(8).as_pointer();
+    name_node = ctx.arg_nodes[1];
+    if len(args) < 2 or len(ctx.arg_nodes) < 2 {
+        return None;
+    }
+    import jaclang.compiler.frontend.unitree as _hu_uni;
+    if isinstance(name_node, (_hu_uni.String, _hu_uni.MultiString)) {
+        attr_name = name_node.lit_value;
+        present = attr_name in fields;
+        return ir.Constant(ir.IntType(1), 1 if present else 0);
+    }
+    # Dynamic name: the archetype is still static, so linear-compare the
+    # runtime string against the archetype's field-name constants.
+    if not fields {
+        return ir.Constant(ir.IntType(1), 0);
+    }
+    strcmp_fn = p._get_or_declare_extern(
+        "strcmp", ir.IntType(32), [i8p, i8p]
+    );
+    name_ptr = args[1];
+    if not isinstance(name_ptr.type, ir.PointerType) or name_ptr.type != i8p {
+        return None;
+    }
+    matched: (ir.Value | None) = None;
+    for fname in fields {
+        fglob = p._make_global_string(fname, name_prefix=".hasattr.f");
+        eq = b.icmp_signed(
+            "==", b.call(strcmp_fn, [fglob, name_ptr], name="hasattr.cmp"),
+            ir.Constant(ir.IntType(32), 0), name="hasattr.eq"
+        );
+        matched = eq if matched is None else b.or_(matched, eq, name="hasattr.or");
+    }
+    return matched;
 }
 
 impl NativeBuiltinEmitter.emit_delattr(

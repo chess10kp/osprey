@@ -551,6 +551,12 @@ def _erased_only_import(imp: uni.Import) -> bool {
     return native_erased_import_names(imp.from_loc.dot_path_str, names);
 }
 
+def _is_test_origin(nd: uni.UniNode) -> bool {
+    _p = (nd.loc.mod_path if nd.loc is not None else '') or '';
+    return bool(_p) and _p.replace(os.sep, "/").endswith('.test.jac');
+}
+
+
 def scan_native_blockers(
     module: uni.Module,
     base_dir: str,
@@ -572,22 +578,28 @@ def scan_native_blockers(
         }
     }
     for (nd_name, typ) in PLACEMENT_SV_SIGNAL_NODES {
-        if module.get_all_sub_nodes(typ) {
+        if [nd for nd in module.get_all_sub_nodes(typ) if not _is_test_origin(nd)] {
             return (f"contains {nd_name}", deps);
         }
     }
 
     for (nd_name, typ) in PLACEMENT_NATIVE_REJECT_NODES {
-        if module.get_all_sub_nodes(typ) {
+        if [nd for nd in module.get_all_sub_nodes(typ) if not _is_test_origin(nd)] {
             return (f"native-unsupported {nd_name}", deps);
         }
     }
     for svr in module.get_all_sub_nodes(uni.SpecialVarRef) {
+        if _is_test_origin(svr) {
+            continue;
+        }
         if svr.orig.name == Tok.KW_ROOT {
             return ("root access (persistent graph)", deps);
         }
     }
     for ab in module.get_all_sub_nodes(uni.Ability) {
+        if _is_test_origin(ab) {
+            continue;
+        }
         if ab.is_async {
             return ("async ability", deps);
         }
@@ -608,6 +620,9 @@ def scan_native_blockers(
     }
     scan_mod_path = module.loc.mod_path or '';
     for stmt in module.body {
+        if _is_test_origin(stmt) {
+            continue;
+        }
         if isinstance(stmt, uni.ContextAwareNode) and scan_mod_path {
             import from jaclang.compiler.placement.placement_pins { config_pin_for }
             pin = config_pin_for(scan_mod_path, element_display_name(stmt));
@@ -621,6 +636,9 @@ def scan_native_blockers(
         }
     }
     for imp in module.get_all_sub_nodes(uni.Import) {
+        if _is_test_origin(imp) {
+            continue;
+        }
         if imp.has_clib_decls {
             continue;
         }

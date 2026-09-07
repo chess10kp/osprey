@@ -312,6 +312,38 @@ impl NaIRGenExceptions._codegen_raise(nd: uni.RaiseStmt) -> None {
     if exc_msg is None {
         return;
     }
+    # Scalar causes (`raise SystemExit(128 + signum)`) arrive as raw i64/f64;
+    # the raise ABI takes (obj ptr, i32, msg ptr) -- box them to their str().
+    if isinstance(exc_msg.type, ir.IntType) and exc_msg.type.width == 1 {
+        _bfn = self._repr_leaf_fn("bool");
+        if _bfn is not None {
+            exc_msg = self._mark_owned(
+                self.builder.call(
+                    _bfn,
+                    [self._coerce_type(exc_msg, ir.IntType(64))],
+                    name="exc.msg.bool"
+                )
+            );
+        }
+    } elif isinstance(exc_msg.type, ir.IntType) {
+        _ifn = self._repr_leaf_fn("int");
+        if _ifn is not None {
+            exc_msg = self._mark_owned(
+                self.builder.call(
+                    _ifn,
+                    [self._coerce_type(exc_msg, ir.IntType(64))],
+                    name="exc.msg.int"
+                )
+            );
+        }
+    } elif isinstance(exc_msg.type, (ir.FloatType, ir.DoubleType)) {
+        _ff = self._emit_float_repr(
+            self._coerce_type(exc_msg, ir.DoubleType())
+        );
+        if _ff is not None {
+            exc_msg = _ff;
+        }
+    }
 
     if isinstance(exc_msg.type, ir.PointerType) and exc_msg.type != i8p {
         exc_msg = self.builder.bitcast(exc_msg, i8p, name="exc.msg.cast");

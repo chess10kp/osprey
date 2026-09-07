@@ -1222,10 +1222,36 @@ def _compile_osp_kernel_ir(
 }
 
 impl NativeCompilePass._references_undefined_osp_kernel(main_mod: ModuleRef) -> bool {
+    # Public helpers the OSP kernel units export; graph-op lowering declares
+    # these as undefined externs WITHOUT touching the kernel glob init, so the
+    # glob-init-only probe below misses them and the kernel never links
+    # (every osp_* call then resolves to NULL at static link).
+    _kernel_syms = [
+        "osp_refs",
+        "osp_refs_many",
+        "osp_hop_only",
+        "osp_wrap1",
+        "osp_conn",
+        "osp_disconnect",
+        "osp_disconn_between",
+        "osp_edge_peer",
+        "osp_has_edge",
+        "osp_region_died",
+        "osp_visit",
+        "osp_spawn",
+        "osp_report",
+        "osp_skip_rest",
+        "osp_disengage"
+    ];
     try {
         for _fn in _mod_functions(main_mod) {
-            if _fn.name == "__jac_glob_init_osp_kernel" and _fn.is_declaration {
-                return True;
+            if _fn.is_declaration {
+                if _fn.name == "__jac_glob_init_osp_kernel" {
+                    return True;
+                }
+                if _fn.name in _kernel_syms {
+                    return True;
+                }
             }
         }
     } except Exception {
@@ -1240,6 +1266,10 @@ impl NativeCompilePass._link_osp_kernel(main_mod: ModuleRef) -> None {
         or bool(getattr(self.ir_in.gen, "nogc_enforced", False));
     ir_str = _compile_osp_kernel_ir(_gc, _enf and _gc == "none");
     if ir_str is None {
+        import from jaclang.cli.console { console }
+        console.warning(
+            "osp kernel IR unavailable; graph ops will resolve to NULL"
+        );
         return;
     }
 
@@ -1253,7 +1283,10 @@ impl NativeCompilePass._link_osp_kernel(main_mod: ModuleRef) -> None {
         kmod.verify();
         main_mod.link_in(kmod);
     } except Exception as _e {
-        ;
+        import from jaclang.cli.console { console }
+        console.warning(
+            f"osp kernel link failed; graph ops will resolve to NULL: {_e}"
+        );
     }
 }
 
@@ -1336,7 +1369,10 @@ impl NativeCompilePass._link_fmt_kernel(main_mod: ModuleRef) -> None {
         kmod.verify();
         main_mod.link_in(kmod);
     } except Exception as _e {
-        ;
+        import from jaclang.cli.console { console }
+        console.warning(
+            f"fmt kernel link failed; format ops will resolve to NULL: {_e}"
+        );
     }
 }
 

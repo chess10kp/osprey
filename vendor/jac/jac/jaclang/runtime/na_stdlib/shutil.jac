@@ -71,7 +71,18 @@ def:pub move(src: str, dst: str) -> str {
     return real_dst;
 }
 
-def:pub rmtree(path: str) {
+def:pub rmtree(path: str, ignore_errors: bool = False) {
+    if ignore_errors {
+        try {
+            _rmtree_strict(path);
+        } except Exception { }
+        return;
+    }
+    _rmtree_strict(path);
+}
+
+
+def _rmtree_strict(path: str) {
     d = opendir(path);
     if d == 0 {
         raise ValueError(f"rmtree: cannot open '{path}'");
@@ -92,7 +103,7 @@ def:pub rmtree(path: str) {
     for nm in children {
         child = os.path.join(path, nm);
         if os.path.isdir(child) {
-            rmtree(child);
+            _rmtree_strict(child);
         } else {
             unlink(child);
         }
