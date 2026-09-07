@@ -1,9 +1,8 @@
 """Plugin bridge traffic buffers and pending extension controls."""
 
-import from .plugin_bridge_core { PluginBridge };
-import from .fake_host { FakePluginHost };
+import from .fake_host { FakePluginHost }
 
-def _absorb_payload(bridge: PluginBridge, payload: dict[str, any]) {
+def _absorb_payload(bridge: any, payload: dict[str, any]) {
     msgs: any = payload.get("messages", []);
     if isinstance(msgs, list) {
         for m in msgs {
@@ -88,7 +87,7 @@ def _absorb_payload(bridge: PluginBridge, payload: dict[str, any]) {
 
 """Shortcut bindings registered by loaded extensions (key -> meta dict with
 description + extension_id). Listed for host UIs; not yet bound to keys."""
-def list_shortcuts(bridge: PluginBridge | None) -> dict[str, any] {
+def list_shortcuts(bridge: any | None) -> dict[str, any] {
     if bridge is None {
         return {};
     }
@@ -97,7 +96,7 @@ def list_shortcuts(bridge: PluginBridge | None) -> dict[str, any] {
 
 
 """Labels set by loaded extensions via pi.setLabel (id -> meta dict)."""
-def list_labels(bridge: PluginBridge | None) -> dict[str, any] {
+def list_labels(bridge: any | None) -> dict[str, any] {
     if bridge is None {
         return {};
     }
@@ -109,7 +108,7 @@ def list_labels(bridge: PluginBridge | None) -> dict[str, any] {
 
 Returns {"model": str, "thinking_level": str} and clears both pendings so
 each request applies exactly once. Empty strings mean no request."""
-def drain_model_requests(bridge: PluginBridge | None) -> dict[str, any] {
+def drain_model_requests(bridge: any | None) -> dict[str, any] {
     out: dict[str, any] = {"model": "", "thinking_level": ""};
     if bridge is None {
         return out;
@@ -123,7 +122,7 @@ def drain_model_requests(bridge: PluginBridge | None) -> dict[str, any] {
 
 
 """Pull per-listener ui_events buckets out of hook results."""
-def _absorb_pending_fake(bridge: PluginBridge, h: FakePluginHost) {
+def _absorb_pending_fake(bridge: any, h: FakePluginHost) {
     if h.pending_messages {
         msgs = h.pending_messages;
         h.pending_messages = [];
@@ -135,9 +134,3 @@ def _absorb_pending_fake(bridge: PluginBridge, h: FakePluginHost) {
         _absorb_payload(bridge, {"entries": ents});
     }
 }
-
-
-"""Fire a lifecycle hook. Returns the per-listener results list from the
-hook_done payload: [{ok, extension_id, result|error, verdict?,
-notifications?, ui_events?}] where verdict carries the handler's raw object
-return when it returned a dict ({block}, {action}, {systemPrompt}, ...).

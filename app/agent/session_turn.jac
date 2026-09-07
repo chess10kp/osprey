@@ -4,8 +4,8 @@ import sys;
 import os;
 import time;
 
-import from .state { history, show_stats, model, thinking_level, mode, plugins, _t0, _n_tools }
-import from .config { set_model, set_thinking_level, _apply_pending_model_requests }
+import from .session_state { history, show_stats, model, thinking_level, mode, plugins, _t0, _n_tools }
+import from .session_config { set_model, set_thinking_level, _apply_pending_model_requests }
 import from .llm {
     react_loop,
     make_transport,
@@ -21,6 +21,7 @@ import from .compaction {
     summarize_for_compaction,
 }
 import from .system { SYSTEM_PROMPT }
+import from .modes { system_prompt_for_mode }
 import from .plugin_bridge {
     PluginBridge,
     input_gate,
@@ -32,7 +33,7 @@ import from .plugin_bridge {
 }
 import from .tools { default_registry }
 import from .sessions { save_session, new_session_id, is_valid_session_id }
-import from .lifecycle { session_boot, wait_extensions_ready }
+import from .session_lifecycle { session_boot, wait_extensions_ready }
 
 
 def render_event(kind: str, data: dict[str, any]) {
@@ -135,7 +136,8 @@ def _apply_pending_model_requests() {
     if b is None {
         return;
     }
-    req: dict[str, any] = drain_model_requests(b as PluginBridge);
+    raw_req: any = drain_model_requests(b as PluginBridge);
+    req: dict[str, any] = raw_req as dict[str, any];
     m = str(req.get("model", ""));
     lv = str(req.get("thinking_level", ""));
     if m and m != model {
@@ -246,11 +248,6 @@ def _ensure_mode_system_prompt {
         return;
     }
 }
-
-
-"""Run one agent turn: wait for extension snapshot, then stream the loop.
-
-on_event(kind, data) is the UI boundary: the term renderer prints, the
 
 
 def run_turn(

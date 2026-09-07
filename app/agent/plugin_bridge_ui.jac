@@ -1,9 +1,9 @@
 """Plugin bridge public interactive UI operations."""
 
 import time;
-
-import from .plugin_bridge_core { PluginBridge };
-import from .plugin_bridge_io { _ui_queue, _ui_send_response };
+import from .plugin_bridge_core { PluginBridge }
+import from .interactions { UiInteractionQueue }
+import from .plugin_bridge_io { _ui_queue, _ui_send_response }
 
 def poll_ui_request(bridge: PluginBridge) -> dict[str, any] | None {
     if bridge is None or bridge.ui_q is None {

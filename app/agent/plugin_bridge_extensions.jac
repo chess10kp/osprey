@@ -2,23 +2,23 @@
 
 import os;
 
-import from .protocol { Envelope, make_envelope };
-import from .registry { ToolRegistry, register_js, unregister_extension };
-import from .fake_host { FakeUi, ensure_host };
-import from .plugin_bridge_support { _path_abspath };
+import from .protocol { Envelope, make_envelope, is_plugin_kind }
+import from .registry { ToolRegistry, register_js, unregister_extension }
+import from .fake_host { FakeUi, ensure_host, touch_bridge }
+import from .plugin_bridge_support { _path_abspath }
 import from .plugin_bridge_core {
     PluginBridge,
     _alloc_corr,
     _node_alive,
     _emit_host_status,
-};
-import from .plugin_bridge_host { ensure_node_host, maybe_restart_host };
+}
+import from .plugin_bridge_host { ensure_node_host, maybe_restart_host, host_status }
 import from .plugin_bridge_io {
     _write_node,
     _prepare_corr,
     _read_node_until,
-};
-import from .plugin_bridge_traffic { _absorb_payload, _absorb_pending_fake };
+}
+import from .plugin_bridge_traffic { _absorb_payload, _absorb_pending_fake }
 
 def load_extension(
     bridge: PluginBridge,
@@ -496,7 +496,3 @@ def invoke_command(
         return err_payload;
     }
 }
-
-
-"""Absorb extension traffic (message pushes, entries, ui_events, session
-name) from a reply payload into bridge tracking buffers. Tolerates junk."""

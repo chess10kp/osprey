@@ -2,15 +2,15 @@
 
 import json;
 
-import from .protocol { Envelope, make_envelope };
-import from .fake_host { FakePluginHost, ensure_host, touch_bridge };
+import from .protocol { Envelope, make_envelope }
+import from .fake_host { FakePluginHost, ensure_host, touch_bridge }
 import from .plugin_bridge_io {
     _write_node,
     _prepare_corr,
     _read_node_until,
-};
-import from .plugin_bridge_host { maybe_restart_host, host_status };
-import from .plugin_bridge_traffic { _absorb_payload };
+}
+import from .plugin_bridge_host { maybe_restart_host, host_status }
+import from .plugin_bridge_traffic { _absorb_payload }
 
 obj PluginBridge {
     has session_id: str = "",
@@ -211,10 +211,3 @@ def _invoke_tool_node(bridge: PluginBridge, name: str, args: dict[str, any]) -> 
     }
     return f"ERROR: {reply.payload.get('error', 'invoke failed')}";
 }
-
-
-# ======================= T2-partial: shortcuts =======================
-
-"""Invoke an extension keyboard shortcut by key. Returns the shortcut_result
-payload dict: {ok, notifications?, ui_events?, error?}; failures (including
-Node silence/timeout) come back as {ok: False, error: ...}, never raised."""

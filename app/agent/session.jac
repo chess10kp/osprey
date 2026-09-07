@@ -5,7 +5,7 @@ session_lifecycle, session_turn, and session_commands. Keep this module's
 exports stable: callers import the session API from agent.session.
 """
 
-import from .state {
+import from .session_state {
     SessionPlugins,
     history,
     show_stats,
@@ -14,7 +14,7 @@ import from .state {
     mode,
     plugins,
 }
-import from .config {
+import from .session_config {
     set_mode,
     get_mode,
     model_preferences,
@@ -22,7 +22,7 @@ import from .config {
     set_thinking_level,
     clear_history,
 }
-import from .lifecycle {
+import from .session_lifecycle {
     session_boot,
     wait_extensions_ready,
     enqueue_prompt,
@@ -30,12 +30,12 @@ import from .lifecycle {
     session_dispose,
     extensions_status,
 }
-import from .turn {
+import from .session_turn {
     render_event,
     relay_tool_hooks,
     run_turn,
 }
-import from .commands {
+import from .session_commands {
     get_history,
     restore_history,
     set_current_session_id,

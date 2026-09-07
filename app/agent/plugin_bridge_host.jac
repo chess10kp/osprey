@@ -4,24 +4,37 @@ import os;
 import subprocess;
 import time;
 
-import from .protocol { Envelope, make_envelope };
-import from .fake_host { ensure_host };
-import from .plugin_bridge_support { resolve_host_mjs, resolve_node_bin };
-import from .plugin_bridge_core {
-    PluginBridge,
-    _node_alive,
-    _emit_host_status,
-};
+import from .protocol { Envelope, make_envelope }
+import from .fake_host { ensure_host, touch_bridge }
+import from .plugin_bridge_support { resolve_host_mjs, resolve_node_bin }
+def _emit_host_status(bridge: any, phase: str, detail: str = "") {
+    bridge.status_phase = phase;
+    bridge.inbox.append(
+        make_envelope(
+            kind="host_status",
+            session_id=bridge.session_id,
+            payload={"phase": phase, "detail": detail},
+        )
+    );
+}
+
+
+def _node_alive(bridge: any) -> bool {
+    if bridge.host_kind != "node" or bridge.proc is None {
+        return False;
+    }
+    return bridge.proc.poll() is None;
+}
 import from .plugin_bridge_io {
     _ensure_io,
     _start_reader,
     _stop_reader,
     _read_node_until,
     _write_node,
-};
+}
 
 """Inspect host health. Dead Node → degraded status envelope; returns phase."""
-def host_status(bridge: PluginBridge) -> str {
+def host_status(bridge: any) -> str {
     if bridge.host_kind == "node" {
         if bridge.proc is not None and not _node_alive(bridge) {
             if bridge.status_phase != "dead" {
@@ -44,7 +57,7 @@ def host_status(bridge: PluginBridge) -> str {
 
 """Reap Node host after idle_timeout_s with no activity. Returns True if reaped."""
 def maybe_reap_idle(
-    bridge: PluginBridge, idle_timeout_s: float = -1.0, now: float = -1.0
+    bridge: any, idle_timeout_s: float = -1.0, now: float = -1.0
 ) -> bool {
     if bridge.host_kind != "node" or not _node_alive(bridge) {
         # Still surface unexpected death.
@@ -71,7 +84,7 @@ def maybe_reap_idle(
 }
 
 def ensure_node_host(
-    bridge: PluginBridge,
+    bridge: any,
     host_mjs: str = "",
     node_bin: str = "",
     timeout: float = 5.0,
@@ -113,7 +126,7 @@ def ensure_node_host(
 
 
 """One controlled restart after unexpected host death (P3). Returns phase."""
-def maybe_restart_host(bridge: PluginBridge, timeout: float = 5.0) -> str {
+def maybe_restart_host(bridge: any, timeout: float = 5.0) -> str {
     if _node_alive(bridge) {
         return "ready";
     }
@@ -148,7 +161,7 @@ def maybe_restart_host(bridge: PluginBridge, timeout: float = 5.0) -> str {
 }
 
 
-def dispose_bridge(bridge: PluginBridge) {
+def dispose_bridge(bridge: any) {
     if bridge.host_kind == "node" and bridge.proc is not None {
         try {
             if bridge.proc.poll() is None {
@@ -198,10 +211,3 @@ def dispose_bridge(bridge: PluginBridge) {
     bridge.host = None;
     bridge.host_kind = "";
 }
-
-
-"""Install a stub extension into the fake host and registry.
-
-`tool_defs` entries: {name, description, parameters}.
-`handlers` maps tool name → callable.
-"""

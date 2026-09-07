@@ -1,8 +1,6 @@
 """Plugin bridge path and envelope support."""
 
-import os;
-import shutil;
-import from .protocol { Envelope, make_envelope };
+import os;import shutil;import from .protocol { Envelope, make_envelope }
 
 def _path_abspath(p: str) -> str {
     fn: any = os.path.abspath;

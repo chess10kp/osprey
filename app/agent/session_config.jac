@@ -13,7 +13,7 @@ import from .mcp {
     mcp_start,
     mcp_list_tools,
 }
-import from .state {
+import from .session_state {
     history,
     model,
     thinking_level,

@@ -2,19 +2,18 @@
 
 import json;
 
-import from .protocol { Envelope, make_envelope };
-import from .fake_host { FakePluginHost, FakeUi };
+import from .protocol { Envelope, make_envelope }
+import from .fake_host { FakePluginHost, FakeUi, touch_bridge }
 import from .plugin_bridge_core {
     PluginBridge,
     _alloc_corr,
     _node_alive,
-};
-import from .plugin_bridge_io { _write_node, _prepare_corr, _read_node_until };
+}
+import from .plugin_bridge_io { _write_node, _prepare_corr, _read_node_until }
 import from .plugin_bridge_traffic {
     _absorb_payload,
-    _absorb_hook_results,
     _absorb_pending_fake,
-};
+}
 
 def _absorb_hook_results(bridge: PluginBridge, results: list[any]) {
     for r in results {
@@ -439,11 +438,3 @@ def fire_project_trust(bridge: PluginBridge | None, path: str) -> list[dict[str,
 
 
 # ======================= T2-partial: markdown transformers =======================
-
-"""Run the extension markdown-transformer chain over a complete block.
-
-Display-only (Pi semantics): the session/model context is never mutated.
-Returns {"ok": True, "markdown": <transformed>} — transformer errors keep
-the output produced so far and never fail the turn. With no host or no
-transformers this is an identity passthrough.
-"""
