@@ -16,7 +16,7 @@ api_key = ""
 default_codespace = "native"
 
 [placement.pins]
-# Current frontier: 13 explicit server pins remain (was 15; terminal/vt went
+# Current frontier: 12 explicit server pins remain (was 15; terminal/vt went
 # native 2026-08-31); N6 requires reducing this count to zero. Keep each
 # temporary pin annotated with its compiler/runtime wall.
 # Constraint layout engine: algebra, layout_relations and solver all lower

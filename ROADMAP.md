@@ -142,7 +142,7 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 - [x] Headless native term/JSONL launch through `jackal.sh`; broader CLI parity remains pending
 ### Current native frontier
 
-`app/jac.toml` currently contains 15 server pins; N6 requires reducing that count to
+`app/jac.toml` currently contains 12 server pins; N6 requires reducing that count to
 zero. The immediate residual UI compiler wall is bound-endpoint `EdgeRefTrailer`
 lowering; lower-priority native compiler gaps and Cordis integration remain deferred.
 
@@ -272,7 +272,7 @@ Do not mix unrelated legacy edits into `app/` feature commits.
 
 **Goal:** no module under `app/` compiles to (or is placed in) the server codespace. The `server` tier remains a compiler-internal fallback only, never a product placement.
 
-**Current state:** `app/jac.toml` has 15 explicit `"server"` pins. They are temporary compiler/runtime frontiers, not an accepted steady state.
+**Current state:** `app/jac.toml` has 12 explicit `"server"` pins. They are temporary compiler/runtime frontiers, not an accepted steady state.
 
 **Acceptance criterion:** `app/jac.toml` contains zero `"server"` pins, every `[placement.pins]` entry is `"native"`, and the seal records every app module native. Old assumptions retired by this milestone: "session host = server placement", the constraints layout engine's §3 server policy pin, and kernel-only nativity (binding decision 5 supersedes).
 
