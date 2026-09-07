@@ -4,7 +4,7 @@ import sys;
 import os;
 import time;
 
-import from .session_state { history, show_stats, model, thinking_level, mode, plugins, _t0, _n_tools }
+import from .session_state { history, show_stats, model, thinking_level, mode, plugins, _t0, _n_tools, reset_turn_stats, bump_tool_count }
 import from .session_config { set_model, set_thinking_level, _apply_pending_model_requests }
 import from .llm {
     react_loop,
@@ -50,7 +50,7 @@ def render_event(kind: str, data: dict[str, any]) {
         }
         out.write(f"  * {data.get('tool')}({(', '.join(parts))[:120]})\n");
         out.flush();
-        _n_tools += 1;
+        bump_tool_count();
     } elif kind == "tool_result" {
         preview = str(data.get("result", ""))[:80].replace("\n", " ");
         out.write(f"    -> {preview}\n");
@@ -319,8 +319,7 @@ def run_turn(
     if transport is None {
         transport = make_transport(model, thinking_level, hook_bridge=bridge);
     }
-    _t0 = time.time();
-    _n_tools = 0;
+    reset_turn_stats(time.time());
     # T2-partial lifecycle hooks — best-effort, never fatal.
     injected_system = "";
     sys_idx = -1;

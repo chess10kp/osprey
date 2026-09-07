@@ -21,6 +21,10 @@ import from .session_state {
     plugins,
     _model_prefs,
     _model_prefs_loaded,
+    set_mode_state,
+    set_model_state,
+    set_thinking_level_state,
+    adopt_model_prefs,
 }
 
 
@@ -31,7 +35,7 @@ def set_mode(next_mode: str) -> str {
             + "' (expected normal, auto-accept, yolo, plan, or ask)"
         );
     }
-    mode = next_mode;
+    set_mode_state(next_mode);
     return mode;
 }
 
@@ -190,7 +194,6 @@ def _load_model_prefs {
     if _model_prefs_loaded {
         return;
     }
-    _model_prefs_loaded = True;
     path = _model_prefs_path();
     if not os.path.isfile(path) {
         return;
@@ -200,7 +203,7 @@ def _load_model_prefs {
             raw = json.load(fh);
         }
         if isinstance(raw, dict) {
-            _model_prefs = raw;
+            adopt_model_prefs(raw);
         }
     } except (OSError, ValueError) {
     }
@@ -249,7 +252,7 @@ def set_model(name: str) -> str {
     if err {
         return err;
     }
-    model = name;
+    set_model_state(name);
     _record_model_pref(name);
     b = plugins.bridge;
     if b is not None {
@@ -266,7 +269,7 @@ def set_model(name: str) -> str {
 The transport layer maps it to the request body's reasoning.effort. Fires
 Pi's thinking_level_select hook best-effort, mirroring set_model."""
 def set_thinking_level(level: str) -> str {
-    thinking_level = level;
+    set_thinking_level_state(level);
     b = plugins.bridge;
     if b is not None {
         try {
