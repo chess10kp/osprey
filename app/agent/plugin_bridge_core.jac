@@ -150,6 +150,8 @@ def _invoke_tool_fake(bridge: PluginBridge, name: str, args: dict[str, any]) -> 
         return f"ERROR: tool {name} is not active";
     }
     try {
+        # Extension handlers retain their JavaScript-style dynamic ABI;
+        # only native Jackal tool handlers use the dict adapter.
         result = str(h.handlers[name](**args));
         ok = True;
         err = "";

@@ -22,8 +22,11 @@ import from .session_state {
     _model_prefs,
     _model_prefs_loaded,
     set_mode_state,
+    get_mode_state,
     set_model_state,
+    get_model_state,
     set_thinking_level_state,
+    get_thinking_level_state,
     adopt_model_prefs,
 }
 
@@ -36,13 +39,13 @@ def set_mode(next_mode: str) -> str {
         );
     }
     set_mode_state(next_mode);
-    return mode;
+    return get_mode_state();
 }
 
 
 """Return the active dev mode for native UI clients."""
 def get_mode() -> str {
-    return mode;
+    return get_mode_state();
 }
 
 
@@ -90,10 +93,10 @@ def _mcp_server_specs(cfg: dict[str, any]) -> dict[str, list[str]] {
 """Handler factory closing over one client/server/tool triple.
 
 Returns a native-tool handler whose string result mirrors the registry's
-resultToString convention (invoke does str(handler(**args))): tool text on
-success, ERROR-prefixed strings on transport or MCP-level failures."""
-def _make_mcp_handler(client: McpClient, server_name: str, tool_name: str) -> Callable {
-    def handle(**args: any) -> str {
+resultToString convention. It accepts one decoded argument dictionary so the
+native dispatch path does not require dynamic keyword unpacking."""
+def _make_mcp_handler(client: McpClient, server_name: str, tool_name: str) -> Callable[[dict[str, any]], str] {
+    def handle(args: dict[str, any]) -> str {
         res: dict[str, any] = client.call_tool(tool_name, args);
         if res.get("ok") {
             if res.get("is_error") {
@@ -106,7 +109,7 @@ def _make_mcp_handler(client: McpClient, server_name: str, tool_name: str) -> Ca
         }
         return "ERROR: " + str(res.get("error", "mcp call failed"));
     }
-    return handle as Callable;
+    return handle as Callable[[dict[str, any]], str];
 }
 
 
@@ -261,7 +264,7 @@ def set_model(name: str) -> str {
         } except Exception {
         }
     }
-    return model;
+    return get_model_state();
 }
 
 
@@ -277,7 +280,7 @@ def set_thinking_level(level: str) -> str {
         } except Exception {
         }
     }
-    return thinking_level;
+    return get_thinking_level_state();
 }
 
 
@@ -298,10 +301,10 @@ def _apply_pending_model_requests() {
     req: dict[str, any] = drain_model_requests(b as PluginBridge);
     m = str(req.get("model", ""));
     lv = str(req.get("thinking_level", ""));
-    if m and m != model {
+    if m and m != get_model_state() {
         set_model(m);
     }
-    if lv and lv != thinking_level {
+    if lv and lv != get_thinking_level_state() {
         set_thinking_level(lv);
     }
 }

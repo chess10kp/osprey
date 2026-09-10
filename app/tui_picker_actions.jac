@@ -5,7 +5,7 @@ import from tui_core { _push_turn, _meter }
 import from tui_picker_base { _open_picker, _close_picker }
 import from agent.llm { PROVIDER_ROUTES, credential_error }
 import from agent.session {
-    model_preferences, model, set_model, get_history, restore_history, provider_for,
+    model_preferences, get_model, set_model, get_history, restore_history, provider_for,
 }
 import from agent.auth {
     load_auth_file, save_auth_file, resolve_auth_path, credential_set,
@@ -230,14 +230,15 @@ def _open_model_picker(app: LiveShell) -> str {
     entries = _model_picker_entries();
     choices: list[str] = list(entries["rows"]);
     pick_ids: list[str] = list(entries["ids"]);
-    if model not in pick_ids {
-        choices.insert(0, model + "  · current");
-        pick_ids.insert(0, model);
+    active_model = get_model();
+    if active_model not in pick_ids {
+        choices.insert(0, active_model + "  · current");
+        pick_ids.insert(0, active_model);
     }
     sel = 0;
     i = 0;
     for c in pick_ids {
-        if c == model {
+        if c == active_model {
             sel = i;
             break;
         }
@@ -443,7 +444,8 @@ def _create_checkpoint_now(app: LiveShell, name: str) -> str {
     cwd = os.getcwd();
     hist = get_history();
     try {
-        meta = create_checkpoint(cwd, hist, provider_for(model), model, name=name);
+        active_model = get_model();
+        meta = create_checkpoint(cwd, hist, provider_for(active_model), active_model, name=name);
     } except Exception as e {
         return "ERROR: checkpoint failed: " + str(e);
     }

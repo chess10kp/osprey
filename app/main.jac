@@ -10,6 +10,7 @@ import sys;
 import os;
 import json;
 import agent.session as _session;
+import from agent.session { clear_history }
 import from agent.sessions {
     list_sessions,
     latest_session_id,
@@ -22,7 +23,7 @@ import from agent.sessions {
 
 def print_banner {
     print("jackal - all-Jac agent harness");
-    print(f"model: {_session.model}   cwd: {os.getcwd()}");
+    print(f"model: {_session.get_model()}   cwd: {os.getcwd()}");
     print("/help for commands, /exit to quit");
 }
 
@@ -81,8 +82,8 @@ def handle_command(line: str) -> str | None {
         _session.restore_history(msgs as list);
         rec_model: any = rec.get("model");
         reply: str = "resumed " + sid + " (" + str(len(msgs)) + " messages)";
-        if isinstance(rec_model, str) and rec_model and rec_model != _session.model {
-            reply += "\nmodel -> " + _session.set_model(rec_model);
+        if isinstance(rec_model, str) and rec_model and rec_model != _session.get_model() {
+            reply += "\nmodel -> " + _session.restore_model(rec_model);
         }
         return reply;
     }
@@ -161,7 +162,7 @@ with entry:__main__ {
     _session.session_boot();
     json_mode = "--json" in sys.argv;
     if json_mode {
-        _session.json_event("session_ready", {"model": _session.model, "cwd": os.getcwd()});
+        _session.json_event("session_ready", {"model": _session.get_model(), "cwd": os.getcwd()});
     } else {
         print_banner();
     }

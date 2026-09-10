@@ -168,8 +168,11 @@ def session_boot(
     if rt is not None and rt.handler is not None {
         cell: dict[str, any] = {"fn": rt.handler};
 
-        def _run_command_hooked(cmd: str, timeout_secs: int = 120) -> str {
-            res = str(cell["fn"](cmd, timeout_secs));
+        def _run_command_hooked(args: dict[str, any]) -> str {
+            cmd = str(args.get("cmd", ""));
+            timeout_raw: any = args.get("timeout_secs", 120);
+            timeout_secs = int(timeout_raw) if timeout_raw is not None else 120;
+            res = str(cell["fn"]({"cmd": cmd, "timeout_secs": timeout_secs}));
             fire_user_bash(plugins.bridge as PluginBridge | None, cmd, res);
             return res;
         }

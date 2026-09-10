@@ -9,8 +9,18 @@ def _echo(text: str) -> str {
 }
 
 
+def _tool_echo(args: dict[str, any]) -> str {
+    return _echo(str(args.get("text", "")));
+}
+
+
 def _boom(x: int) -> str {
     raise ValueError("boom");
+}
+
+
+def _tool_boom(args: dict[str, any]) -> str {
+    return _boom(int(args.get("x", 0)));
 }
 
 
@@ -25,7 +35,7 @@ test "register_native and get_tool" {
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
         },
-        _echo,
+        _tool_echo,
     );
     assert ent.origin == "native";
     assert ent.handler is not None;
@@ -64,14 +74,14 @@ test "invoke native success and error" {
         "echo",
         "d",
         {"type": "object", "properties": {"text": {"type": "string"}}},
-        _echo,
+        _tool_echo,
     );
     register_native(
         reg,
         "boom",
         "d",
         {"type": "object", "properties": {"x": {"type": "integer"}}},
-        _boom,
+        _tool_boom,
     );
     assert invoke(reg, "echo", {"text": "hi"}) == "ECHO:hi";
     err = invoke(reg, "boom", {"x": 1});
@@ -97,7 +107,7 @@ test "as_tool_specs and openai_tools cover both origins" {
         "echo",
         "d",
         {"type": "object", "properties": {"text": {"type": "string"}}},
-        _echo,
+        _tool_echo,
     );
     register_js(reg, "remote", "rd", {"type": "object"}, "ext.a");
     specs = as_tool_specs(reg);

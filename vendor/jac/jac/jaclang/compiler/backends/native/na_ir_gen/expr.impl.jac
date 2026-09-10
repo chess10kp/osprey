@@ -426,7 +426,11 @@ impl NaIRGenExpr._codegen_lambda(nd: uni.LambdaExpr) -> (ir.Value | None) {
                         help_text="An expression in this lambda body could not lower natively; an unresolvable name here usually means the lambda reads a variable its enclosing frame cannot expose (e.g. a module-entry local)."
                     );
                 }
-                self.builder.ret(self._zero_const(ret_type));
+                if ret_type == ir.VoidType() {
+                    self.builder.ret_void();
+                } else {
+                    self.builder.ret(self._zero_const(ret_type));
+                }
             }
         } else {
             self._codegen_body(body);
@@ -445,7 +449,11 @@ impl NaIRGenExpr._codegen_lambda(nd: uni.LambdaExpr) -> (ir.Value | None) {
                     help_text="An expression in this lambda body could not lower natively; an unresolvable name here usually means the lambda reads a variable its enclosing frame cannot expose (e.g. a module-entry local)."
                 );
             }
-            self.builder.ret(self._zero_const(ret_type));
+            if ret_type == ir.VoidType() {
+                self.builder.ret_void();
+            } else {
+                self.builder.ret(self._zero_const(ret_type));
+            }
         }
     }
 

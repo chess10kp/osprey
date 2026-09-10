@@ -218,9 +218,10 @@ def react_loop(
                 continue;
             }
             try {
-                args = json.loads(raw);
+                decoded: any = json.loads(raw);
+                args: dict[str, any] = decoded if isinstance(decoded, dict) else {};
             } except ValueError {
-                args = {};
+                args: dict[str, any] = {};
             }
             # Ask before executing; the approver may block (UI modal) or
             # deny outright. A cancel while waiting counts as denial.
@@ -283,7 +284,7 @@ def react_loop(
                     result = f"ERROR: unknown tool {name}";
                 } else {
                     try {
-                        result = spec.handler(**args);
+                        result = spec.handler(args);
                     } except Exception as e {
                         result = f"ERROR: {e}";
                     }

@@ -15,10 +15,15 @@ import fnmatch;
 import re;
 import from core.edit { apply_edit }
 import from .tool_spec { ToolSpec, make_tool_spec, MAX_TOOL_RESULT, MAX_SEARCH_RESULTS }
-import from .web_tools { tool_specs_web }
+import from .web_tools {
+    _web_search_tool,
+    _web_fetch_tool,
+}
 
 glob MAX_TOOL_OUTPUT: int = MAX_TOOL_RESULT,
      READ_LINE_CAP: int = 2_000,
+     # Kept for compatibility with older session wiring; current boot wraps
+     # run_command at the registry boundary instead of using this callback.
      user_bash_fire: Callable[[str, str], None] | None = None;
 
 # os.path.dirname/relpath and fnmatch.fnmatch demand PathLike/LiteralString
@@ -97,14 +102,9 @@ def run_command(cmd: str, timeout_secs: int = 120) -> str {
         return f"ERROR: command timed out after {timeout_secs}s";
     }
     out = (r.stdout or "") + (r.stderr or "");
-    # Fire the user_bash plugin hook (best-effort). tools cannot import
-    # agent/session (session imports tools), so session boot assigns this
-    # callback: `tools.user_bash_fire = lambda cmd, res: fire_user_bash(plugins, cmd, res)`.
-    if user_bash_fire is not None {
-        try {
-            user_bash_fire(cmd, out);
-        } except Exception {}
-    }
+    # The session-level run_command adapter fires user_bash after this
+    # function returns. Keeping the hook outside this low-level helper avoids
+    # storing a dynamically shaped callback in the native tool registry.
     if len(out) > MAX_TOOL_OUTPUT { out = out[:MAX_TOOL_OUTPUT] + "\n... [truncated]"; }
     return f"exit={r.returncode}\n{out.strip()}";
 }
@@ -252,6 +252,65 @@ import from .registry {
     register_native_spec,
 }
 
+"""Native-safe adapters for the dictionary-based tool ABI."""
+def _read_file_tool(args: dict[str, any]) -> str {
+    return read_file(str(args.get("path", "")));
+}
+
+def _write_file_tool(args: dict[str, any]) -> str {
+    return write_file(
+        str(args.get("path", "")),
+        str(args.get("content", "")),
+    );
+}
+
+def _edit_file_tool(args: dict[str, any]) -> str {
+    return edit_file(
+        str(args.get("path", "")),
+        str(args.get("old_text", "")),
+        str(args.get("new_text", "")),
+    );
+}
+
+def _list_dir_tool(args: dict[str, any]) -> str {
+    return list_dir(str(args.get("path", "")));
+}
+
+def _run_command_tool(args: dict[str, any]) -> str {
+    timeout_raw: any = args.get("timeout_secs", 120);
+    timeout_secs = int(timeout_raw) if timeout_raw is not None else 120;
+    return run_command(str(args.get("cmd", "")), timeout_secs);
+}
+
+def _jac_check_tool(args: dict[str, any]) -> str {
+    return jac_check(str(args.get("path", ".")));
+}
+
+def _jac_format_tool(args: dict[str, any]) -> str {
+    return jac_format(str(args.get("path", ".")));
+}
+
+def _glob_tool(args: dict[str, any]) -> str {
+    max_raw: any = args.get("max_results", MAX_SEARCH_RESULTS);
+    max_results = int(max_raw) if max_raw is not None else MAX_SEARCH_RESULTS;
+    return file_glob(
+        str(args.get("pattern", "")),
+        str(args.get("base_dir", ".")),
+        max_results,
+    );
+}
+
+def _grep_tool(args: dict[str, any]) -> str {
+    max_raw: any = args.get("max_results", MAX_SEARCH_RESULTS);
+    max_results = int(max_raw) if max_raw is not None else MAX_SEARCH_RESULTS;
+    return content_grep(
+        str(args.get("pattern", "")),
+        str(args.get("base_dir", ".")),
+        bool(args.get("regex", False)),
+        max_results,
+    );
+}
+
 """Explicit tool specs for the owned loop (replaces byllm sem-string schema
 derivation). When tools become Cordis fibers, live providers of "tools.*"
 keys build this list dynamically."""
@@ -267,7 +326,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["path"],
             },
-            handler=read_file,
+            handler=_read_file_tool,
         ),
         make_tool_spec(
             name="write_file",
@@ -280,7 +339,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["path", "content"],
             },
-            handler=write_file,
+            handler=_write_file_tool,
         ),
         make_tool_spec(
             name="edit_file",
@@ -294,7 +353,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["path", "old_text", "new_text"],
             },
-            handler=edit_file,
+            handler=_edit_file_tool,
         ),
         make_tool_spec(
             name="list_dir",
@@ -306,7 +365,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["path"],
             },
-            handler=list_dir,
+            handler=_list_dir_tool,
         ),
         make_tool_spec(
             name="run_command",
@@ -319,7 +378,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["cmd"],
             },
-            handler=run_command,
+            handler=_run_command_tool,
         ),
         make_tool_spec(
             name="jac_check",
@@ -331,7 +390,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": [],
             },
-            handler=jac_check,
+            handler=_jac_check_tool,
         ),
         make_tool_spec(
             name="jac_format",
@@ -343,7 +402,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": [],
             },
-            handler=jac_format,
+            handler=_jac_format_tool,
         ),
         make_tool_spec(
             name="glob",
@@ -357,7 +416,7 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["pattern"],
             },
-            handler=file_glob,
+            handler=_glob_tool,
         ),
         make_tool_spec(
             name="grep",
@@ -372,9 +431,35 @@ def tool_specs() -> list[ToolSpec] {
                 },
                 "required": ["pattern"],
             },
-            handler=content_grep,
+            handler=_grep_tool,
         ),
-    ] + [make_tool_spec(**s) for s in tool_specs_web()];
+    ] + [
+        make_tool_spec(
+            name="web_search",
+            description="Search the web and return result titles, URLs, and snippets.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query."},
+                    "num_results": {"type": "integer", "description": "Maximum results."},
+                },
+                "required": ["query"],
+            },
+            handler=_web_search_tool,
+        ),
+        make_tool_spec(
+            name="web_fetch",
+            description="Fetch an http(s) URL and return readable text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "http(s) URL to fetch."},
+                },
+                "required": ["url"],
+            },
+            handler=_web_fetch_tool,
+        ),
+    ];
 }
 
 

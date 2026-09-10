@@ -202,9 +202,20 @@ sem web_fetch = "Fetch an http(s) URL and return readable text (HTML stripped, ~
 sem web_fetch.url = "http(s) URL to fetch.";
 
 
-"""ToolSpec-shaped dicts for agent.tools.tool_specs() registration.
-Mirrors the ToolSpec(name/description/parameters/handler) shape without
-importing ToolSpec, so tools.jac needs one append line to adopt these."""
+"""Native-safe dictionary-ABI adapters for web tools."""
+def _web_search_tool(args: dict[str, any]) -> str {
+    raw_n: any = args.get("num_results", DEFAULT_SEARCH_RESULTS);
+    n = int(raw_n) if raw_n is not None else DEFAULT_SEARCH_RESULTS;
+    return web_search(str(args.get("query", "")), n);
+}
+
+def _web_fetch_tool(args: dict[str, any]) -> str {
+    return web_fetch(str(args.get("url", "")));
+}
+
+"""Legacy schema export retained for callers outside agent.tools.
+The production registry uses typed `make_tool_spec` calls in tools.jac so it
+does not unpack untyped dictionaries into a constructor."""
 def tool_specs_web() -> list[dict[str, any]] {
     return [
         {
@@ -218,7 +229,7 @@ def tool_specs_web() -> list[dict[str, any]] {
                 },
                 "required": ["query"],
             },
-            "handler": web_search,
+            "handler": _web_search_tool,
         },
         {
             "name": "web_fetch",
@@ -230,7 +241,7 @@ def tool_specs_web() -> list[dict[str, any]] {
                 },
                 "required": ["url"],
             },
-            "handler": web_fetch,
+            "handler": _web_fetch_tool,
         },
     ];
 }

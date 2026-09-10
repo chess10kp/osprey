@@ -15,7 +15,9 @@ obj ToolSpec {
     has name: str,
         description: str = "",
         parameters: dict[str, any] = {},
-        handler: Callable | None = None;
+        # Native-safe tool ABI: handlers receive one decoded argument
+        # dictionary instead of dynamically unpacked keyword arguments.
+        handler: Callable[[dict[str, any]], str] | None = None;
 }
 
 
@@ -31,7 +33,7 @@ def make_tool_spec(
     name: str,
     description: str = "",
     parameters: dict[str, any] = {},
-    handler: Callable | None = None,
+    handler: Callable[[dict[str, any]], str] | None = None,
 ) -> ToolSpec {
     return ToolSpec(
         name=name,

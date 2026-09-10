@@ -385,7 +385,7 @@ test "set_model refuses when provider credential is missing" {
     try {
         out = set_model("openrouter/anthropic/claude-sonnet-5");
         assert "OPENROUTER_API_KEY" in out;
-        assert model == "mock";
+        assert get_model() == "mock";
         assert model_preferences().get("last") == "mock";
     } finally {
         if saved is not None {

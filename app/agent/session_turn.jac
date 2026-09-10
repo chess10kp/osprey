@@ -4,7 +4,7 @@ import sys;
 import os;
 import time;
 
-import from .session_state { history, show_stats, model, thinking_level, mode, plugins, _t0, _n_tools, reset_turn_stats, bump_tool_count }
+import from .session_state { history, show_stats, plugins, _t0, _n_tools, reset_turn_stats, bump_tool_count, get_model_state, get_thinking_level_state, get_mode_state }
 import from .session_config { set_model, set_thinking_level, _apply_pending_model_requests }
 import from .llm {
     react_loop,
@@ -30,6 +30,7 @@ import from .plugin_bridge {
     drain_extension_traffic,
     transform_markdown,
     render_extension_block,
+    drain_model_requests,
 }
 import from .tools { default_registry }
 import from .sessions { save_session, new_session_id, is_valid_session_id }
@@ -127,28 +128,6 @@ def _apply_extension_traffic(bridge: PluginBridge | None, on_event: any) {
 }
 
 
-"""Apply extension-issued pi.setModel / pi.setThinkingLevel requests drained
-from the bridge. Goes through set_model/set_thinking_level so model_select /
-thinking_level_select reach all listeners exactly once per change. Never
-raises — a broken extension must not break the turn."""
-def _apply_pending_model_requests() {
-    b = plugins.bridge;
-    if b is None {
-        return;
-    }
-    raw_req: any = drain_model_requests(b as PluginBridge);
-    req: dict[str, any] = raw_req as dict[str, any];
-    m = str(req.get("model", ""));
-    lv = str(req.get("thinking_level", ""));
-    if m and m != model {
-        set_model(m);
-    }
-    if lv and lv != thinking_level {
-        set_thinking_level(lv);
-    }
-}
-
-
 """Best-effort auto-compaction of session history when the context threshold
 is crossed (checked after the user message lands — matches src ordering).
 
@@ -199,7 +178,7 @@ def _maybe_auto_compact(bridge: PluginBridge | None) {
         summary_text = build_mechanical_summary(dropped);
         strategy = "mechanical";
         if str(cfg.get("strategy", "mechanical")) == "llm" {
-            llm_text = summarize_for_compaction(dropped, model, thinking_level);
+            llm_text = summarize_for_compaction(dropped, get_model_state(), get_thinking_level_state());
             if llm_text is not None {
                 summary_text = llm_text;
                 strategy = "llm";
@@ -228,7 +207,7 @@ def _maybe_auto_compact(bridge: PluginBridge | None) {
 
 """Seed or refresh the session system prompt for the active dev mode."""
 def _ensure_mode_system_prompt {
-    desired: str = system_prompt_for_mode(SYSTEM_PROMPT, mode);
+    desired: str = system_prompt_for_mode(SYSTEM_PROMPT, get_mode_state());
     if not history {
         history.append({"role": "system", "content": desired});
         return;
@@ -303,21 +282,21 @@ def run_turn(
     # P10: extension-declared models route through the provider seam;
     # anything else uses the native provider table.
     transport: any = None;
-    if model.startswith("ext/") {
+    if get_model_state().startswith("ext/") {
         try {
-            transport = make_ext_transport(bridge as PluginBridge, model, thinking=thinking_level);
+            transport = make_ext_transport(bridge as PluginBridge, get_model_state(), thinking=get_thinking_level_state());
         } except Exception {
             transport = None;
         }
         if transport is None {
             if on_event is not None {
-                on_event("error", {"message": f"unknown extension model {model}"});
+                on_event("error", {"message": f"unknown extension model {get_model_state()}"});
             }
             return "";
         }
     }
     if transport is None {
-        transport = make_transport(model, thinking_level, hook_bridge=bridge);
+        transport = make_transport(get_model_state(), get_thinking_level_state(), hook_bridge=bridge);
     }
     reset_turn_stats(time.time());
     # T2-partial lifecycle hooks — best-effort, never fatal.

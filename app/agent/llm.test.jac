@@ -82,6 +82,11 @@ def _echo(text: str) -> str {
     return "ECHO:" + text;
 }
 
+
+def _tool_echo(args: dict[str, any]) -> str {
+    return _echo(str(args.get("text", "")));
+}
+
 def _noop_event(kind: str, data: dict) {
     _events.append([kind, dict(data)]);
 }
@@ -95,7 +100,7 @@ test "react loop runs a tool then finishes" {
         name="echo",
         description="echo the text",
         parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-        handler=_echo,
+        handler=_tool_echo,
     )];
     _events.clear();
     answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event);
@@ -160,7 +165,7 @@ test "cancel before tool calls fills cancelled tool results" {
         name="echo",
         description="echo",
         parameters={"type": "object", "properties": {"text": {"type": "string"}}},
-        handler=_echo,
+        handler=_tool_echo,
     )];
     _events.clear();
     cancel = TurnCancel();
@@ -203,7 +208,7 @@ test "approve hook denial yields error tool result without executing" {
         name="echo",
         description="echo",
         parameters={"type": "object", "properties": {"text": {"type": "string"}}},
-        handler=_echo,
+        handler=_tool_echo,
     )];
     _events.clear();
     answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, approve=_deny_all);
@@ -226,7 +231,7 @@ test "approve hook allow runs the tool unchanged" {
         name="echo",
         description="echo",
         parameters={"type": "object", "properties": {"text": {"type": "string"}}},
-        handler=_echo,
+        handler=_tool_echo,
     )];
     _events.clear();
     answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, approve=_allow_all);
@@ -240,7 +245,7 @@ test "react loop emits loop limit" {
         name="echo",
         description="echo the text",
         parameters={"type": "object", "properties": {"text": {"type": "string"}}},
-        handler=_echo,
+        handler=_tool_echo,
     )];
     _events.clear();
     answer = react_loop(messages, specs, ScriptedTransport() as Transport, _noop_event, max_iters=1);
@@ -251,7 +256,7 @@ test "react loop emits loop limit" {
 
 
 test "tool defs are openai function shape" {
-    specs = [ToolSpec(name="x", description="d", parameters={"type": "object", "properties": {}}, handler=_echo)];
+    specs = [ToolSpec(name="x", description="d", parameters={"type": "object", "properties": {}}, handler=_tool_echo)];
     defs = _tool_defs(specs);
     assert defs[0]["type"] == "function";
     assert defs[0]["function"]["name"] == "x";

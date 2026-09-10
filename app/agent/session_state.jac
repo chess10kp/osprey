@@ -46,12 +46,24 @@ def set_mode_state(next_mode: str) -> None {
     mode = next_mode;
 }
 
+def get_mode_state() -> str {
+    return mode;
+}
+
 def set_model_state(name: str) -> None {
     model = name;
 }
 
+def get_model_state() -> str {
+    return model;
+}
+
 def set_thinking_level_state(level: str) -> None {
     thinking_level = level;
+}
+
+def get_thinking_level_state() -> str {
+    return thinking_level;
 }
 
 def reset_turn_stats(t0: float) -> None {
@@ -63,8 +75,8 @@ def bump_tool_count() -> None {
     _n_tools += 1;
 }
 
+"""Adopt a successfully loaded model_prefs dict and latch the one-shot."""
 def adopt_model_prefs(raw: dict[str, any]) -> None {
-    """Adopt a successfully loaded model_prefs dict and latch the one-shot.""";
     _model_prefs = raw;
     _model_prefs_loaded = True;
 }

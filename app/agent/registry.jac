@@ -5,7 +5,6 @@ contribute without a second source of truth. Native tools keep local handlers;
 js tools carry schema only and dispatch through a PluginBridge.
 """
 
-
 import from .tool_spec {
     ToolSpec,
     make_tool_spec,
@@ -15,10 +14,11 @@ import from .tool_spec {
 obj RegisteredTool {
     has name: str = "",
         description: str = "",
-        parameters: dict = {},
+        parameters: dict[str, any] = {},
         origin: str = "native",
         extension_id: str = "",
-        handler: Callable | None = None;
+        # Native handlers receive one decoded argument dictionary.
+        handler: Callable[[dict[str, any]], str] | None = None;
 }
 
 
@@ -32,13 +32,13 @@ def create_registry() -> ToolRegistry {
 }
 
 
-"""Register or replace a native tool with a local callable handler."""
+"""Register or replace a native tool with a local dict-ABI handler."""
 def register_native(
     reg: ToolRegistry,
     name: str,
     description: str,
-    parameters: dict,
-    handler: Callable,
+    parameters: dict[str, any],
+    handler: Callable[[dict[str, any]], str],
 ) -> RegisteredTool {
     if not name {
         raise ValueError("tool name must not be empty");
@@ -64,7 +64,7 @@ def register_js(
     reg: ToolRegistry,
     name: str,
     description: str,
-    parameters: dict,
+    parameters: dict[str, any],
     extension_id: str,
 ) -> RegisteredTool {
     if not name {
@@ -92,7 +92,11 @@ def register_native_spec(reg: ToolRegistry, spec: ToolSpec) -> RegisteredTool {
         raise ValueError("native ToolSpec requires a handler");
     }
     return register_native(
-        reg, spec.name, spec.description, spec.parameters, spec.handler
+        reg,
+        spec.name,
+        spec.description,
+        spec.parameters,
+        spec.handler,
     );
 }
 
@@ -147,8 +151,8 @@ def as_tool_specs(reg: ToolRegistry) -> list[ToolSpec] {
 
 
 """OpenAI-shape tool defs for the model (schema only, any origin)."""
-def openai_tools(reg: ToolRegistry) -> list {
-    defs = [];
+def openai_tools(reg: ToolRegistry) -> list[dict[str, any]] {
+    defs: list[dict[str, any]] = [];
     for (_name, ent) in reg.tools.items() {
         defs.append({
             "type": "function",
@@ -165,12 +169,12 @@ def openai_tools(reg: ToolRegistry) -> list {
 
 """Invoke a registered tool.
 
-Native: call handler(**args).
+Native: call handler(args), where args is the decoded argument dictionary.
 Js: require `bridge` with invoke_js_tool(bridge, name, args) -> str.
-Unknown / missing handler / missing bridge → ERROR string (loop-safe).
+Unknown / missing handler / missing bridge -> ERROR string (loop-safe).
 """
 def invoke(
-    reg: ToolRegistry, name: str, args: dict, bridge: any = None
+    reg: ToolRegistry, name: str, args: dict[str, any], bridge: any = None
 ) -> str {
     ent = get_tool(reg, name);
     if ent is None {
@@ -181,7 +185,7 @@ def invoke(
             return f"ERROR: native tool {name} has no handler";
         }
         try {
-            return str(ent.handler(**args));
+            return str(ent.handler(args));
         } except Exception as e {
             return f"ERROR: {e}";
         }

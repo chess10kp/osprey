@@ -39,6 +39,11 @@ def _echo(text: str) -> str {
 }
 
 
+def _tool_echo(args: dict[str, any]) -> str {
+    return _echo(str(args.get("text", "")));
+}
+
+
 """Checker shim: the Jac type checker cannot bind AnyStr when a plain str
 flows into os.path.dirname (same pattern as auth.jac / checkpoints.jac)."""
 def _path_dirname(p: str) -> str {
@@ -1201,7 +1206,7 @@ test "node host sends builtins on ext_load and getAllTools sees them" {
     ensure_node_host(bridge);
     drain_inbox(bridge);
     # Seed a native builtin so the catalog is non-empty on the wire.
-    register_native(reg, "read_file", "Read a file", {"type": "object", "properties": {}}, _echo);
+    register_native(reg, "read_file", "Read a file", {"type": "object", "properties": {}}, _tool_echo);
     load_extension_path(bridge, reg, "ctx.probe", resolve_pi_ctx_probe());
 
     ctx_report = invoke(reg, "probe_ctx", {}, bridge);
