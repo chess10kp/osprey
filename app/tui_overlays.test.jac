@@ -379,7 +379,7 @@ def _local_mcp_server_specs(cfg: dict) -> dict[str, list[str]] {
 }
 
 
-def _mcp_status_entries(cwd: str, clients: dict) -> dict {
+def _mcp_status_entries(cwd: str, clients: dict) -> dict[str, list[str]] {
     specs: dict[str, list[str]] = {};
     try {
         cfg: dict = load_project_config(cwd);

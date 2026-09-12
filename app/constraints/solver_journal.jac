@@ -96,8 +96,9 @@ def _journal_new_symbol_journaled(s: any, kind: SymbolKind, jnl: MutationJournal
 }
 
 def _journal_get_var_symbol(s: any, v: Variable, jnl: MutationJournal | None = None) -> int {
-    if v.id in s.var_symbols {
-        return s.var_symbols[v.id];
+    var_symbols: dict[int, int] = s.var_symbols;
+    if v.id in var_symbols {
+        return var_symbols[v.id];
     }
     symbol = _journal_new_symbol(s, SymbolKind.EXTERNAL);
     s.var_symbols[v.id] = symbol;
@@ -119,12 +120,13 @@ def _journal_insert_row(s: any, symbol: int, row: Row, jnl: MutationJournal) -> 
 }
 
 def _journal_touch_row(s: any, symbol: int, jnl: MutationJournal) -> None {
+    rows: dict[int, Row] = s.rows;
     if (
-        symbol in s.rows
+        symbol in rows
         and symbol not in jnl.row_snapshots
         and symbol not in jnl.inserted_rows
     ) {
-        jnl.row_snapshots[symbol] = s.rows[symbol].clone();
+        jnl.row_snapshots[symbol] = rows[symbol].clone();
     }
 }
 
@@ -140,16 +142,17 @@ def _journal_pop_row(s: any, symbol: int, jnl: MutationJournal) -> Row {
 }
 
 def _journal_rollback(s: any, jnl: MutationJournal) -> None {
+    rows: dict[int, Row] = s.rows;
     # 1. Drop rows created during the operation.
     for symbol in reversed(jnl.inserted_rows) {
-        if symbol in s.rows {
-            s.rows.pop(symbol);
+        if symbol in rows {
+            rows.pop(symbol);
         }
     }
     # 2. Restore pre-existing rows to pre-mutation state; re-inserts
     #    rows optimize() may have moved or removed.
     for symbol in sorted(jnl.row_snapshots.keys()) {
-        s.rows[symbol] = jnl.row_snapshots[symbol].clone();
+        rows[symbol] = jnl.row_snapshots[symbol].clone();
     }
     # 3. Restore the objective row.
     if jnl.objective_snapshot is not None {
