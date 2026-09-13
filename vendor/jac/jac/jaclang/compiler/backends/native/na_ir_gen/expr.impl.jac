@@ -414,10 +414,10 @@ impl NaIRGenExpr._codegen_lambda(nd: uni.LambdaExpr) -> (ir.Value | None) {
         tail = nd.tail_return_expr();
         if tail is not None {
             val = self._codegen_expr(tail);
-            if val is not None {
+            if val is not None and ret_type != ir.VoidType() {
                 self.builder.ret(self._coerce_type(val, ret_type));
             } else {
-                if len(self.errors_had) == _lam_errs0 {
+                if val is None and len(self.errors_had) == _lam_errs0 {
                     self.emit(
                         E5092,
                         node_override=nd,
@@ -437,10 +437,10 @@ impl NaIRGenExpr._codegen_lambda(nd: uni.LambdaExpr) -> (ir.Value | None) {
         }
     } else {
         val = self._codegen_expr(body);
-        if val is not None {
+        if val is not None and ret_type != ir.VoidType() {
             self.builder.ret(self._coerce_type(val, ret_type));
         } else {
-            if len(self.errors_had) == _lam_errs0 {
+            if val is None and len(self.errors_had) == _lam_errs0 {
                 self.emit(
                     E5092,
                     node_override=nd,

@@ -6593,3 +6593,10 @@ test "postinit_inherited_xmod_main" {
         _eng, _ir
     );
 }
+
+test "void lambda with statement-call body returns void" {
+    # A `-> None` lambda whose single statement is a method call used to end
+    # with `ret i64 0` (the statement-call placeholder coerced into the void
+    # return), failing LLVM verification with E5020 for the whole module.
+    compile_native("void_lambda_stmt_body.jac");
+}
