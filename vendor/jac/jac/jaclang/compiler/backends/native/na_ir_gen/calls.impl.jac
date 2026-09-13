@@ -2026,17 +2026,23 @@ impl NaIRGenCalls._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
     if (
         func_name in self._native_skipped_methods and func_name not in self.generic_fns
     ) {
-        self.emit(
-            E5092,
-            node_override=nd,
-            kind="function",
-            name=func_name,
-            help_text=f"'{func_name}' demoted to its Python-only implementation "
-            f"(native seam), so a native caller cannot reach it; hoist the "
-            f"blocking construct out of '{func_name}' or move this caller off "
-            f"the native pathway."
-        );
-        return None;
+        _skip_binding = self.ir_in.gen.interop_manifest.bindings.get(func_name);
+        if not (
+            _skip_binding is not None
+            and _skip_binding.source_context.value == "server"
+        ) {
+            self.emit(
+                E5092,
+                node_override=nd,
+                kind="function",
+                name=func_name,
+                help_text=f"'{func_name}' demoted to its Python-only implementation "
+                f"(native seam), so a native caller cannot reach it; hoist the "
+                f"blocking construct out of '{func_name}' or move this caller off "
+                f"the native pathway."
+            );
+            return None;
+        }
     }
     if func_name in self.decorated_fns {
         return self._codegen_decorated_call(nd, func_name);

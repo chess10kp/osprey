@@ -76,6 +76,8 @@ walker BoundaryAnalysisPass(UniPass) {
         nd: Import, module_name: str, caller_ctx: InteropContext
     ) -> None;
 
+    def _ctypes_mappable(ret_type: str, param_types: list[str]) -> bool;
+
     def _register_na_client_import(nd: Import) -> None;
     def _register_client_bridged_import(nd: Import) -> None;
     def _extract_walker_has_fields(

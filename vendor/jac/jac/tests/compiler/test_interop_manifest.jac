@@ -134,3 +134,52 @@ test "endpoint effects are recorded by the dedicated effect pass" {
         f"read_only must classify as non-writer; got {effects}"
     );
 }
+
+test "native importer of a pinned-server function records an na->sv binding" {
+    tmp = write_mods(
+        {
+            "jac.toml": (
+                '[placement.pins]\n"consumer" = "native"\n"provider" = "server"\n'
+            ),
+            "provider.jac": (
+                "def six_times_seven() -> int {\n" "    return 42;\n" "}\n"
+            ),
+            "consumer.jac": (
+                "import from provider { six_times_seven }\n"
+                "\n"
+                "def call_it() -> int {\n"
+                "    return six_times_seven();\n"
+                "}\n"
+            )
+        }
+    );
+    prog = JacProgram();
+    mod = prog.compile(
+        os.path.join(tmp, "consumer.jac"),
+        options=CompileOptions(default_codespace="native")
+    );
+    assert not prog.errors_had , (
+        f"native importer of a pinned-server function must lower; got: "
+        f"{[str(e) for e in prog.errors_had]}"
+    );
+    assert mod.decided_codespace == "native" , (
+        "the importer must not demote: the server binding replaces the "
+        "native-seam bail"
+    );
+    manifest = mod.gen.interop_manifest;
+    binding = manifest.bindings.get("six_times_seven");
+    assert binding is not None , (
+        f"pinned-server import from a native module must record a binding; "
+        f"got keys: {list(manifest.bindings.keys())}"
+    );
+    assert binding.source_context.value == "server";
+    assert "native" in {c.value for c in binding.callers};
+    assert binding.ret_type == "int";
+    assert binding.kind == "function";
+    assert manifest.native_imports , (
+        "the na->sv binding must feed the ctypes callback registration"
+    );
+    assert mod.gen.native_engine is not None , (
+        "the importer must still produce a native engine"
+    );
+}

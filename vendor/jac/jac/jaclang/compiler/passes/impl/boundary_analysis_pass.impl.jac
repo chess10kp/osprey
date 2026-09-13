@@ -195,8 +195,13 @@ impl BoundaryAnalysisPass.enter_import with Import entry {
             }
             if here.items and not is_sv {
                 if (facts and facts.pinned_server) {
+                    _sv_caller = (
+                        InteropContext.CLIENT
+                        if (import_context == InteropContext.SERVER)
+                        else import_context
+                    );
                     self._register_sv_import(
-                        here, from_loc.base_module_name, InteropContext.CLIENT
+                        here, from_loc.base_module_name, _sv_caller
                     );
                 } elif (facts and facts.client_native_edge) {
                     self._register_na_client_import(here);
@@ -284,6 +289,13 @@ impl BoundaryAnalysisPass._register_sv_import(
         local_name = item.alias.sym_name if item.alias else sym_name;
         walker_node = source_walkers.get(sym_name);
         if walker_node is not None {
+            if (caller_ctx == InteropContext.NATIVE) {
+                # A native caller cannot spawn a server walker through the
+                # ctypes callback ABI; leave it unbound so its call sites
+                # take the per-function native-seam demotion instead of a
+                # module-fatal boundary error.
+                continue;
+            }
             (param_names, param_types) = self._extract_walker_has_fields(walker_node);
             binding = InteropBinding(
                 name=sym_name,
@@ -301,6 +313,19 @@ impl BoundaryAnalysisPass._register_sv_import(
         }
         ability_node: (Ability | None) = source_abilities.get(sym_name);
         (ret_type, param_types, param_names) = self._signature_of_decl(ability_node);
+        if (
+            caller_ctx == InteropContext.NATIVE
+            and (
+                ability_node is None
+                or not self._ctypes_mappable(ret_type, param_types)
+            )
+        ) {
+            # Native callers marshal through fixed ctypes callbacks; an
+            # unknown declaration or a signature outside the wire set keeps
+            # the per-function native-seam demotion instead of an extern
+            # with a defaulted or lying ABI.
+            continue;
+        }
         binding = InteropBinding(
             name=sym_name,
             source_context=InteropContext.SERVER,
@@ -314,6 +339,23 @@ impl BoundaryAnalysisPass._register_sv_import(
         );
         manifest.bindings[local_name] = binding;
     }
+}
+
+impl BoundaryAnalysisPass._ctypes_mappable(ret_type: str, param_types: list[str]) -> bool {
+    """True when a signature survives the fixed native->Python callback ABI.
+
+    Must stay in sync with runtime/interop_bridge.jac (JAC_TO_CTYPES) and
+    the BoundaryAnalysisPass.after_pass wire-set check: int, float, bool,
+    str, the sized scalars, and None returns.
+    """
+    import from jaclang.runtime.scalars { sized_scalar_names }
+    wire: set = {'int', 'float', 'bool', 'str'} | set(sized_scalar_names());
+    for pt in param_types {
+        if pt not in wire {
+            return False;
+        }
+    }
+    return ret_type in wire or ret_type == 'None';
 }
 
 impl BoundaryAnalysisPass._register_na_client_import(nd: Import) -> None {

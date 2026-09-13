@@ -1034,7 +1034,11 @@ impl JacCompiler.stamp_boundary_facts(
                     facts.from_loc_resolved = None;
                 }
                 facts.is_service = nd.is_service_import;
-                if (nd.items and not facts.is_service and nd.in_client_context()) {
+                if (
+                    nd.items
+                    and not facts.is_service
+                    and (nd.in_client_context() or in_native_mod)
+                ) {
                     resolved = facts.from_loc_resolved;
                     if (resolved is not None and resolved.endswith('.jac')) {
                         try {

@@ -2770,6 +2770,53 @@ test "py interop full entry chain" {
     assert output == "11";
 }
 
+test "native boot resolves pinned-server functions into the callback table" {
+    # A natively-executed entry never runs its Python image, so the JCIR
+    # registration splice cannot fill __jac_interop_py_funcs__; the boot
+    # path must resolve the bound server functions itself and the native
+    # call must return the server value, not the silent-callback 0.
+    import from jaclang.runtime.interop_bridge { ensure_py_funcs_loaded }
+    tmp = tempfile.mkdtemp(prefix="jac_na_sv_boot_");
+    with open(os.path.join(tmp, "jac.toml"), "w") as f {
+        f.write('[placement.pins]\n"consumer" = "native"\n"provider" = "server"\n');
+    }
+    with open(os.path.join(tmp, "provider.jac"), "w") as f {
+        f.write("def six_times_seven() -> int {\n    return 42;\n}\n");
+    }
+    with open(os.path.join(tmp, "consumer.jac"), "w") as f {
+        f.write(
+            "import from provider { six_times_seven }\n"
+            "\n"
+            "def call_it() -> int {\n"
+            "    return six_times_seven();\n"
+            "}\n"
+        );
+    }
+    prog = JacProgram();
+    ir = prog.compile(
+        os.path.join(tmp, "consumer.jac"),
+        options=CompileOptions(default_codespace="native")
+    );
+    assert not prog.errors_had , (
+        f"native importer of a pinned-server function must lower: "
+        f"{[str(e) for e in prog.errors_had]}"
+    );
+    eng = ir.gen.native_engine;
+    assert eng is not None , (
+        "the server binding must keep the importer on the native pathway"
+    );
+    table = ir.gen.interop_py_funcs;
+    loaded = ensure_py_funcs_loaded(ir.gen.interop_manifest, table, base_path=tmp);
+    assert loaded == 1 and "six_times_seven" in table , (
+        f"boot loader must resolve the server function; loaded={loaded} table={table}"
+    );
+    fn = get_func(eng, "call_it", ctypes.c_int64);
+    assert fn() == 42 , (
+        "the native call must reach the server function through the "
+        "registered ctypes callback; 0 means the table never filled"
+    );
+}
+
 # --- TestNativeMultiModuleInterop ---
 test "multi module na module compiles" {
     # A standalone .jac module compiles to LLVM IR.
