@@ -334,6 +334,7 @@ def diff_buffers_ansi(
     previous: CellBuffer | None,
     desired: CellBuffer,
     patch_rects: list[Rect],
+    force: bool = False,
 ) -> CellDiff {
     parts: list[str] = [];
     written = 0;
@@ -384,7 +385,7 @@ def diff_buffers_ansi(
                 ) {
                     had = previous.cells[y][x];
                 }
-                if cell_eq(want, had) {
+                if cell_eq(want, had) and not force {
                     if run_start >= 0 {
                         if need_attrs or not attrs_eq(cur_attrs, run_attrs) {
                             parts.append(sgr_for(run_attrs));

@@ -192,7 +192,13 @@ def render_frame(
     damage = compute_damage(renderer, layout_root);
     desired = _paint_frame_buffer(renderer, layout_root);
     patch_rects = _merge_damage(damage);
-    diff = _diff_ansi(renderer.previous, desired, patch_rects, cols, rows_n);
+    # previous=None (first frame, resize, node detach) means the terminal's
+    # real cells are unknown: blank-desired cells must be overwritten with
+    # spaces or stale glyphs survive (e.g. old box-drawing after resize).
+    diff = _diff_ansi(
+        renderer.previous, desired, patch_rects, cols, rows_n,
+        force=(renderer.previous is None),
+    );
     cursor = _resolve_cursor(renderer);
     cursor_visible = cursor.row >= 0 and cursor.col >= 0;
     ansi = diff.text;

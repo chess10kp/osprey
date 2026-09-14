@@ -155,9 +155,10 @@ def _diff_ansi(
     patch_rects: list[Rect],
     columns: int,
     rows_n: int,
+    force: bool = False,
 ) -> AnsiDiff {
     _ = (columns, rows_n);
-    diff = diff_buffers_ansi(previous, desired, patch_rects);
+    diff = diff_buffers_ansi(previous, desired, patch_rects, force=force);
     return AnsiDiff(text=diff.text, cells_written=diff.cells_written);
 }
 
