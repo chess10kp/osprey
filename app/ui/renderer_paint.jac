@@ -5,6 +5,7 @@ import from ui.model {
     UiContainer,
     Screen,
     Overlay,
+    Layer,
     ordered_children,
     node_id,
 }
