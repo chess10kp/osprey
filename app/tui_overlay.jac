@@ -2,7 +2,7 @@
 import os;
 import from tui_state { LiveShell }
 import from tui_core {
-    _rule, _pad_to, _prompt_prefix, _transcript_lines,
+    _rule, _pad_to, _prompt_prefix,
     _status_line, _prompt_lines,
 }
 import from core.edit { compute_unified_diff }
