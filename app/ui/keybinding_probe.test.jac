@@ -1,7 +1,7 @@
 """Keybinding precedence tests.
 
 The precedence guard under test is a verbatim replica of tui._handle_key's
-branch order (tui.jac cannot be imported headless - see keybinding_probe.jac).
+branch order (tui/shell.jac cannot be imported headless - see keybinding_probe.jac).
 Everything BEHIND the guard is real: agent.session.list_extension_shortcuts,
 run_extension_shortcut, and the fake plugin host bridge.
 """

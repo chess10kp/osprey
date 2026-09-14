@@ -1,5 +1,5 @@
 """Transcript, layout, and formatting helpers for LiveShell."""
-import from tui_state { LiveShell, SPINNER }
+import from tui.state { LiveShell, SPINNER }
 import from agent.modes { is_read_only_mode }
 import from ui.transcript {
     TranscriptMessage, apply_transcript_revision, measure_message_height, set_follow_tail,

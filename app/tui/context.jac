@@ -1,7 +1,7 @@
 """Prompt context expansion and project-file picker data."""
 import os;
 import re;
-import from tui_state {
+import from tui.state {
     LiveShell, _QUOTED_MENTION_PATTERN, _EXPLORER_SKIP_DIRS,
     _EXPLORER_MAX_FILES, _EXPLORER_MAX_DEPTH,
 }
@@ -9,7 +9,7 @@ import from agent.context_input {
     expand_context_input, is_valid_file_path, parse_line_range, _load_file_slice,
 }
 import from agent.skills { _load_ignore_rules, _match_ignore_pattern }
-import from tui_picker_base { _open_picker }
+import from tui.picker_base { _open_picker }
 
 """EXPLORER picker rows via a bounded recursive walk under cwd.
 
@@ -17,7 +17,7 @@ Dot-dirs and _EXPLORER_SKIP_DIRS are skipped (dot-FILES stay selectable);
 gitignore-style rules from .gitignore/.ignore/.fdignore are honored via
 agent.skills helpers; depth/file caps keep huge trees responsive. Rows are
 cwd-relative forward-slash paths; ids map 1:1 for toggling. Pure over cwd
-— replicated in tui_overlays.test.jac (keep in sync)."""
+— replicated in tui/overlays.test.jac (keep in sync)."""
 def _explorer_walk(dir_path: str, base_root: str, depth: int, out: list[str]) {
     if depth > _EXPLORER_MAX_DEPTH or len(out) >= _EXPLORER_MAX_FILES {
         return;
@@ -78,7 +78,7 @@ def _explorer_file_entries(cwd: str) -> dict {
 """SKILLS picker rows from a load_jackal_skills() result's skill list: one
 "name — description" row per skill (model-hidden skills tagged "· hidden");
 ids are skill names so enter can insert /skill:name. Pure over its input
-— replicated in tui_overlays.test.jac."""
+— replicated in tui/overlays.test.jac."""
 def _skills_picker_entries(skills: list) -> dict {
     if not skills {
         return {"rows": ["no skills found"], "ids": ["__header__"]};
@@ -134,7 +134,7 @@ consumed when it appears inside OR after the closing quote and parses;
 otherwise it stays part of the path. Paths failing
 agent.context_input's validity check are LEFT in the text untouched (no
 silent deletion of user text). Pure over its input — replicated in
-tui_overlays.test.jac (keep in sync).
+tui/overlays.test.jac (keep in sync).
 
 Ownership note: this pre-pass exists because the shared parser
 (agent.context_input._FILE_MENTION_PATTERN) tokenizes on whitespace; the

@@ -1,13 +1,13 @@
-"""Tasks/checkpoints/explorer/skills overlay row builders for tui.jac.
+"""Tasks/checkpoints/explorer/skills overlay row builders for tui/shell.jac.
 
-tui.jac cannot be imported headless (its `with entry` TTY guard raises
+tui/shell.jac cannot be imported headless (its `with entry` TTY guard raises
 SystemExit(1) under `jac test` — same constraint as keybinding_probe), so
 this file REPLICATES the pure picker-entry builders verbatim:
 _task_picker_entries, _checkpoint_picker_entries, plus the newer
 _explorer_file_entries / _skills_picker_entries / _format_mentions wiring.
 Everything BEHIND them is real: agent.tasks / agent.checkpoints /
 agent.skills loaders (load_skills_from_dir) run against a temp project dir.
-Keep the replicas in sync with app/tui.jac.
+Keep the replicas in sync with app/tui/shell.jac.
 """
 
 import os;
@@ -42,7 +42,7 @@ import from agent.context_input {
 import from agent.compaction { load_project_config }
 
 
-# --- verbatim replica of tui.jac _meter ---------------------------------
+# --- verbatim replica of tui/shell.jac _meter ---------------------------------
 
 def _meter(value: float, width: int) -> str {
     if width < 3 {
@@ -57,7 +57,7 @@ def _meter(value: float, width: int) -> str {
 }
 
 
-# --- verbatim replicas of tui.jac picker entry builders ------------------
+# --- verbatim replicas of tui/shell.jac picker entry builders ------------------
 
 def _task_picker_entries(cwd: str) -> dict[str, list[str]] {
     tasks: list[dict[str, any]] = load_tasks(cwd);
@@ -100,7 +100,7 @@ def _checkpoint_picker_entries(cwd: str) -> dict[str, list[str]] {
 }
 
 
-# --- verbatim replica of tui.jac explorer/skills builders -----------------
+# --- verbatim replica of tui/shell.jac explorer/skills builders -----------------
 
 glob _EXPLORER_SKIP_DIRS: list[str] = [
          "node_modules", "__pycache__", ".git", ".jac", ".jackal",
@@ -209,7 +209,7 @@ def _format_mentions(paths: list) -> str {
 }
 
 
-# --- verbatim replicas of tui.jac mode/filter/quote/mcp helpers -----------
+# --- verbatim replicas of tui/shell.jac mode/filter/quote/mcp helpers -----------
 
 # Quoted mention: @"path" / @"path:N[-M]" / @"path":N[-M] — an optional
 # line range is accepted inside OR after the closing quote.

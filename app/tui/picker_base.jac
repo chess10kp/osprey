@@ -1,5 +1,5 @@
 """Shared picker state transitions."""
-import from tui_state { LiveShell }
+import from tui.state { LiveShell }
 import from ui.screen { shell_open_approval, shell_close_approval }
 """Open a generic list-picker on the shared overlay node (one at a time).
 rows are display labels; ids map 1:1 onto action payloads. When
@@ -64,7 +64,7 @@ Case-insensitive substring match over option labels; empty filter returns
 the full lists. Both paint (_picker_lines) and key handling
 (_handle_picker_key) go through this helper so the cursor index always
 refers to the same visible rows. Pure over its input — replicated in
-tui_overlays.test.jac (keep in sync)."""
+tui/overlays.test.jac (keep in sync)."""
 def _multi_filtered(p: dict) -> tuple[list, list] {
     options: list = list(p.get("options", []));
     ids: list = list(p.get("ids", []));

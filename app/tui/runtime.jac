@@ -1,8 +1,8 @@
 """Streaming worker and approval lifecycle."""
 import threading;
 import queue;
-import from tui_state { LiveShell }
-import from tui_core { _push_turn, _rewrite_turn, _install_layout }
+import from tui.state { LiveShell }
+import from tui.core { _push_turn, _rewrite_turn, _install_layout }
 import from agent.session { run_turn, cancel_active_turn }
 import from agent.modes {
     requires_approval, is_read_only_mode, read_only_mode_block_reason,

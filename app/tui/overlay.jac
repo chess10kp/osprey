@@ -1,7 +1,7 @@
 """Painting and overlay rendering for the native LiveShell."""
 import os;
-import from tui_state { LiveShell, SLASH_BUILTINS }
-import from tui_core {
+import from tui.state { LiveShell, SLASH_BUILTINS }
+import from tui.core {
     _rule, _pad_to, _prompt_prefix,
     _status_line, _prompt_lines,
 }
@@ -14,7 +14,7 @@ import from ui.renderer {
     mark_semantic_dirty, mark_layout_dirty, request_cursor,
 }
 import from ui.width { display_width, truncate_text }
-import from tui_picker_base { _multi_filtered }
+import from tui.picker_base { _multi_filtered }
 import from agent.session { list_commands }
 """Unified-diff preview lines for a pending write_file/edit_file approval.
 Capped at 20 diff lines with a trailing truncation marker; returns [] when

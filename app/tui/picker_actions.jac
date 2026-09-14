@@ -1,8 +1,8 @@
 """Picker data sources and authentication actions."""
 import os;
-import from tui_state { LiveShell }
-import from tui_core { _push_turn, _meter }
-import from tui_picker_base { _open_picker, _close_picker }
+import from tui.state { LiveShell }
+import from tui.core { _push_turn, _meter }
+import from tui.picker_base { _open_picker, _close_picker }
 import from agent.llm { PROVIDER_ROUTES, credential_error }
 import from agent.session {
     model_preferences, get_model, set_model, get_history, restore_history, provider_for,
@@ -21,7 +21,7 @@ import from agent.checkpoints {
 }
 import from agent.skills { load_jackal_skills }
 import from ui.screen { shell_open_approval }
-import from tui_context { _skills_picker_entries }
+import from tui.context { _skills_picker_entries }
 
 def _model_picker_entries() -> dict {
     rows: list[str] = [];
@@ -338,8 +338,8 @@ def _open_resume_picker(app: LiveShell) -> str {
 """TASKS picker rows: a completion-meter summary line, then the rendered
 board from format_tasks_list (counts header, divider rule, one row per
 task). Row ids: "__header__" for non-selectable lines, the task index as
-a string otherwise. Pure over cwd — replicated in tui_overlays.test.jac
-(tui.jac cannot be imported headless; keep in sync with the replica)."""
+a string otherwise. Pure over cwd — replicated in tui/overlays.test.jac
+(tui/shell.jac cannot be imported headless; keep in sync with the replica)."""
 def _task_picker_entries(cwd: str) -> dict {
     tasks = load_tasks(cwd);
     if not tasks {
@@ -371,7 +371,7 @@ def _task_picker_entries(cwd: str) -> dict {
 
 """CHECKPOINTS picker rows via list_checkpoints (newest first), one
 format_checkpoint_overlay_row line per checkpoint; ids are names. Pure
-over cwd — replicated in tui_overlays.test.jac (keep in sync)."""
+over cwd — replicated in tui/overlays.test.jac (keep in sync)."""
 def _checkpoint_picker_entries(cwd: str) -> dict {
     items = list_checkpoints(cwd);
     rows: list[str] = [];

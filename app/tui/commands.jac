@@ -2,16 +2,16 @@
 import os;
 import threading;
 import queue;
-import from tui_state { LiveShell }
-import from tui_core { _push_turn }
-import from tui_picker_actions {
+import from tui.state { LiveShell }
+import from tui.core { _push_turn }
+import from tui.picker_actions {
     _open_login_picker, _open_model_picker, _open_resume_picker,
     _open_tasks_picker, _open_checkpoints_picker, _create_checkpoint_now,
     _open_skills_picker,
 }
-import from tui_context { _open_explorer_picker }
-import from tui_mcp { _open_mcp_picker }
-import from tui_runtime { _begin_assistant_reply }
+import from tui.context { _open_explorer_picker }
+import from tui.mcp { _open_mcp_picker }
+import from tui.runtime { _begin_assistant_reply }
 import from agent.session {
     clear_history, get_history, restore_history, list_commands,
     run_command, list_extension_shortcuts, run_extension_shortcut, plugins,

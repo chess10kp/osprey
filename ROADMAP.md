@@ -68,7 +68,7 @@ The target experience includes:
 User terminal
     │
     ▼
-app/tui.jac LiveShell (native Jac TUI)
+app/tui/shell.jac LiveShell (native Jac TUI)
     │  typed events through the OSP UI framework (app/ui/)
     ▼
 app/agent/session.jac session host
@@ -121,7 +121,7 @@ The TUI targets the native codespace end to end; terminal support comes from `na
 - [x] Owned ReAct loop (`app/agent/session.jac`) with streaming transport, turn abort, and worker-thread execution off the TUI loop
 - [x] Tool surface: read/write/edit/bash/web tools plus edit/diff kernel natively pinned (`app/core/edit.jac`)
 - [x] OSP differential-TUI framework complete (`app/ui/`): terminal + virtual terminal, input normalization, renderer/screen/transcript/editor, layout engine over `app/constraints/` solver, markup/markdown projection, focus, overlays, keybinding probe
-- [x] Live shell (`app/tui.jac`) wired to the real agent: transcript, editor, autocomplete popup, `/model` picker, `/tasks`, `/checkpoints` + named checkpoints, `/explorer` multi-select @file injection, `/skills` + inline `/skill:` expansion, session list/resume/export/save, extension commands and extension UI modals, approval overlay
+- [x] Live shell (`app/tui/shell.jac`) wired to the real agent: transcript, editor, autocomplete popup, `/model` picker, `/tasks`, `/checkpoints` + named checkpoints, `/explorer` multi-select @file injection, `/skills` + inline `/skill:` expansion, session list/resume/export/save, extension commands and extension UI modals, approval overlay
 - [x] Sessions persisted under `.jackal/sessions/` (JSON transcripts + index sidecar)
 - [x] fx-style provider-first model routing with selection-time auth validation (`app/agent/llm.jac`)
 - [x] Auth store + login flow state machine ported (`app/agent/auth.jac`; auth.json byte-compatible with legacy pi-ai shape)
@@ -161,7 +161,7 @@ Terminal interface (process + virtual), raw mode/input buffering/key normalizati
 
 Landed: transcript/markdown/tool timeline/status, editor autocomplete, session persistence/resume/rename/export, turn abort and cooperative cancellation, in-shell mode cycling and approval policy, approval overlay with structured diffs, MCP subprocess clients, plugin host control plane (D21, P0–P5), `/login`, and native CLI mode selection.
 
-Remaining for N2 closure: auth OAuth/browser continuation, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui.jac` before claiming any item done). N6 native placement remains a separate compiler/runtime workstream.
+Remaining for N2 closure: auth OAuth/browser continuation, MCP status/failure UX, bounded-queue/coalescing polish (verify against `app/tui/shell.jac` before claiming any item done). N6 native placement remains a separate compiler/runtime workstream.
 
 ### N3 — Legacy deletion + packaging — **deletion landed**
 

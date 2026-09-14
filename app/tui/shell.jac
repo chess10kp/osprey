@@ -3,12 +3,12 @@
 import sys;
 import os;
 import queue;
-import from tui_state { LiveShell }
-import from tui_picker_actions { _hydrate_auth_environment }
-import from tui_core { _push_turn, _install_layout }
-import from tui_overlay { _render }
-import from tui_runtime { _apply_resize }
-import from tui_input { _tick_app, _handle_host_events }
+import from tui.state { LiveShell }
+import from tui.picker_actions { _hydrate_auth_environment }
+import from tui.core { _push_turn, _install_layout }
+import from tui.overlay { _render }
+import from tui.runtime { _apply_resize }
+import from tui.input { _tick_app, _handle_host_events }
 import from agent.session { session_boot, get_model, set_mode, get_mode }
 import from ui.runtime { create_session, dispose_session }
 import from ui.screen { build_main_shell, install_shell_contracts }

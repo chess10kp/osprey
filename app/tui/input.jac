@@ -1,20 +1,20 @@
 """Keyboard, host-event, and per-frame dispatch for LiveShell."""
 import os;
 import queue;
-import from tui_state { LiveShell }
-import from tui_core { _push_turn, _scroll_transcript }
-import from tui_overlay { _slash_popup_state }
-import from tui_picker_base { _close_picker, _multi_filtered }
-import from tui_picker_actions { _complete_api_key_login, _start_login_provider, _cancel_login }
-import from tui_context {
+import from tui.state { LiveShell }
+import from tui.core { _push_turn, _scroll_transcript }
+import from tui.overlay { _slash_popup_state }
+import from tui.picker_base { _close_picker, _multi_filtered }
+import from tui.picker_actions { _complete_api_key_login, _start_login_provider, _cancel_login }
+import from tui.context {
     _format_mentions, _expand_quoted_context, _insert_into_draft,
 }
-import from tui_commands {
+import from tui.commands {
     _resume_session, _handle_ui_modal_key, _tick_ui_modal,
     _run_slash,
 }
-import from tui_picker_actions { _restore_checkpoint }
-import from tui_runtime {
+import from tui.picker_actions { _restore_checkpoint }
+import from tui.runtime {
     _begin_assistant_reply, _finish_stream, _tick_stream,
     _accept_approval, _reject_approval,
 }

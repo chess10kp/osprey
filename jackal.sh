@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Jackal launcher.
 #
-# DEFAULT: boot the native Jac TUI (app/tui.jac).
+# DEFAULT: boot the native Jac TUI (app/tui/shell.jac).
 #   ./jackal.sh                 interactive TUI (needs a real TTY)
 #
 # Native headless:
@@ -168,13 +168,13 @@ case "${1:-}" in
     ;;
 esac
 
-# Default: interactive native TUI. tui.jac re-checks the TTY itself; we check
+# Default: interactive native TUI. tui/shell.jac re-checks the TTY itself; we check
 # first so the launcher can point at working headless alternatives.
 if [[ ! -t 0 || ! -t 1 ]]; then
   die_no_tty
 fi
 
-run_native tui.jac "$@"
+run_native tui/shell.jac "$@"
 
 
 

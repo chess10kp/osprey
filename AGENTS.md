@@ -2,7 +2,7 @@
 
 Jac-native terminal coding agent.
 
-> **Native-first (current truth):** the all-Jac harness under `app/` **is** Jackal — a native Jac agent loop, a custom differential TUI (`app/tui.jac` LiveShell + `app/ui/` OSP framework), compiled with `default_codespace = "native"` (`app/jac.toml`). There is no N3 "cutover" pending; the port happened. What remains under `src/`, `templates/`, and `tui/` is **LEGACY-PENDING-REMOVAL** (see below). See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
+> **Native-first (current truth):** the all-Jac harness under `app/` **is** Jackal — a native Jac agent loop, a custom differential TUI (`app/tui/shell.jac` LiveShell + `app/ui/` OSP framework), compiled with `default_codespace = "native"` (`app/jac.toml`). There is no N3 "cutover" pending; the port happened. What remains under `src/`, `templates/`, and `tui/` is **LEGACY-PENDING-REMOVAL** (see below). See [`ROADMAP.md`](ROADMAP.md) and [`docs/NA-HARNESS-EXPLORATION.md`](docs/NA-HARNESS-EXPLORATION.md).
 
 ---
 
@@ -22,14 +22,14 @@ Jac-native terminal coding agent.
 ```bash
 # Native harness (the product)
 cd app && jac run main.jac     # term REPL frontend (--json for JSONL protocol)
-jac run tui.jac                # native TUI (TTY required)
+jac run tui/shell.jac                # native TUI (TTY required)
 
 # Build / check
 cd app && jac build            # native compile check over app/
 jac test app/<file>.test.jac   # per-file jac tests
 ```
 
-**Launcher status:** `./jackal.sh` boots the native TUI (`app/tui.jac`); headless passthroughs are `--repl` (line REPL) and `--json` (JSONL protocol).
+**Launcher status:** `./jackal.sh` boots the native TUI (`app/tui/shell.jac`); headless passthroughs are `--repl` (line REPL) and `--json` (JSONL protocol).
 
 **Requirements:** Python env with `jac` CLI (vendored compiler under `vendor/jac/`, wrapper in `scripts/setup-vendor-jac.sh`); a TTY for the TUI; provider API keys via env or auth.json (see below).
 
@@ -41,7 +41,7 @@ jac test app/<file>.test.jac   # per-file jac tests
 User terminal
     │
     ▼
-app/tui.jac  LiveShell (native TUI, ~2.4k LOC)
+app/tui/shell.jac  LiveShell (native TUI, ~2.4k LOC)
     │   runs run_tui(): raw input → normalizer → event handling → render loop
     │
     ▼
@@ -66,8 +66,8 @@ app/ui/  OSP differential-TUI framework (terminal, renderer, editor,
 | Path | Role |
 |------|------|
 | `app/main.jac` | Entry: term line REPL frontend; `--json` JSONL protocol for UI clients |
-| `app/tui.jac` | LiveShell product TUI: command routing, pickers, approval modal, extension modals |
-| `app/tui_overlays.jac` | Overlay components for the TUI |
+| `app/tui/shell.jac` | LiveShell product TUI: command routing, pickers, approval modal, extension modals |
+| `app/tui/overlays.jac` | Overlay components for the TUI |
 | `app/agent/` | Session loop, tools, tool_spec/registry, LLM/provider routing, MCP client, sessions, tasks, checkpoints, skills, subagents, chains, compaction, context_input, modes/approvals, auth store + login flow state machine, plugin bridge/hooks, extensions |
 | `app/ui/` | OSP UI framework: model/mutation/bindings/events, terminal + virtual_terminal, renderer/screen/transcript/editor, layout (+ measure/quantize/compile), markup/markdown_proj, focus, gates, keybinding_probe, widgets |
 | `app/constraints/` | Constraint layout solver (server-pinned; LAYOUT-ENGINE-PLAN §3) |
@@ -168,7 +168,7 @@ Pruned as stale (legacy-runtime-bound, moot after deletion): `@jac/pi` hook nami
 
 - `agent-session`-style dependencies flow through `agent/session.jac`; leaf-module changes propagate upward.
 - After editing a `.jac` module, check it compiles/lowers before running the dependent test file.
-- The TUI paint/layout logic lives in `app/ui/demo_live_shell.jac` (upstream of `tui.jac`); change paint behavior there, not in the shell driver.
+- The TUI paint/layout logic lives in `app/ui/demo_live_shell.jac` (upstream of `tui/shell.jac`); change paint behavior there, not in the shell driver.
 - Toolchain: use the installed release jac at `~/.local/share/jac/bin/jac`
   (symlinked `~/.local/bin/jac`) — a self-contained 0.36.1 payload built from
   `vendor/jac` — NOT `/usr/bin/jac` (stale 0.30.9; phantom `own` errors,

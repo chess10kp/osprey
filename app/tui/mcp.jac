@@ -1,7 +1,7 @@
 """MCP status picker data."""
 import os;
-import from tui_state { LiveShell }
-import from tui_picker_base { _open_picker }
+import from tui.state { LiveShell }
+import from tui.picker_base { _open_picker }
 import from agent.compaction { load_project_config }
 import from agent.session { plugins }
 
@@ -47,7 +47,7 @@ not present in config. Connection state is honest: clients live in
 agent.session plugins.mcp_clients only after a successful spawn+handshake,
 so a configured-but-absent client is reported "not connected", and a
 present-but-uninitialized one as "spawn failed". Pure over (cwd, clients)
-— replicated in tui_overlays.test.jac (keep in sync)."""
+— replicated in tui/overlays.test.jac (keep in sync)."""
 def _mcp_status_entries(cwd: str, clients: dict) -> dict {
     specs: dict[str, list[str]] = {};
     try {

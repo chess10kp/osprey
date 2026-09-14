@@ -1,10 +1,10 @@
 """Keybinding probe annex base.
 
-IMPORT CONSTRAINT: tui.jac itself cannot be imported by tests - its
+IMPORT CONSTRAINT: tui/shell.jac itself cannot be imported by tests - its
 `with entry` block raises SystemExit(1) unless stdin AND stdout are TTYs,
 and `jac test` runs headless. So this probe REPLICATES the tui._handle_key
 precedence guard verbatim as probe_handle_key below (branch order and
-expressions copied from app/tui.jac; keep in sync), and drives the
+expressions copied from app/tui/shell.jac; keep in sync), and drives the
 REPLICATED guard against the REAL agent.session shortcut seam:
 list_extension_shortcuts + run_extension_shortcut over a fake plugin host
 bridge. Tested for real: shortcut registration metadata, listing
