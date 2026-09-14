@@ -5889,6 +5889,7 @@ impl JcirGenPass._generate_sv_to_sv_stubs(nd: Import) -> bool {
         "__jac_sv_client._declare_consumer_provider(__name__, '" + module_name + "')"
     ];
     names: list = ['__jac_sv_client'];
+    plain_imports: list[str] = [];
     for item in nd.items {
         if not isinstance(item, ModuleItem) {
             continue;
@@ -5902,6 +5903,9 @@ impl JcirGenPass._generate_sv_to_sv_stubs(nd: Import) -> bool {
             continue;
         }
         if item_name not in sv_to_sv_names {
+            plain_imports.append(
+                item_name + (' as ' + local_name if local_name != item_name else '')
+            );
             continue;
         }
         binding = None;
@@ -5912,6 +5916,9 @@ impl JcirGenPass._generate_sv_to_sv_stubs(nd: Import) -> bool {
             }
         }
         if not isinstance(binding, InteropBinding) {
+            plain_imports.append(
+                item_name + (' as ' + local_name if local_name != item_name else '')
+            );
             continue;
         }
         if binding.kind == 'walker' {
@@ -5930,8 +5937,16 @@ impl JcirGenPass._generate_sv_to_sv_stubs(nd: Import) -> bool {
         );
         names.append(local_name);
     }
-    if (len(parts) <= 1) {
+    if (len(names) <= 1) {
+        # Nothing in this import is a sv-to-sv export: keep the ordinary
+        # from-import so every imported name stays bound in the image.
         return False;
+    }
+    if plain_imports {
+        # Stubs only cover exported names; anything else (classes,
+        # constants, unexported helpers) must still be imported normally
+        # or the module image leaves those names unbound.
+        parts.append('from ' + module_name + ' import ' + ', '.join(plain_imports));
     }
     self.set_out(nd, [CgSplice(src='\n\n'.join(parts), offset=0, bound_names=names)]);
     return True;

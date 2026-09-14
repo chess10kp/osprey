@@ -321,6 +321,7 @@ impl nacompile(
         prog = JacProgram();
         options = CompileOptions(
             aot_mode=True,
+            native_import_drop=True,
             default_codespace=('native' if auto_promote else ''),
             force_target_program=True,
             na_gc_mode=gc,

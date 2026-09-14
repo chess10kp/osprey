@@ -481,6 +481,7 @@ def compile_to_wasm(file_path: str, export_funcs: list = []) -> bytes {
                 file_path=os.path.abspath(file_path),
                 options=CompileOptions(
                     aot_mode=True,
+                    native_import_drop=True,
                     default_codespace=('native' if auto_promote else ''),
                     na_gc_mode=gc_mode,
                     nogc_enforce_modules=enf_mods,

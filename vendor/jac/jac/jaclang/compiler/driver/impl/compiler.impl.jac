@@ -827,7 +827,7 @@ impl JacCompiler.stamp_native_import_facts(
     driver read left in a sealed pass. It now consumes a bool.
     """;
     import os;
-    drop_when_native_owned = target_program.options.aot_mode;
+    drop_when_native_owned = target_program.options.native_import_drop;
     for imp in mod.get_all_sub_nodes(uni.Import) {
         target = native_only_import_target(imp, target_program);
         imp.native_only_drop = (
