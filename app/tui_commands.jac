@@ -15,7 +15,7 @@ import from tui_runtime { _begin_assistant_reply }
 import from agent.session {
     clear_history, get_history, restore_history, list_commands,
     run_command, list_extension_shortcuts, run_extension_shortcut, plugins,
-    new_session_id, set_model,
+    new_session_id, set_model, cancel_active_turn,
 }
 import from agent.sessions {
     list_sessions, get_session_record, export_session, save_session,
@@ -24,6 +24,7 @@ import from agent.sessions {
 import from agent.skills { load_jackal_skills, expand_skill_command }
 import from agent.plugin_bridge { poll_ui_request, respond_ui, cancel_ui }
 import from ui.screen { shell_open_approval, shell_close_approval }
+import from ui.transcript { apply_transcript_revision }
 
 """Restore a saved session by id and repaint the transcript from it.
 Shared by /resume NAME and the resume picker's enter action."""

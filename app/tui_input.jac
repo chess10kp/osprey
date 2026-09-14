@@ -5,7 +5,7 @@ import from tui_state { LiveShell }
 import from tui_core { _push_turn, _scroll_transcript }
 import from tui_overlay { _slash_popup_state }
 import from tui_picker_base { _close_picker, _multi_filtered }
-import from tui_picker_actions { _complete_api_key_login, _start_login_provider }
+import from tui_picker_actions { _complete_api_key_login, _start_login_provider, _cancel_login }
 import from tui_context {
     _format_mentions, _expand_quoted_context, _insert_into_draft,
 }

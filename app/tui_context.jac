@@ -9,6 +9,7 @@ import from agent.context_input {
     expand_context_input, is_valid_file_path, parse_line_range, _load_file_slice,
 }
 import from agent.skills { _load_ignore_rules, _match_ignore_pattern }
+import from tui_picker_base { _open_picker }
 
 """EXPLORER picker rows via a bounded recursive walk under cwd.
 

@@ -15,6 +15,7 @@ import from ui.renderer {
 }
 import from ui.width { display_width, truncate_text }
 import from tui_picker_base { _multi_filtered }
+import from agent.session { list_commands }
 """Unified-diff preview lines for a pending write_file/edit_file approval.
 Capped at 20 diff lines with a trailing truncation marker; returns [] when
 no old/new text pair can be assembled (missing args, unreadable baseline)."""

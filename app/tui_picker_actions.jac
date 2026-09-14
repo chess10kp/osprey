@@ -20,6 +20,8 @@ import from agent.checkpoints {
     restore_checkpoint_files, format_checkpoint_overlay_row,
 }
 import from agent.skills { load_jackal_skills }
+import from ui.screen { shell_open_approval }
+import from tui_context { _skills_picker_entries }
 
 def _model_picker_entries() -> dict {
     rows: list[str] = [];
