@@ -1,6 +1,6 @@
 """Painting and overlay rendering for the native LiveShell."""
 import os;
-import from tui_state { LiveShell }
+import from tui_state { LiveShell, SLASH_BUILTINS }
 import from tui_core {
     _rule, _pad_to, _prompt_prefix,
     _status_line, _prompt_lines,
