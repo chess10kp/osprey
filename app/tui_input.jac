@@ -10,9 +10,10 @@ import from tui_context {
     _format_mentions, _expand_quoted_context, _insert_into_draft,
 }
 import from tui_commands {
-    _resume_session, _restore_checkpoint, _handle_ui_modal_key, _tick_ui_modal,
+    _resume_session, _handle_ui_modal_key, _tick_ui_modal,
     _run_slash,
 }
+import from tui_picker_actions { _restore_checkpoint }
 import from tui_runtime {
     _begin_assistant_reply, _finish_stream, _tick_stream,
     _accept_approval, _reject_approval,
