@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kiwi differential oracle for the Jackal constraint solver (plan §8.2).
+"""Kiwi differential oracle for the Osprey constraint solver (plan §8.2).
 
 Generates seeded required-constraint batches, evaluates each with
 kiwisolver AND with the pure-Jac solver (driven through

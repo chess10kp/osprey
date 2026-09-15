@@ -12,7 +12,7 @@ def _format_turn(role: str, body: str) -> str {
     if role == "user" {
         mark = "◆ you";
     } elif role == "assistant" {
-        mark = "◇ jackal";
+        mark = "◇ osprey";
     } elif role == "tool" {
         mark = "▣ tool";
     } else {

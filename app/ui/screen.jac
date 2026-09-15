@@ -1,4 +1,4 @@
-"""Jackal shell topology: durable MainScreen under UiSessionRoot.
+"""Osprey shell topology: durable MainScreen under UiSessionRoot.
 
 Builds the representative shell once and keeps semantic node IDs stable
 across typing, streaming, resize, focus, and overlay cycles (OSPUI.md §17–18,
@@ -96,7 +96,7 @@ def build_main_shell(session: UiSession) -> ShellScreen {
         raise ValueError("main shell already built for this session");
     }
     screen = MainScreen(key="main");
-    header = Header(key="header", title="Jackal");
+    header = Header(key="header", title="Osprey");
     transcript = TranscriptView(key="transcript");
     status = Status(key="status", phase="ready");
     prompt = AblePrompt(key="prompt");

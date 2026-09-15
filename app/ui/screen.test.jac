@@ -1,4 +1,4 @@
-"""Unit 8 acceptance: durable Jackal shell topology and editor lifecycle.
+"""Unit 8 acceptance: durable Osprey shell topology and editor lifecycle.
 
 Companion scope provides screen APIs. runtime imported for session helpers.
 """

@@ -4,7 +4,7 @@
 # vendor/jac is a git subtree of jaseci-labs/jac (main);
 # see docs/VENDOR-JAC.md. Upstream's scripts/fresh_env.sh assumes it runs at
 # the repository root (`git rev-parse --show-toplevel`), which inside a
-# subtree resolves to the jackal root -- so this wrapper runs the same steps
+# subtree resolves to the osprey root -- so this wrapper runs the same steps
 # with explicit paths.
 #
 # Output: vendor/jac/jac/zig-out/bin/jac

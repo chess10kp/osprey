@@ -1,4 +1,4 @@
-# Jackal OSP UI (`app/ui`)
+# Osprey OSP UI (`app/ui`)
 
 Detached, session-local OSP graph for the custom Jac terminal UI (OSPUI.md).
 Semantic regions are nodes; containment, focus, feeds, ownership, and layers are
@@ -22,15 +22,13 @@ side tables — never on graph nodes and never under Jac's persistent `root`.
 | `host.jac` | Process/virtual host tick: poll → decode → coalesce |
 | `layout.jac` | Measure/arrange side tables (contracts, rects, clips, scroll clamp) |
 | `renderer.jac` | Retained damage, styled cell diff, cursor show/hide, sync ANSI |
-| `screen.jac` | Jackal shell topology + editor / approval lifecycle |
+| `screen.jac` | Osprey shell topology + editor lifecycle |
 | `editor.jac` | Multiline draft, caret, selection, history; `AblePrompt` abilities |
 | `transcript.jac` | Visible+overscan virtualization, measure cache, follow-tail, spans |
 | `inspect.jac` | Deterministic dumps + invariant validation + leak narratives |
-| `n1_acceptance.jac` | N1 product-bar harness (resize, cancel, restore, retained paint) |
 | `markup.jac` | One-time tag → graph lowering — keep thin while authoring is unsettled |
 | `gates.jac` | Architecture gates 1–6 |
 | `progress_bar.jac` | Gate 5 external widget (also under `widgets/progress/`) |
-| `demo_complex_shell.jac` | Headless VirtualTerminal validation (PASS report, no TTY) |
 | `demo_live_shell.jac` | Interactive ProcessTerminal TUI session |
 
 Identity outside the graph is always `jid(node)` / `node_id(n)`.
@@ -85,13 +83,7 @@ JAC_TEST_JOBS=0 jac test ui/renderer.jac
 JAC_TEST_JOBS=0 jac test ui/input.jac
 JAC_TEST_JOBS=0 jac test ui/host.jac
 JAC_TEST_JOBS=0 jac test ui/editor.jac
-JAC_TEST_JOBS=0 jac test ui/n1_acceptance.jac
 JAC_TEST_JOBS=0 jac test ui/gates.jac
-JAC_TEST_JOBS=0 jac test agent/protocol.jac
-# Headless N1 report:
-JACPATH=. jac run ui/n1_acceptance.jac
-# Headless shell demo:
-JACPATH=. jac run ui/demo_complex_shell.jac
 # Interactive live TUI (requires a real terminal):
 JACPATH=. jac run ui/demo_live_shell.jac
 jac check .

@@ -152,7 +152,7 @@ def run_gate4_invalidation_bench() -> Gate4Report {
         dispose_session(session);
         return Gate4Report();
     }
-    set_node_content(renderer, shell.header, ["Jackal"]);
+    set_node_content(renderer, shell.header, ["Osprey"]);
     set_node_content(renderer, shell.transcript, ["hello retained stream"]);
     set_node_content(renderer, shell.status, ["ready"]);
     set_node_content(renderer, shell.prompt, ["> "]);
@@ -218,7 +218,7 @@ def run_gate5_external_widget() -> bool {
 """Gate 6 — Authoring scale: dozens of regions via markup, no manual ranks."""
 def run_gate6_authoring_scale() -> bool {
     parts: list[str] = ['<MainScreen key="main">'];
-    parts.append('  <Header key="header" title="Jackal" />');
+    parts.append('  <Header key="header" title="Osprey" />');
     parts.append('  <TranscriptView key="transcript" />');
     for i in range(40) {
         parts.append('  <Status key="region_' + str(i) + '" phase="ready" />');

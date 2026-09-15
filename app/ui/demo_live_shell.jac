@@ -1,4 +1,4 @@
-"""Interactive Jackal OSP shell — live ProcessTerminal session.
+"""Interactive Osprey OSP shell — live ProcessTerminal session.
 
 Crafted for presence: brand chrome, typewriter stream, visible caret,
 Unicode progress, history, and a centered approval modal.
@@ -337,7 +337,7 @@ def create_live_shell() -> LiveShell {
     handle = create_session();
     session = handle.session;
     shell = build_main_shell(session);
-    shell.header.title = "Jackal";
+    shell.header.title = "Osprey";
     install_shell_contracts(session, shell, "live.transcript");
     proj = bind_transcript(
         shell.transcript,
@@ -376,7 +376,7 @@ def create_live_shell() -> LiveShell {
 def run_live_shell_demo() {
     app = create_live_shell();
     app.term.start();
-    app.term.set_title("Jackal");
+    app.term.set_title("Osprey");
     try {
         app.dirty = True;
         _render(app);

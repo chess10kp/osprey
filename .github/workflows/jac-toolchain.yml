@@ -1,4 +1,4 @@
-name: Jac toolchain
+name: Jac tests
 
 on:
   push:
@@ -7,17 +7,10 @@ on:
     branches: [main, master]
 
 jobs:
-  jac-toolchain:
+  jac-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - run: npm ci
 
       - uses: actions/setup-python@v5
         with:
@@ -26,5 +19,5 @@ jobs:
       - name: Install jaclang
         run: pip install jaclang
 
-      - name: Jac toolchain + npm agent loop check
-        run: npm run check:jac
+      - name: Jac test sweep (app/)
+        run: ./scripts/jac-test-harness.sh

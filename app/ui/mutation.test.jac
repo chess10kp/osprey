@@ -3,7 +3,7 @@
 
 test "append_child maintains sparse rank ordering" {
     screen = MainScreen(key="main");
-    header = Header(key="header", title="Jackal");
+    header = Header(key="header", title="Osprey");
     transcript = TranscriptView(key="transcript", source_id="session.events");
     status = Status(key="status", phase="ready");
     prompt = Prompt(key="prompt", draft="");

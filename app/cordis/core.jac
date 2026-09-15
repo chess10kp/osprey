@@ -1,8 +1,8 @@
-"""Cordis-style core for Jackal: revertible effects + reactive coeffects.
+"""Cordis-style core for Osprey: revertible effects + reactive coeffects.
 
 A compact port of the spatiotemporal composability model (Shi, Zhang, Cui,
 "A Programming Paradigm for Spatiotemporal Composability", 2026) to the
-Jackal na-harness.
+Osprey na-harness.
 
 Temporal: every context mutation flows through `set`/`effect`, which record
 an explicit inverse in the acting fiber's accumulator. Unloading (or

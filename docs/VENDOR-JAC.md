@@ -4,7 +4,7 @@
 
 ## Why a vendor copy
 
-Jackal's native-completion path (see `~/notes/jackal-native-gap-analysis.md`, mirrored in `ROADMAP.md` §N5) needs fixes inside the Jac compiler itself: `na_stdlib` floors (`re`, `subprocess`, `threading`, `tempfile`, terminal FFI), lowering gaps (E1032/E5092), and IR-gen work. Upstream PR review latency is weeks — we cannot block product work on it. So the compiler lives here:
+Osprey's native-completion path (see `~/notes/jackal-native-gap-analysis.md` — historical name, same toolchain) needs fixes inside the Jac compiler itself: `na_stdlib` floors (`re`, `subprocess`, `threading`, `tempfile`, terminal FFI), lowering gaps (E1032/E5092), and IR-gen work. Upstream PR review latency is weeks — we cannot block product work on it. So the compiler lives here:
 
 - **Fix now, in-repo**: any native-path fix lands in `vendor/jac/**` and the dev binary picks it up immediately.
 - **PR upstream in parallel**: the same change goes to jaseci-labs/jac; when it eventually merges we sync and drop our local copy.
@@ -45,7 +45,7 @@ Requirements: zig 0.16.0, network for the one-time pinned fetches (LLVM slice ~8
 ## Sync from upstream
 
 ```bash
-# from the Jackal root; use a clean checkout of upstream main
+# from the Osprey root; use a clean checkout of upstream main
 git subtree pull --prefix=vendor/jac /home/jac/repos/jaseci main --squash
 # resolve conflicts inside vendor/jac/**, commit the merge
 ```
@@ -60,11 +60,11 @@ git push git@github.com:chess10kp/jaseci.git vendor-jac-upstream:<pr-branch>
 
 ## Gotchas
 
-- **`git show-toplevel` breaks inside a subtree.** Upstream scripts that resolve the repo root this way (`scripts/fresh_env.sh`, possibly others) resolve to the *jackal* root when run from `vendor/jac`. Use `scripts/setup-vendor-jac.sh` (which runs the same `zig build` steps with explicit paths) instead of editing the vendored script.
+- **`git show-toplevel` breaks inside a subtree.** Upstream scripts that resolve the repo root this way (`scripts/fresh_env.sh`, possibly others) resolve to the *osprey* root when run from `vendor/jac`. Use `scripts/setup-vendor-jac.sh` (which runs the same `zig build` steps with explicit paths) instead of editing the vendored script.
 - **Upstream `.gitignore` came along** and covers build products inside the subtree (`.llvm-build/`, `zig-out/`, `.payload-layers/`, `_bun/`, `zig-cache/`). Tracked content is ~28 MB; the multi-GB caches are all ignored.
-- **`jac precommit --install`** (part of upstream fresh_env) installs git hooks into whatever repo root it finds — that would be jackal. Optional; skip unless wanted: it formats staged `.jac` files and blocks AI co-author lines.
+- **`jac precommit --install`** (part of upstream fresh_env) installs git hooks into whatever repo root it finds — that would be osprey. Optional; skip unless wanted: it formats staged `.jac` files and blocks AI co-author lines.
 - **Installed `jac` (0.36.1, pip/`~/.local/bin`) is separate.** Shadow it with `export PATH=.../vendor/jac/jac/zig-out/bin:$PATH` when working on native lowering, or CI/probes will test the wrong compiler.
-- **Upstream is slow-moving for us**: never base app/ features on unmerged-upstream behavior *without* the vendor fix present — the vendor is the source of truth for what jackal builds against.
+- **Upstream is slow-moving for us**: never base app/ features on unmerged-upstream behavior *without* the vendor fix present — the vendor is the source of truth for what osprey builds against.
 
 ## Relationship to the native roadmap
 

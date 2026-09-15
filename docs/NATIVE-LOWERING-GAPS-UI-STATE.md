@@ -22,7 +22,7 @@ The implementation is in
 The upstream equivalence suite marks the supported native cases with
 `require=["na"]` or `require=["na", "cl"]`.
 
-## Jackal status
+## Osprey status
 
 The rebuilt vendored compiler was exercised against `app/ui/events.jac`.
 The graph edge-reference forms in `app/ui/model.jac`, including explicit

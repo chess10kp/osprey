@@ -1,8 +1,0 @@
-{
-  "name": "js2jac-babel-parser-vendor",
-  "private": true,
-  "description": "Pinned @babel/parser runtime for jac js2jac (see PROVENANCE.md)",
-  "dependencies": {
-    "@babel/parser": "7.26.9"
-  }
-}

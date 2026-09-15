@@ -1,27 +1,19 @@
 [project]
-name = "jackal"
+name = "osprey"
 version = "0.1.0"
-description = "Jackal - all-Jac na-codespace coding agent harness"
-entry-point = "main.jac"
+description = "Osprey - OSP terminal UI framework for Jac"
+entry-point = "ui/demo_live_shell.jac"
 
-# Model config for the ambient `llm` builtin. api_key here is a fallback;
-# provider env vars (e.g. OPENROUTER_API_KEY) take precedence.
-[byllm.model]
-default_model = "mockllm"
-api_key = ""
-
-# Pure compute: pin native (dogfooding target). Inference keeps core/edit
-# server while its importer tools.jac is server-anchored, so pin explicitly.
 [build]
 default_codespace = "native"
 
+# Placement pins are deliberate: the layout path stays server-pinned;
+# pure-compute modules lower natively. Each pin is annotated with its
+# compiler/runtime wall. `jac test` ignores pins (pre-seal); a pin flip
+# MUST be validated by `jac build` + running the sealed artifact.
 [placement.pins]
-# Current frontier: 12 explicit server pins remain (was 15; terminal/vt went
-# native 2026-08-31); N6 requires reducing this count to zero. Keep each
-# temporary pin annotated with its compiler/runtime wall.
 # Constraint layout engine: algebra, layout_relations and solver all lower
-# natively (N6 retires the §3 server pin — see how-to-lower-all-native).
-# Suites green: layout_relations 7/7, roundtrip 36/36, solver 26/26.
+# natively. Suites green: layout_relations 7/7, roundtrip 36/36, solver 26/26.
 # Solver unblocked by vendor commit: bare from-imported stdlib calls
 # (from time import perf_counter) now lower natively; perf_counter maps to
 # CLOCK_MONOTONIC via the existing time floor.
@@ -30,10 +22,6 @@ default_codespace = "native"
 "constraints.layout_relations" = "native"
 "core.edit" = "native"
 
-# 2026-08-30 vendor sync: graph-shaped edge traversals and walkers now lower
-# natively. ui.model's remaining native failures are explicit bound-endpoint
-# edge references (`[edge origin ->:Edge:-> target]`); the compiler
-# diagnostic gives the supported hop-only forms.
 # SEAL walls (2026-08-31 honest seal read): model E5092 UnaryExpr; mutation
 # E5092 MainScreen; runtime E5092 attribute access 'key' — dev-native,
 # seal-server until fixed.
@@ -41,16 +29,6 @@ default_codespace = "native"
 "ui.mutation" = "native"
 "ui.runtime" = "native"
 
-# Native-path pins: each module lowers natively in dev runs (dev placement
-# honors pins; `jac test` runs pre-seal and ignores them). Seal-time lowering
-# is a DIFFERENT context: the precompile may demote a pinned module to the
-# server codespace (build-log note). Since the 2026-08-31 vendor fix
-# (precompile_bytecode placement join) the sealed MANIFEST placement map
-# records the demoted truth, so the artifact is self-describing. Per-module
-# seal walls annotated below; unpinned preferred-native modules also demote
-# at seal (2026-08-31: ui.cells E5092 UnaryExpr, cordis/core comprehension
-# over an element-erased collection, constraints/oracle_driver E5092
-# for-loop iterable Name).
 # ui.width: lowers natively now that codepoint-oriented string ops from
 # 6fc6807bd landed (len/ord/index/slice return codepoints). Test 10/10.
 "ui.width" = "native"
@@ -130,43 +108,4 @@ default_codespace = "native"
 # inspect/demos: hold for the events frontier above (walker dispatch +
 # annex walls); demos additionally spawn walkers (SetProgress).
 "ui.inspect" = "server"
-"ui.demo_complex_shell" = "server"
 "ui.demo_live_shell" = "server"
-# agent.protocol: Envelope/InProcessAdapter objs are constructed by server
-# session/tui/demo consumers (class-boundary wall, see agent.tool_spec);
-# drive_screen pokes shell.transcript/status attributes of server-pinned
-# ui.screen ShellScreen across the boundary.
-"agent.protocol" = "server"
-# agent.tool_spec: NATIVE since the 2026-08-31 seal round-trip. The class-
-# boundary wall (server code constructing a native-pinned obj class dies with
-# NameError) is bypassed with the native factory fn `make_tool_spec` in
-# tool_spec.jac: server consumers (tools.jac tool_specs(), registry.jac
-# as_tool_specs()) construct through that seam; only test annexes still call
-# ToolSpec(...) directly (jac test runs pre-seal, so it is unaffected by
-# placement). Validated in the sealed artifact 2026-08-31 (dist/jackal.jab,
-# temporary /seam probe): construction through the native factory, str/dict
-# field reads, callable-field round-trip and registry invoke() all pass
-# server<->native; seals native with no demotion.
-# `jac test` does NOT honor [placement.pins] — suites always run pre-seal/
-# server-side, so a pin flip MUST be validated by `jac build` + running the
-# agent.registry: BLOCKED native (2026-08-31 seal probe; pin flipped and
-# reverted after one honest round-trip). Its own constructions (create_registry
-# /register_native/register_js) never hit the class-boundary wall — the seal
-# refuses the module on three narrower walls: invoke's `ent.handler(**args)`
-# call-argument unpacking (E5092, unsupported natively); openai_tools' list
-# append; `any` unbox to JacStr. Fix those and re-flip; the manifest
-# placement map (vendor fix 2026-08-31) reports the demotion either way.
-"agent.registry" = "server"
-"agent.plugin_bridge" = "server"
-"agent.session" = "server"
-# agent.extensions: BLOCKED native, two independent walls (probed 2026-08-25):
-# (a) no native json.load/loads in jaclang -> load_extension_decls demotes to
-#     Python-only, which forces the whole module server;
-# (b) os.path.abspath / os.path.isabs unsupported natively (dirname/join/
-#     isfile/getcwd ARE supported); ExtensionStatus/ExtensionDecl are
-#     constructed server-side in session.jac anyway (class-boundary wall,
-#     see agent.tool_spec above).
-"agent.extensions" = "server"
-
-[dependencies]
-httpx = "~=0.28"

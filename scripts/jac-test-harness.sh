@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Run Jac unit tests in lib/jac/tests in isolated per-file invocations.
-# Kept separate from lib/jac/main.jac --check so jac-check parsing never
-# mistakes test string literals for real diagnostics.
+# Run Jac unit tests in isolated per-file invocations (default target: app/).
 set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
-JACKAL_DIR="$(cd "$(dirname "$(readlink -f "$SCRIPT_PATH")")/.." && pwd)"
-cd "$JACKAL_DIR"
+OSPREY_DIR="$(cd "$(dirname "$(readlink -f "$SCRIPT_PATH")")/.." && pwd)"
+cd "$OSPREY_DIR"
 
 if ! command -v jac >/dev/null 2>&1; then
   echo "FAIL: jac not on PATH (install jaclang: pip install jaclang)" >&2
@@ -36,7 +34,7 @@ if (( $# > 0 )); then
 else
   while IFS= read -r f; do
     [[ -n "$f" ]] && TEST_FILES+=("$f")
-  done < <(collect_tests "lib/jac/tests")
+  done < <(collect_tests "app")
 fi
 
 if (( ${#TEST_FILES[@]} == 0 )); then
@@ -44,7 +42,7 @@ if (( ${#TEST_FILES[@]} == 0 )); then
   exit 0
 fi
 
-echo "=== jac test harness (lib/jac/tests) ==="
+echo "=== jac test harness ==="
 failures=0
 for test_file in "${TEST_FILES[@]}"; do
   echo "--- jac test $test_file ---"

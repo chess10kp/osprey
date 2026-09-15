@@ -94,7 +94,7 @@ def _install_layout(app: LiveShell) {
 
 
 def _header_lines(app: LiveShell) -> list[str] {
-    brand = " JACKAL ";
+    brand = " OSPREY ";
     tag = " osp live ";
     right = (
         str(app.columns)
@@ -140,7 +140,7 @@ def _prompt_lines(app: LiveShell) -> list[str] {
     body_inner = "❯ " + draft;
     body = "│" + _pad_to(body_inner, max(0, w - 2)) + "│";
     if app.phase == "streaming" {
-        hint = "streaming — wait for jackal";
+        hint = "streaming — wait for osprey";
     } elif app.shell.approval is not None {
         hint = "modal — a accept · r reject";
     } else {
@@ -182,7 +182,7 @@ def _transcript_lines(app: LiveShell) -> list[str] {
     return [
         "",
         truncate_text("  the graph is live.", w, ellipsis="…"),
-        truncate_text("  type below — jackal answers in this frame.", w, ellipsis="…"),
+        truncate_text("  type below — osprey answers in this frame.", w, ellipsis="…"),
         "",
         truncate_text("  try:  explain retained damage", w, ellipsis="…"),
     ];

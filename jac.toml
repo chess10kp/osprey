@@ -1,8 +1,5 @@
 [project]
-name = "jackal-shell"
+name = "osprey"
 version = "0.1.0"
-description = "Jackal agent harness"
-entry-point = "app/main.jac"
-
-[dependencies]
-httpx = "latest"
+description = "Osprey - OSP terminal UI framework for Jac"
+entry-point = "app/ui/demo_live_shell.jac"

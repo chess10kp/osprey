@@ -18,7 +18,7 @@ import from ui.screen {
 }
 
 
-test "default_shell_registry has Jackal shell tags" {
+test "default_shell_registry has Osprey shell tags" {
     reg = default_shell_registry();
     assert "MainScreen" in reg.tags;
     assert "TranscriptView" in reg.tags;
@@ -59,7 +59,7 @@ test "unknown property is a lowering error" {
 test "shell markup lowers to MainScreen with expected children" {
     source = """
     <MainScreen key="main">
-      <Header key="header" title="Jackal" />
+      <Header key="header" title="Osprey" />
       <TranscriptView key="transcript" />
       <Status key="status" phase="ready" />
       <Prompt key="prompt" />
@@ -91,7 +91,7 @@ test "print_generated emits direct-construction Jac" {
 test "lowered shell matches build_main_shell child keys when Unit 8 exists" {
     source = """
     <MainScreen key="main">
-      <Header key="header" title="Jackal" />
+      <Header key="header" title="Osprey" />
       <TranscriptView key="transcript" />
       <Status key="status" />
       <Prompt key="prompt" />

@@ -3,7 +3,7 @@
 
 test "Child edges order siblings by sparse rank" {
     screen = MainScreen(key="main");
-    header = Header(key="header", title="Jackal");
+    header = Header(key="header", title="Osprey");
     transcript = TranscriptView(key="transcript", source_id="session.events");
     status = Status(key="status", phase="ready");
     prompt = Prompt(key="prompt", draft="");
@@ -91,7 +91,7 @@ test "product archetypes keep only semantic fields on the node" {
     status = Status(key="status", phase="streaming");
     prompt = Prompt(key="prompt", draft="partial", mode="insert");
     overlay = ApprovalOverlay(key="approval");
-    header = Header(key="header", title="Jackal");
+    header = Header(key="header", title="Osprey");
 
     assert screen.key == "main";
     assert tv.source_id == "session.events";
@@ -101,7 +101,7 @@ test "product archetypes keep only semantic fields on the node" {
     assert prompt.draft == "partial";
     assert prompt.mode == "insert";
     assert overlay.key == "approval";
-    assert header.title == "Jackal";
+    assert header.title == "Osprey";
 
     for field in ["dirty", "rect", "cached_lines", "cells", "damage", "runtime_id"] {
         assert not hasattr(screen, field);

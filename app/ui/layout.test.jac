@@ -381,7 +381,7 @@ def _shell(columns: int = 80, rows: int = 24) -> _ShellFixture {
     );
     set_spec(state, status, LayoutSpec(width=_fill(), height=_fixed(1.0)));
     set_spec(state, prompt, LayoutSpec(width=_fill(), height=_fixed(2.0)));
-    set_content(state, header, ["Jackal"], 1);
+    set_content(state, header, ["Osprey"], 1);
     set_content(state, status, ["ready"], 1);
     set_content(state, prompt, ["> "], 1);
     return _ShellFixture(

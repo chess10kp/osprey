@@ -1,4 +1,4 @@
-"""OSP-native semantic UI graph model for Jackal's detached view session.
+"""OSP-native semantic UI graph model for Osprey's detached view session.
 
 The live UI is a durable OSP graph of semantic regions connected by typed edges.
 Nodes carry only stable keys and semantic state. Stable identity outside the graph
@@ -27,7 +27,7 @@ node Screen(UiContainer) {}
 node Overlay(UiContainer) {}
 
 
-"""Jackal shell and shared semantic region archetypes."""
+"""Osprey shell and shared semantic region archetypes."""
 node MainScreen(Screen) {}
 
 

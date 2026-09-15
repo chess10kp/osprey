@@ -1,13 +1,7 @@
-# Parked from seal/check — not part of the runnable app binary.
+# Not part of the osprey framework source tree.
+vendor/
 reference/
-pi/skills/
-templates/
-tui/
-bin/
-src/
 dist/
 node_modules/
-jackal/
-.jackal/
 *.test.jac
 test_*
