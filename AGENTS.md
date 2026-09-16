@@ -104,6 +104,7 @@ Tests live next to code as `<module>.test.jac`; run per-file with
 | `docs/VENDOR-JAC.md` | Vendored Jac compiler subtree — build, edit, sync, push-back rules |
 | `docs/LAYOUT-ENGINE-PLAN.md` | Constraint layout engine design |
 | `docs/NATIVE-LOWERING-GAPS-UI-STATE.md` | UI-state lowering gaps |
+| `docs/NATIVE-SEAL-FRONTIER.md` | Zero-server-pins seal read (2026-09-15): remaining function seams, root causes, fx reference patterns, port plan |
 | `app/ui/README.md` | OSP framework deep dive: invariants, lifetimes, gates |
 
 ---
