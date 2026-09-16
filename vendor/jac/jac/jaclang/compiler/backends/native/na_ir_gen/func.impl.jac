@@ -540,7 +540,28 @@ impl NaIRGenFunc._codegen_test(nd: uni.Test) -> None {
     # tests out of the native test table so they run server-side instead.
     for _tfc in nd.get_all_sub_nodes(uni.FuncCall) {
         _tname = self._get_name(_tfc.target);
-        if _tname is not None and _tname in self._native_skipped_methods {
+        _short_tname = (
+            _tname.rsplit(".", 1)[-1] if _tname is not None else None
+        );
+        _crosses_demoted_seam = False;
+        if _tname is not None {
+            for _skipped_name in self._native_skipped_methods {
+                if (
+                    _skipped_name == _tname
+                    or _skipped_name.rsplit(".", 1)[-1] == _short_tname
+                ) {
+                    _crosses_demoted_seam = True;
+                    break;
+                }
+            }
+        }
+        if _crosses_demoted_seam {
+            # Keep the test in the Python test suite when one of its calls
+            # crosses a demoted native seam.  The Python codegen pass runs
+            # after this pass and uses the context to emit the real test body
+            # instead of a shim that calls a symbol we intentionally did not
+            # emit.
+            nd.code_context = CodeContext.CLIENT;
             return;
         }
     }
