@@ -19,6 +19,9 @@ obj NaIRGenFunc(NaIRGenState) {
     def _codegen_nested_ability(nd: uni.Ability) -> None;
     def _predeclare_nested_siblings(nd: uni.Ability) -> None;
     def _codegen_test(nd: uni.Test) -> None;
+    def _test_call_reaches_demoted(
+        call: uni.FuncCall, seen: set[str]
+    ) -> bool;
     def _apply_static_decorators -> None;
     def _ability_is_generator(nd: uni.Ability) -> bool;
     def _generator_elem_type(nd: uni.Ability) -> (ir.Type | None);

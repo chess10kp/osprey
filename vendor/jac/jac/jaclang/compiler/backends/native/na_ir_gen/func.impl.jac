@@ -527,6 +527,39 @@ impl NaIRGenFunc._codegen_ability(nd: uni.Ability) -> None {
     (nd).gen.llvm_ir = func;
 }
 
+impl NaIRGenFunc._test_call_reaches_demoted(
+    call: uni.FuncCall, seen: set[str]
+) -> bool {
+    _tname = self._get_name(call.target);
+    _short_tname = (
+        _tname.rsplit(".", 1)[-1] if _tname is not None else None
+    );
+    if _tname is not None {
+        for _skipped_name in self._native_skipped_methods {
+            if (
+                _skipped_name == _tname
+                or _skipped_name.rsplit(".", 1)[-1] == _short_tname
+            ) {
+                return True;
+            }
+        }
+        if _tname in seen {
+            return False;
+        }
+        seen.add(_tname);
+    }
+    _decl = call.callee_decl;
+    if not isinstance(_decl, uni.Ability) or _decl.body is None {
+        return False;
+    }
+    for _nested_call in _decl.get_all_sub_nodes(uni.FuncCall) {
+        if self._test_call_reaches_demoted(_nested_call, seen) {
+            return True;
+        }
+    }
+    return False;
+}
+
 impl NaIRGenFunc._codegen_test(nd: uni.Test) -> None {
     import from jaclang.compiler.frontend.codeinfo { native_test_symbol }
     i8p = ir.IntType(8).as_pointer();
@@ -539,28 +572,12 @@ impl NaIRGenFunc._codegen_test(nd: uni.Test) -> None {
     # natively -- the demoted symbol is an abort stub at runtime. Leave such
     # tests out of the native test table so they run server-side instead.
     for _tfc in nd.get_all_sub_nodes(uni.FuncCall) {
-        _tname = self._get_name(_tfc.target);
-        _short_tname = (
-            _tname.rsplit(".", 1)[-1] if _tname is not None else None
-        );
-        _crosses_demoted_seam = False;
-        if _tname is not None {
-            for _skipped_name in self._native_skipped_methods {
-                if (
-                    _skipped_name == _tname
-                    or _skipped_name.rsplit(".", 1)[-1] == _short_tname
-                ) {
-                    _crosses_demoted_seam = True;
-                    break;
-                }
-            }
-        }
-        if _crosses_demoted_seam {
-            # Keep the test in the Python test suite when one of its calls
-            # crosses a demoted native seam.  The Python codegen pass runs
-            # after this pass and uses the context to emit the real test body
-            # instead of a shim that calls a symbol we intentionally did not
-            # emit.
+        if self._test_call_reaches_demoted(_tfc, set[str]()) {
+            # Keep the test in the Python test suite when one of its calls,
+            # or a transitive callee, crosses a demoted native seam.  The
+            # Python codegen pass runs after this pass and uses the context to
+            # emit the real test body instead of a shim that calls a symbol we
+            # intentionally did not emit.
             nd.code_context = CodeContext.CLIENT;
             return;
         }
