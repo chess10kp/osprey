@@ -1,0 +1,324 @@
+name: Benchmarks
+
+# Benchmarks Osprey UI update/frame times:
+#   1. Gate 4 invalidation bench (app/ui/gates.jac::run_gate4_invalidation_bench)
+#      — renderer damage-tracked frame latency (latency_ms) plus cell counts.
+#   2. Solver baseline timings (constraints/solver.test.jac — "baseline timings
+#      print for progress log": 2000 row merges, 100-constraint chain solve).
+#
+# === jac provisioning ===
+# A pinned upstream release binary is downloaded from jaseci-labs/jac GitHub
+# releases (single self-contained executable, no zig/LLVM/pip needed). The pin
+# is v0.37.4 — the newest release that can run this repo's app/ code:
+#   * v0.37.5+ rejects the path-style `[project] entry-point` in app/jac.toml
+#     (upstream #8920 added validate_entry_point requiring a dotted module).
+#   * ~v0.37.18+ rejects bare `list`/`dict` annotations (checker E1036) used
+#     in app/ sources.
+#   * pip `jaclang` (0.16.x) is a different toolchain generation and cannot
+#     run this app; building vendor/jac needs zig 0.16 + LLVM slice + a slow
+#     first-run compiler compile — not CI-viable.
+# v0.37.4 was verified locally: solver.test.jac 26/26 pass; the gate4 bench
+# prints Gate4Report. NOTE: `jac run -c` (README invocation) does not exist in
+# 0.37.4 — `-c` is `--cache` there — so small runner files are generated below.
+#
+# === app/jac.toml handling ===
+# The benchmark steps run jac from app/ with jac.toml moved aside. Reason:
+# `[build] default_codespace = "native"` forces per-function native demotion
+# under this compiler, which breaks `import from x { y }` name binding at call
+# sites (verified: gate4 fails with "name 'create_session' is not defined").
+# `jac test` ignores placement pins anyway (pre-seal), and `jac run` of a file
+# is interpreted — so the numbers measure the same server-codespace path the
+# documented invocations produce. The repo file is untouched; the checkout is
+# ephemeral.
+#
+# === env notes (AGENTS.md) ===
+# JAC_TEST_JOBS=0 forces serial test runs. HOME on ubuntu-latest is already
+# disk-backed (the tmpfs caveat is for local dev); ~/.cache/jac is cached so
+# the one-time payload extraction (~90-110 MiB) and the embedded-postgres
+# fetch happen once per jac version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jac_version:
+        description: jac release version from jaseci-labs/jac (see header comment for why 0.37.4)
+        required: true
+        default: "0.37.4"
+      gate4_iterations:
+        description: in-process iterations of run_gate4_invalidation_bench
+        required: true
+        default: "5"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/benchmark.yml"
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAC_VERSION: ${{ inputs.jac_version || '0.37.4' }}
+  GATE4_ITERS: ${{ inputs.gate4_iterations || '5' }}
+  JAC_TEST_JOBS: "0"
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Extracted jac payload + embedded postgres live under ~/.cache/jac.
+      # Caching avoids ~15s extraction and a postgres download on each run.
+      - name: Cache jac runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/jac
+          key: jac-rt-${{ env.JAC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            jac-rt-${{ env.JAC_VERSION }}-
+
+      - name: Download jac ${{ env.JAC_VERSION }} release binary
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/jac-bin"
+          cd "$RUNNER_TEMP/jac-bin"
+          base="https://github.com/jaseci-labs/jac/releases/download/v${JAC_VERSION}"
+          asset="jac-${JAC_VERSION}-linux-x86_64"
+          curl -fsSL -o jac "$base/$asset"
+          curl -fsSL -o "$asset.sha256" "$base/$asset.sha256"
+          sed "s|$asset|jac|" "$asset.sha256" | sha256sum -c -
+          chmod +x jac
+          echo "$RUNNER_TEMP/jac-bin" >> "$GITHUB_PATH"
+          ./jac --version
+
+      - name: Neutralize app/jac.toml for interpreted benchmarking
+        run: |
+          set -euo pipefail
+          # See header comment: the checkout is ephemeral; the repo file is
+          # not modified. Kept as a backup name for debugging in the logs.
+          mv app/jac.toml app/jac.toml.bench-disabled
+          ls app/
+
+      - name: Generate benchmark runner files
+        run: |
+          set -euo pipefail
+          mkdir -p bench-out
+          # `report` is a Jac keyword — the loop var is named `rep`.
+          cat > app/bench_gate4.jac <<'JAC'
+          """CI benchmark runner — invokes run_gate4_invalidation_bench
+          in-process and prints each Gate4Report for parsing. `jac run -c`
+          does not exist in jac 0.37.4, hence this file."""
+
+          import ui.gates;
+
+          with entry {
+              iterations: int = __GATE4_ITERS__;
+              for i in range(iterations) {
+                  rep = ui.gates.run_gate4_invalidation_bench();
+                  print("GATE4_ITER " + str(i + 1) + " " + str(rep));
+              }
+          }
+          JAC
+          sed -i "s/__GATE4_ITERS__/${GATE4_ITERS}/" app/bench_gate4.jac
+
+          # jac test captures print() on passing tests, so the timing numbers
+          # from "baseline timings print for progress log" are reproduced here
+          # verbatim (same measurement code, same asserts) for benchmark output.
+          cat > app/bench_solver.jac <<'JAC'
+          """CI timing runner — mirrors the "baseline timings print" test in
+          constraints/solver.test.jac so the ms timings reach stdout."""
+
+          import from constraints.solver { Solver }
+          import from constraints.solver_types { Row }
+          import from constraints.algebra {
+              Expression,
+              Term,
+              Variable,
+              add_expressions,
+              eq,
+          }
+          import from time { perf_counter }
+
+
+          def _vt(v: Variable, c: float = 1.0) -> Expression {
+              return Expression(terms=[Term(variable=v, coefficient=c)]);
+          }
+
+
+          def _sum(parts: list[Expression]) -> Expression {
+              acc = Expression();
+              for p in parts {
+                  acc = add_expressions(acc, p);
+              }
+              return acc;
+          }
+
+
+          with entry {
+              rows: list[Row] = [];
+              for i in range(2000) {
+                  r = Row();
+                  r.insert_symbol(i + 1, 1.0);
+                  r.insert_symbol(i + 2, -0.5);
+                  rows.append(r);
+              }
+              t0 = perf_counter();
+              acc = Row();
+              for r in rows {
+                  acc.insert_row(r, 0.5);
+              }
+              t1 = perf_counter();
+
+              s = Solver();
+              vs: list[Variable] = [];
+              for i in range(100) {
+                  vs.append(s.new_variable());
+              }
+              t2 = perf_counter();
+              assert s.add_constraint(eq(_vt(vs[0]))).ok;
+              for i in range(1, 100) {
+                  c = _sum([
+                      _vt(vs[i]),
+                      _vt(vs[i - 1], -1.0),
+                      Expression(constant=-1.0),
+                  ]);
+                  assert s.add_constraint(eq(c)).ok;
+              }
+              vals = s.snapshot().values;
+              t3 = perf_counter();
+              assert vals[vs[99].id] == 99.0;
+
+              print(
+                  "M1 baseline: 2000 row merges in "
+                  + str((t1 - t0) * 1000.0)
+                  + " ms; 100-constraint one-shot chain solve in "
+                  + str((t3 - t2) * 1000.0)
+                  + " ms"
+              );
+          }
+          JAC
+
+      - name: Gate 4 invalidation bench (${{ env.GATE4_ITERS }} iterations)
+        run: |
+          set -o pipefail
+          mkdir -p bench-out
+          cd app
+          JACPATH=. jac run bench_gate4.jac 2>&1 | tee ../bench-out/gate4.log
+
+      - name: Solver timing test (correctness gate)
+        run: |
+          cd app
+          jac test constraints/solver.test.jac \
+            -t "baseline timings print for progress log" -v 2>&1 \
+            | tee ../bench-out/solver-test.log
+
+      - name: Solver baseline timings (measured values)
+        run: |
+          set -o pipefail
+          cd app
+          JACPATH=. jac run bench_solver.jac 2>&1 | tee ../bench-out/solver.log
+
+      # `jac run` under 0.37.4 exits 0 even when the program errors, so this
+      # step also fails the job if no measurements were parsed.
+      - name: Parse results into step summary
+        run: |
+          python3 - <<'PY'
+          import os, re, statistics, sys
+
+          def fnum(s):
+              return float(s)
+
+          gate4 = []
+          gate4_re = re.compile(
+              r"Gate4Report\(nodes_queried=(\d+), cells_written=(\d+), "
+              r"latency_ms=([\d.eE+-]+), full_frame_cells=(\d+), "
+              r"retained_cells=(\d+)\)"
+          )
+          try:
+              for line in open("bench-out/gate4.log", errors="replace"):
+                  m = gate4_re.search(line)
+                  if m:
+                      gate4.append(
+                          dict(nodes=int(m.group(1)), cells=int(m.group(2)),
+                               ms=fnum(m.group(3)), full=int(m.group(4)),
+                               retained=int(m.group(5)))
+                      )
+          except FileNotFoundError:
+              pass
+
+          solver = None
+          solver_re = re.compile(
+              r"2000 row merges in ([\d.eE+-]+) ms; "
+              r"100-constraint one-shot chain solve in ([\d.eE+-]+) ms"
+          )
+          try:
+              for line in open("bench-out/solver.log", errors="replace"):
+                  m = solver_re.search(line)
+                  if m:
+                      solver = (fnum(m.group(1)), fnum(m.group(2)))
+          except FileNotFoundError:
+              pass
+
+          lines = []
+          lines.append("## Osprey benchmarks")
+          lines.append("")
+          lines.append(f"jac `{os.environ['JAC_VERSION']}` · "
+                       f"commit `{os.environ['GITHUB_SHA'][:10]}` · "
+                       f"interpreted (server-codespace) path")
+          lines.append("")
+
+          ok = True
+          lines.append("### Gate 4 — invalidation / frame update")
+          lines.append("")
+          if gate4:
+              lines.append("| iter | latency_ms | cells_written | nodes_queried "
+                           "| retained_cells | full_frame_cells |")
+              lines.append("|---:|---:|---:|---:|---:|---:|")
+              for i, r in enumerate(gate4, 1):
+                  lines.append(f"| {i} | {r['ms']:.3f} | {r['cells']} | "
+                               f"{r['nodes']} | {r['retained']} | {r['full']} |")
+              lat = [r["ms"] for r in gate4]
+              lines.append("")
+              lines.append(f"latency_ms — min **{min(lat):.3f}**, "
+                           f"median **{statistics.median(lat):.3f}**, "
+                           f"max **{max(lat):.3f}** "
+                           f"(n={len(lat)})")
+          else:
+              ok = False
+              lines.append(":x: no Gate4Report measurements parsed — see artifact logs")
+          lines.append("")
+
+          lines.append("### Solver — baseline timings")
+          lines.append("")
+          if solver:
+              lines.append("| metric | ms |")
+              lines.append("|---|---:|")
+              lines.append(f"| 2000 row merges | {solver[0]:.3f} |")
+              lines.append(f"| 100-constraint one-shot chain solve | {solver[1]:.3f} |")
+          else:
+              ok = False
+              lines.append(":x: no solver timing line parsed — see artifact logs")
+          lines.append("")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+
+          if not ok:
+              print("::error::benchmark parsing produced no results", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Upload raw benchmark logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-logs
+          path: |
+            bench-out/
+            app/bench_gate4.jac
+            app/bench_solver.jac
+          retention-days: 30
