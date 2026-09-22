@@ -525,10 +525,10 @@ test "baseline timings print for progress log" {
 }
 
 
-def _fixture_expr(vs: list[Variable], pairs: list, const: float) -> Expression {
+def _fixture_expr(vs: list[Variable], pairs: list[any], const: float) -> Expression {
     acc: Expression = Expression(constant=const);
     for pair in pairs {
-        plist: list = pair as list;
+        plist: list[any] = pair as list[any];
         vid: int = int(plist[0] as int);
         coef: float = plist[1] as float;
         acc = add_expressions(

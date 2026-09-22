@@ -132,7 +132,7 @@ their parent, so snapping preserves pinning exactly."""
 def _place_axis(
     result: CompileResult,
     values: dict[int, float],
-    order: list,
+    order: list[_ScopedNode],
     parent_id: str,
     p_start: int,
     p_end: int,
