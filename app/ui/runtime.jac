@@ -50,12 +50,10 @@ import from ui.runtime_core {
     register_capability,
     release_capabilities,
     record_invalidation,
-    ui_jids_reachable_from_persistent_root,
     validate_session,
     dispose_session,
     get_focus_node,
 }
-
 
 """Unit 7 — focus order, layer z-order, and modal overlay lifecycle."""
 
@@ -113,14 +111,12 @@ def _ranked_overlay_desc(pair: RankedOverlay) -> int {
 def _layer_pairs(screen: Screen) -> list[RankedOverlay] {
     pairs: list[RankedOverlay] = [];
     for candidate in [screen ->:Layer:->] {
-        if isinstance(candidate, Overlay) {
-            pairs.append(
-                RankedOverlay(
-                    z_index=_layer_z(screen, candidate),
-                    overlay=candidate,
-                )
-            );
-        }
+        pairs.append(
+            RankedOverlay(
+                z_index=_layer_z(screen, candidate),
+                overlay=candidate,
+            )
+        );
     }
     return pairs;
 }

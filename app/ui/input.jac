@@ -55,60 +55,57 @@ obj InputNormalizer {
             return [];
         }
         out: list[HostEvent] = [];
-        self.buffer += data;
-        if self.paste_mode {
-            self.paste_buffer += self.buffer;
-            self.buffer = "";
-            end_idx = (
-                -1
-                if BRACKETED_PASTE_END not in self.paste_buffer
-                else self.paste_buffer.index(BRACKETED_PASTE_END)
-            );
-            if end_idx != -1 {
-                pasted = self.paste_buffer[0:end_idx];
-                remaining = self.paste_buffer[end_idx + len(BRACKETED_PASTE_END):];
-                self.paste_mode = False;
-                self.paste_buffer = "";
-                out.append(PasteEvent(text=pasted));
-                if remaining {
-                    out.extend(self.feed(remaining));
+        pending = data;
+        # Leftover bytes after a complete paste terminator re-enter the
+        # pipeline iteratively; a self-recursive call trips a native
+        # codegen cycle (RecursionError during seal).
+        while True {
+            self.buffer += pending;
+            if self.paste_mode {
+                self.paste_buffer += self.buffer;
+                self.buffer = "";
+                end_idx = self.paste_buffer.find(BRACKETED_PASTE_END);
+                if end_idx != -1 {
+                    pasted = self.paste_buffer[0:end_idx];
+                    remaining = self.paste_buffer[end_idx + len(BRACKETED_PASTE_END):];
+                    self.paste_mode = False;
+                    self.paste_buffer = "";
+                    out.append(PasteEvent(text=pasted));
+                    if remaining {
+                        pending = remaining;
+                        continue;
+                    }
                 }
+                return out;
             }
-            return out;
-        }
-        start_idx = (
-            -1
-            if BRACKETED_PASTE_START not in self.buffer
-            else self.buffer.index(BRACKETED_PASTE_START)
-        );
-        if start_idx != -1 {
-            if start_idx > 0 {
-                before = self.buffer[0:start_idx];
-                extracted = extract_sequences(before);
-                for seq in extracted["sequences"] {
-                    out.append(decode_sequence(str(seq)));
+            start_idx = self.buffer.find(BRACKETED_PASTE_START);
+            if start_idx != -1 {
+                if start_idx > 0 {
+                    before = self.buffer[0:start_idx];
+                    extracted = extract_sequences(before);
+                    for seq in extracted["sequences"] {
+                        out.append(decode_sequence(str(seq)));
+                    }
                 }
-            }
-            self.buffer = self.buffer[start_idx + len(BRACKETED_PASTE_START):];
-            self.paste_mode = True;
-            self.paste_buffer = self.buffer;
-            self.buffer = "";
-            end_idx = (
-                -1
-                if BRACKETED_PASTE_END not in self.paste_buffer
-                else self.paste_buffer.index(BRACKETED_PASTE_END)
-            );
-            if end_idx != -1 {
-                pasted = self.paste_buffer[0:end_idx];
-                remaining = self.paste_buffer[end_idx + len(BRACKETED_PASTE_END):];
-                self.paste_mode = False;
-                self.paste_buffer = "";
-                out.append(PasteEvent(text=pasted));
-                if remaining {
-                    out.extend(self.feed(remaining));
+                self.buffer = self.buffer[start_idx + len(BRACKETED_PASTE_START):];
+                self.paste_mode = True;
+                self.paste_buffer = self.buffer;
+                self.buffer = "";
+                end_idx = self.paste_buffer.find(BRACKETED_PASTE_END);
+                if end_idx != -1 {
+                    pasted = self.paste_buffer[0:end_idx];
+                    remaining = self.paste_buffer[end_idx + len(BRACKETED_PASTE_END):];
+                    self.paste_mode = False;
+                    self.paste_buffer = "";
+                    out.append(PasteEvent(text=pasted));
+                    if remaining {
+                        pending = remaining;
+                        continue;
+                    }
                 }
+                return out;
             }
-            return out;
+            break;
         }
         extracted = extract_sequences(self.buffer);
         self.buffer = str(extracted["remainder"]);

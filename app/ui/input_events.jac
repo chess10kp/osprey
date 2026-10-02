@@ -1,9 +1,9 @@
 """Host-event value objects shared by the input decoder and normalizer."""
 
 
-glob ESC = "\x1b";
-glob BRACKETED_PASTE_START = "\x1b[200~";
-glob BRACKETED_PASTE_END = "\x1b[201~";
+glob ESC: str = "\x1b";
+glob BRACKETED_PASTE_START: str = "\x1b[200~";
+glob BRACKETED_PASTE_END: str = "\x1b[201~";
 
 
 obj HostEvent {

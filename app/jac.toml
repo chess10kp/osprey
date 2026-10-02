@@ -2,15 +2,16 @@
 name = "osprey"
 version = "0.1.0"
 description = "Osprey - OSP terminal UI framework for Jac"
-entry-point = "ui/demo_live_shell.jac"
+entry-point = "ui.demo_entry"
 
-[build]
-default_codespace = "native"
+[placement]
+default = "native"
 
-# Placement pins are deliberate: the layout path stays server-pinned;
-# pure-compute modules lower natively. Each pin is annotated with its
-# compiler/runtime wall. `jac test` ignores pins (pre-seal); a pin flip
-# MUST be validated by `jac build` + running the sealed artifact.
+# Placement pins are deliberate: every application module is requested native;
+# residual compiler/runtime walls are recorded per function below. This is the
+# N6 flip: six server pins became native after the module-level seal frontier
+# was closed. `jac test` ignores pins (pre-seal); this flip MUST be validated
+# by `jac build` + running the sealed artifact.
 [placement.pins]
 # Constraint layout engine: algebra, layout_relations and solver all lower
 # natively. Suites green: layout_relations 7/7, roundtrip 36/36, solver 26/26.
@@ -42,9 +43,9 @@ default_codespace = "native"
 # server-pinned ui.events (E5093 boundary); suite passes server-placed.
 # ui.focus: BLOCKED native — its test annex calls create_session (ui.runtime)
 # whose cross-unit native layout is not visible at focus's seal position.
-"ui.gates" = "server"
+"ui.gates" = "native"
 "ui.progress_bar" = "native"
-"ui.focus" = "server"
+"ui.focus" = "native"
  # ui.terminal / ui.virtual_terminal: native in dev (6/6, 15/15 in a
  # no-server sandbox; `jac test` ignores placement pins). SEAL walls
  # re-read 2026-08-31 after the vendor floor-cast fix (vendor 2be42fa04:
@@ -79,7 +80,7 @@ default_codespace = "native"
 # (RC/allocator interplay) in the full-module context only; minimal
 # faithful repros pass at both opt levels. Next probe: RC release audit of
 # the concat/field-store path in feed (`self.buffer += data`).
-"ui.input" = "server"
+"ui.input" = "native"
  # SEAL walls (2026-08-31 re-seal read) -- dev-native, seal-server:
  # screen E5092 create_session; transcript E5092 TranscriptView;
  # model/mutation/runtime E5092 UnaryExpr / MainScreen / attribute 'key'
@@ -104,8 +105,18 @@ default_codespace = "native"
 # ui.events: lowers in dev (test annex passes 69/69) BUT seal-time demotes due
 # to cross-unit create_session from ui.runtime (UiSession boundary).
 # Until that lands natively, events stays server.
-"ui.events" = "server"
+"ui.events" = "native"
 # inspect/demos: hold for the events frontier above (walker dispatch +
 # annex walls); demos additionally spawn walkers (SetProgress).
-"ui.inspect" = "server"
-"ui.demo_live_shell" = "server"
+"ui.inspect" = "native"
+# ui.demo_live_shell_model: import-closure scan vetoes it through
+# ui.transcript -> ui.markdown_proj's `import re` (no na_stdlib regex
+# floor). All of LiveShell's field types live in native modules, so the
+# pin is sound; the scan veto is the only blocker.
+"ui.demo_live_shell_model" = "native"
+"ui.demo_live_shell" = "native"
+# ui.demo_entry: the demo's composition root — calls run_live_shell_demo,
+# which stays Python-side while the terminal/FFI frontier demotes. A native
+# `with entry` cannot reach a demoted callee (E5092 hard failure), so the
+# entry is pinned server until the live loop lowers.
+"ui.demo_entry" = "server"

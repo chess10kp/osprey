@@ -55,7 +55,7 @@ def _solver_remove_core(s: any, tag: Tag, strength: StrengthTier, jnl: MutationJ
     # substitutions into the objective would double-count them.
     _solver_remove_constraint_effects(s, tag, strength, jnl);
     marker = tag.marker;
-    if marker in s.rows {
+    if marker in (s.rows as dict[int, Row]) {
         # Marker is basic: simply drop the row.
         _journal_pop_row(s, marker, jnl);
     } else {

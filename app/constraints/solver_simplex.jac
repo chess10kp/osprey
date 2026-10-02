@@ -297,7 +297,7 @@ def _solver_add_with_artificial_variable(s: any, row: Row, jnl: MutationJournal)
 
     success = near_zero(artificial.constant);
 
-    if art in s.rows {
+    if art in (s.rows as dict[int, Row]) {
         pivot_row = _journal_pop_row(s, art, jnl);
         if len(pivot_row.cells) > 0 {
             entering = _solver_any_pivotable_symbol(s, pivot_row);
@@ -346,7 +346,7 @@ def _solver_substitute(s: any,
         if (
             _journal_kind_of(s, row_symbol) != SymbolKind.EXTERNAL
             and s.rows[row_symbol].constant < 0.0
-            and row_symbol not in s.infeasible_rows
+            and row_symbol not in (s.infeasible_rows as list[int])
         ) {
             s.infeasible_rows.append(row_symbol);
         }
@@ -363,7 +363,7 @@ def _solver_add_objective(s: any,
     }
     _journal_touch_objective(s, jnl);
     s.objective.insert_symbol(symbol, weight);
-    if symbol in s.rows {
+    if symbol in (s.rows as dict[int, Row]) {
         s.objective.substitute(symbol, s.rows[symbol]);
     }
 }

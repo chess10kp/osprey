@@ -33,16 +33,15 @@ import fcntl;
 import struct;
 
 
-glob ESC = "\x1b";
-glob ENABLE_BRACKETED_PASTE = "\x1b[?2004h";
-glob DISABLE_BRACKETED_PASTE = "\x1b[?2004l";
-glob ENTER_ALT_SCREEN = "\x1b[?1049h";
-glob LEAVE_ALT_SCREEN = "\x1b[?1049l";
-glob SYNC_BEGIN = "\x1b[?2026h";
-glob SYNC_END = "\x1b[?2026l";
-glob HIDE_CURSOR = "\x1b[?25l";
-glob SHOW_CURSOR = "\x1b[?25h";
-glob CLEAR_SCREEN = "\x1b[2J\x1b[H";
+glob ENABLE_BRACKETED_PASTE: str = "\x1b[?2004h";
+glob DISABLE_BRACKETED_PASTE: str = "\x1b[?2004l";
+glob ENTER_ALT_SCREEN: str = "\x1b[?1049h";
+glob LEAVE_ALT_SCREEN: str = "\x1b[?1049l";
+glob SYNC_BEGIN: str = "\x1b[?2026h";
+glob SYNC_END: str = "\x1b[?2026l";
+glob HIDE_CURSOR: str = "\x1b[?25l";
+glob SHOW_CURSOR: str = "\x1b[?25h";
+glob CLEAR_SCREEN: str = "\x1b[2J\x1b[H";
 
 
 """Minimal terminal capability surface used by the renderer and host loop."""

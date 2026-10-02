@@ -18,6 +18,7 @@ import from ui.model {
     Layer,
     node_id,
     ordered_children,
+    find_node_by_jid,
 }
 
 import from ui.runtime {
@@ -95,21 +96,6 @@ obj DispatchRecord {
 }
 
 
-def _find_node_by_jid(n: UiNode, target_jid: str) -> UiNode | None {
-    if node_id(n) == target_jid {
-        return n;
-    }
-    if isinstance(n, UiContainer) {
-        for child in ordered_children(n) {
-            found = _find_node_by_jid(child, target_jid);
-            if found is not None {
-                return found;
-            }
-        }
-    }
-    return None;
-}
-
 
 def _get_focus_node(session: UiSession) -> UiNode | None {
     if session.disposed or session.ui_root is None or not session.focus_id {
@@ -118,7 +104,7 @@ def _get_focus_node(session: UiSession) -> UiNode | None {
     if session.focus_id not in session.tracked_node_ids {
         return None;
     }
-    return _find_node_by_jid(session.ui_root, session.focus_id);
+    return find_node_by_jid(session.ui_root, session.focus_id);
 }
 
 
@@ -160,9 +146,6 @@ def topmost_modal_overlay(session: UiSession) -> Overlay | None {
     best: Overlay | None = None;
     best_z = -1;
     for candidate in [screen ->:Layer:->] {
-        if not isinstance(candidate, Overlay) {
-            continue;
-        }
         for layer_edge in [edge screen ->:Layer:-> candidate] {
             if layer_edge.modal and layer_edge.z_index > best_z {
                 best_z = layer_edge.z_index;

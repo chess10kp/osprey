@@ -82,17 +82,6 @@ def _flow_soft_claim(size: AxisSize, natural: float | None) -> float {
 }
 
 
-"""Unwrap a float-or-None that is semantically required (FIXED mode
-guarantees a preferred value; validation enforces it). Falls back to
-0.0 only to satisfy the type checker on impossible paths."""
-def _req(v: float | None) -> float {
-    if v is None {
-        return 0.0;
-    }
-    return v;
-}
-
-
 """Bounded proportional allocation with freeze-at-bound iteration
 (plan §6.2 steps 2–5, with the §4.1-review hard/soft claim split).
 Arithmetic uses hard claims only; `overflow` is flagged when either the

@@ -45,7 +45,7 @@ test "dump_graph is deterministic for the same topology" {
 }
 
 
-test "dump_bindings lists source target and event type" {
+test "dump_session_bindings lists source target and event type" {
     handle = create_session();
     session = handle.session;
     ui_root = session.ui_root;
@@ -55,7 +55,7 @@ test "dump_bindings lists source target and event type" {
     append_child_session(session, ui_root, screen);
     append_child_session(session, screen, transcript);
     subscribe(session.bindings, "session.events", node_id(transcript), "TranscriptChanged");
-    text = dump_bindings(session);
+    text = dump_session_bindings(session);
     assert "session.events" in text;
     assert (node_id(transcript) in text) or ("transcript" in text);
     assert "TranscriptChanged" in text;

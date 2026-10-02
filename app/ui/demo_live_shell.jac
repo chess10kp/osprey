@@ -15,10 +15,8 @@ Keys:
   esc            dismiss approval, else quit
   ctrl+c         quit (terminal restored)
 
-  JACPATH=. jac run ui/demo_live_shell.jac
+  JACPATH=. jac run ui/demo_entry.jac
 """
-
-import sys;
 
 import from ui.runtime {
     UiSession,
@@ -106,9 +104,6 @@ import from ui.demo_live_shell_render {
     _install_layout,
     _render,
 }
-
-
-glob SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 
 def _apply_resize(app: LiveShell, columns: int, rows: int) {
@@ -421,11 +416,4 @@ def run_live_shell_demo() {
 }
 
 
-with entry {
-    if not sys.stdin.isatty() or not sys.stdout.isatty() {
-        print("demo_live_shell needs a real TTY.");
-        print("  JACPATH=. jac run ui/demo_live_shell.jac");
-        raise SystemExit(1);
-    }
-    run_live_shell_demo();
-}
+

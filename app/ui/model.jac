@@ -193,3 +193,19 @@ def is_child_ancestor(ancestor: UiNode, child: UiNode) -> bool {
     }
     return False;
 }
+
+"""Subtree lookup by jid (DFS in key order)."""
+def find_node_by_jid(n: UiNode, target_jid: str) -> UiNode | None {
+    if node_id(n) == target_jid {
+        return n;
+    }
+    if isinstance(n, UiContainer) {
+        for child in ordered_children(n) {
+            found = find_node_by_jid(child, target_jid);
+            if found is not None {
+                return found;
+            }
+        }
+    }
+    return None;
+}

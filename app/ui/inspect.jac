@@ -139,7 +139,7 @@ def dump_graph(session: UiSession) -> str {
 
 
 """Dump domain source → UI target bindings."""
-def dump_bindings(session: UiSession) -> str {
+def dump_session_bindings(session: UiSession) -> str {
     lines: list[str] = [];
     sources = sorted(session.bindings.by_source.keys());
     for source_id in sources {

@@ -18,6 +18,7 @@ import from ui.model {
     Owns,
     node_id,
     ordered_children,
+    find_node_by_jid,
 }
 
 import from ui.mutation {
@@ -205,39 +206,6 @@ def record_invalidation(
 }
 
 
-"""BFS from Jac persistent root across all edge types; return UI jids found."""
-def ui_jids_reachable_from_persistent_root(ui_jids: set[str]) -> list[str] {
-    found: list[str] = [];
-    visited: set[str] = set();
-    # Seed via append: an any-typed list literal (`= [root]`) does not lower
-    # natively, while append onto an explicitly typed list does.
-    queue: list[any] = [];
-    queue.append(root);
-    while queue {
-        current = queue.pop(0);
-        current_jid = jid(current);
-        if current_jid in ui_jids {
-            found.append(current_jid);
-        }
-        for neighbor in [current -->] {
-            nj = jid(neighbor);
-            if nj not in visited {
-                visited.add(nj);
-                queue.append(neighbor);
-            }
-        }
-        for neighbor in [current <--] {
-            nj = jid(neighbor);
-            if nj not in visited {
-                visited.add(nj);
-                queue.append(neighbor);
-            }
-        }
-    }
-    return found;
-}
-
-
 def _endpoint_tracked(session: UiSession, n: UiNode) -> bool {
     return node_id(n) in session.tracked_node_ids;
 }
@@ -290,21 +258,6 @@ def _collect_stale_edges(session: UiSession) -> list[str] {
     return stale;
 }
 
-
-def _find_node_by_jid(n: UiNode, target_jid: str) -> UiNode | None {
-    if node_id(n) == target_jid {
-        return n;
-    }
-    if isinstance(n, UiContainer) {
-        for child in ordered_children(n) {
-            found = _find_node_by_jid(child, target_jid);
-            if found is not None {
-                return found;
-            }
-        }
-    }
-    return None;
-}
 
 
 def validate_session(session: UiSession) -> list[SessionLeak] {
@@ -393,5 +346,5 @@ def get_focus_node(session: UiSession) -> UiNode | None {
     if session.focus_id not in session.tracked_node_ids {
         return None;
     }
-    return _find_node_by_jid(session.ui_root, session.focus_id);
+    return find_node_by_jid(session.ui_root, session.focus_id);
 }
