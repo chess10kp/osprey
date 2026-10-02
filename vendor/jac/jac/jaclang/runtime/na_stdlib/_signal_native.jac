@@ -69,7 +69,27 @@ def _on_signal(sig: i32) -> None {
 
 
 def _fresh_action() -> _SigAction {
-    act: _SigAction = _SigAction();
+    act: _SigAction = _SigAction(
+        handler=_on_signal,
+        mask0=0,
+        mask1=0,
+        mask2=0,
+        mask3=0,
+        mask4=0,
+        mask5=0,
+        mask6=0,
+        mask7=0,
+        mask8=0,
+        mask9=0,
+        mask10=0,
+        mask11=0,
+        mask12=0,
+        mask13=0,
+        mask14=0,
+        mask15=0,
+        flags=0,
+        restorer_pad=0
+    );
     return act;
 }
 

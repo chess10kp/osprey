@@ -1,4 +1,7 @@
-import from jaclang.compiler.frontend.codeinfo { HDR_ALLOC_ID_OFF }
+import from jaclang.compiler.frontend.codeinfo {
+    HDR_ALLOC_ID_OFF,
+    JACSTR_DESC_FIELDS,
+}
 
 impl NativeBuiltinEmitter.emit_jid(
     self: NativeBuiltinEmitter, ctx: NativeEmitCtx, args: list[ir.Value]
@@ -3360,6 +3363,20 @@ impl NativeListEmitter.emit_sort(
     if isinstance(cmp_type, ir.DoubleType) {
         cmp_gt = b.fcmp_ordered(">", cj, cj1, name="sort.gt");
         cmp_lt = b.fcmp_ordered("<", cj, cj1, name="sort.lt");
+    } elif (
+        isinstance(cmp_type, ir.IdentifiedStructType)
+        and cmp_type.name == "JacStr"
+    ) {
+        _di = JACSTR_DESC_FIELDS[p._str_desc_kind()].index("data");
+        _kj_data = b.extract_value(cj, _di, name="sort.kj.data");
+        _kj1_data = b.extract_value(cj1, _di, name="sort.kj1.data");
+        cmp_result = p._call_str_cmp(b, _kj_data, _kj1_data, name="sort.cmp");
+        cmp_gt = b.icmp_signed(
+            ">", cmp_result, ir.Constant(ir.IntType(32), 0), name="sort.gt"
+        );
+        cmp_lt = b.icmp_signed(
+            "<", cmp_result, ir.Constant(ir.IntType(32), 0), name="sort.lt"
+        );
     } elif isinstance(cmp_type, ir.PointerType) {
         _i8p_cmp = ir.IntType(8).as_pointer();
         cmp_result = p._call_str_cmp(
