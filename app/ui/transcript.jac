@@ -130,8 +130,8 @@ def _total_height(proj: TranscriptProjection) -> int {
 }
 
 
-def _line_ranges(proj: TranscriptProjection) -> list[dict] {
-    ranges: list[dict] = [];
+def _line_ranges(proj: TranscriptProjection) -> list[dict[str, any]] {
+    ranges: list[dict[str, any]] = [];
     cursor = 0;
     for message in proj.messages {
         height = measure_message_height(proj, message, proj.viewport_width);
@@ -348,10 +348,10 @@ def measure_message_height(
 
 
 """Projection spans for visible lines — domain → text/style_id, not a component tree."""
-def project_visible_spans(proj: TranscriptProjection) -> list[dict] {
+def project_visible_spans(proj: TranscriptProjection) -> list[dict[str, any]] {
     win = materialize_visible(proj);
     # Prefer rich markdown spans when the visible window maps to md messages.
-    rich: list[dict] = [];
+    rich: list[dict[str, any]] = [];
     if proj.messages {
         # Rebuild visible span rows from messages in the same order as
         # materialize_visible (width + overscan window).
@@ -404,7 +404,7 @@ def project_visible_spans(proj: TranscriptProjection) -> list[dict] {
             }
         }
     }
-    spans: list[dict] = [];
+    spans: list[dict[str, any]] = [];
     for line in win.lines {
         spans.append({"text": line, "style_id": "default"});
     }

@@ -97,8 +97,8 @@ def run_host_tick(
 
 
 """Thin mapping of common host keys to effect-like dicts for demos/tests."""
-def host_events_to_effects(events: list[HostEvent]) -> list[dict] {
-    effects: list[dict] = [];
+def host_events_to_effects(events: list[HostEvent]) -> list[dict[str, any]] {
+    effects: list[dict[str, any]] = [];
     for event in events {
         if isinstance(event, InterruptEvent) {
             effects.append({"kind": "cancel"});

@@ -25,7 +25,7 @@ active fiber (enforced lightly); no async/inertia - deactivation is eager.
 retracts when run (used for dependency-notification after recovery)."""
 obj Inverse {
     has fn: Callable,
-        args: list = [],
+        args: list[any] = [],
         keys: list[str] = [];
 
     def run -> None {
@@ -99,7 +99,7 @@ obj EffectContext {
     """Record an inverse into the acting fiber's accumulator (or root)."""
     def _record(inv: Inverse) -> None {
         if self.current_fiber {
-            frame: list | None = self.frames.get(self.current_fiber);
+            frame: list[Inverse] | None = self.frames.get(self.current_fiber);
             if frame is None {
                 frame = [];
                 self.frames[self.current_fiber] = frame;
@@ -111,7 +111,7 @@ obj EffectContext {
     }
 
     """Generic revertible effect: run fn, track inverse (Alg. 1 shape)."""
-    def effect(fn: Callable, args: list, inverse: Callable, inv_args: list, keys: list[str] = []) -> None {
+    def effect(fn: Callable, args: list[any], inverse: Callable, inv_args: list[any], keys: list[str] = []) -> None {
         fn(*args);
         self._record(Inverse(fn=inverse, args=inv_args, keys=keys));
         if keys { self._notify(keys); }
@@ -159,7 +159,7 @@ obj EffectContext {
 
     """Apply a fiber's accumulated inverses LIFO; deactivate on the way."""
     def _recover_frame(name: str) -> None {
-        frame: list = self.frames.pop(name, []);
+        frame: list[Inverse] = self.frames.pop(name, []);
         fiber = self.registry.get(name);
         while frame {
             inv: Inverse = frame.pop();

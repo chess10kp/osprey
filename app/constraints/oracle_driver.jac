@@ -45,10 +45,10 @@ import from sys {
 }
 
 
-def _build_expression(terms: list, const: float) -> Expression {
+def _build_expression(terms: list[any], const: float) -> Expression {
     acc: Expression = Expression(constant=const);
     for pair in terms {
-        plist: list = pair as list;
+        plist: list[any] = pair as list[any];
         vid: int = int(plist[0] as int);
         coef: float = plist[1] as float;
         acc = add_expressions(
@@ -60,7 +60,7 @@ def _build_expression(terms: list, const: float) -> Expression {
 }
 
 
-def _run_batch(batch: dict) -> dict {
+def _run_batch(batch: dict[str, any]) -> dict[str, any] {
     version = batch.get("schema_version");
     if version != 1 {
         return {
@@ -79,10 +79,10 @@ def _run_batch(batch: dict) -> dict {
         "le": Relation.LEQ,
         "ge": Relation.GEQ,
     };
-    ops_raw = batch.get("ops", []) as list;
+    ops_raw = batch.get("ops", []) as list[any];
     for op_any in ops_raw {
-        op: dict = op_any as dict;
-        expr = _build_expression(op["terms"] as list, op["const"] as float);
+        op: dict[str, any] = op_any as dict[str, any];
+        expr = _build_expression(op["terms"] as list[any], op["const"] as float);
         c = Constraint(
             expression=expr,
             relation=rel_map[op["rel"] as str],

@@ -70,11 +70,11 @@ edge Child: UiContainer --> UiNode {
 
 
 """UI-local disposal responsibility."""
-edge Owns {}
+edge Owns: UiNode --> UiNode {}
 
 
 """UI-local invalidation dependency within the detached graph."""
-edge Feeds {}
+edge Feeds: UiNode --> UiNode {}
 
 
 """Explicit focus order override."""

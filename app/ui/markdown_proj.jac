@@ -257,8 +257,8 @@ def project_markdown(source: str, width: int = 80) -> list[ProjLine] {
 
 
 """Flatten projected lines to the span dicts used by transcript / blit."""
-def proj_lines_to_span_dicts(lines: list[ProjLine]) -> list[dict] {
-    out: list[dict] = [];
+def proj_lines_to_span_dicts(lines: list[ProjLine]) -> list[dict[str, any]] {
+    out: list[dict[str, any]] = [];
     for line in lines {
         texts: list[str] = [];
         style = "default";
