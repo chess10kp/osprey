@@ -5,9 +5,9 @@ default-attr cells here. Style lives in the retained buffer and damage path —
 not on OSP nodes and not as a frozen markup DSL.
 """
 
-import from ui.layout_types { Rect }
+import from .layout_types { Rect }
 
-import from ui.width {
+import from .width {
     segment_graphemes,
     grapheme_width,
 }

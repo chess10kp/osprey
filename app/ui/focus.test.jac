@@ -5,7 +5,7 @@ close_overlay are stubbed until Unit 7 implementation (OSPUI.md §17,
 OSPUI-P0-PLAN Unit 7).
 """
 
-import from ui.model {
+import from .model {
     MainScreen,
     Prompt,
     TranscriptView,
@@ -18,7 +18,7 @@ import from ui.model {
     node_id,
 }
 
-import from ui.runtime {
+import from .runtime {
     append_child_session,
     create_session,
     dispose_session,

@@ -4,7 +4,7 @@ Dumps read semantic graph + runtime side tables. Renderer state is never
 implied to live on graph nodes.
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -20,18 +20,18 @@ import from ui.model {
     child_rank,
 }
 
-import from ui.runtime {
+import from .runtime {
     UiSession,
     validate_session,
 }
 
-import from ui.events {
+import from .events {
     UiEvent,
     containment_path,
     resolve_target,
 }
 
-import from ui.bindings {
+import from .bindings {
     Binding,
 }
 

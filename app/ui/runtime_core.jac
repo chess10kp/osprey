@@ -5,7 +5,7 @@ persistent root. Renderer geometry and capability tables are session-local
 side tables keyed by jid(node).
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     UiSessionRoot,
@@ -21,13 +21,13 @@ import from ui.model {
     find_node_by_jid,
 }
 
-import from ui.mutation {
+import from .mutation {
     append_child,
     dispose_subtree,
     MutationResult,
 }
 
-import from ui.bindings {
+import from .bindings {
     BindingRegistry,
     clear_bindings,
     find_orphan_bindings,

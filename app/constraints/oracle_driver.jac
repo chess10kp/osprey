@@ -19,7 +19,7 @@ json/sys are the only non-constraints imports (process I/O for the
 oracle boundary); no Kiwi, no ui.*, no app modules.
 """
 
-import from constraints.algebra {
+import from .algebra {
     Constraint,
     Expression,
     Relation,
@@ -28,10 +28,10 @@ import from constraints.algebra {
     Variable,
     add_expressions,
 }
-import from constraints.results {
+import from .results {
     SolveError,
 }
-import from constraints.solver {
+import from .solver {
     Solver,
 }
 import from json {

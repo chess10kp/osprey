@@ -9,7 +9,7 @@ The coordinate convention is terminal-style: left/top are the origin and
 right = left + width, bottom = top + height.
 """
 
-import from constraints.algebra {
+import from .algebra {
     Constraint,
     Expression,
     Relation,

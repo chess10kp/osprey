@@ -1,12 +1,12 @@
 """Registered spatial relation emission for layout compilation."""
 
-import from constraints.algebra { Relation, Term }
-import from ui.layout_types {
+import from ..constraints.algebra { Relation, Term }
+import from .layout_types {
     LayoutRelation,
     LayoutRelationKind,
 }
-import from ui.layout_compile_model { CompileResult, NodeEdges, _wants }
-import from ui.layout_compile_emit { _emit, _expr, _t }
+import from .layout_compile_model { CompileResult, NodeEdges, _wants }
+import from .layout_compile_emit { _emit, _expr, _t }
 
 
 def _emit_relation(

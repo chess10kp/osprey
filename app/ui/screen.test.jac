@@ -3,15 +3,15 @@
 Companion scope provides screen APIs. runtime imported for session helpers.
 """
 
-import from ui.model {
+import from .model {
     node_id,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     SizeMode,
     create_layout_state,
 }
-import from ui.runtime {
+import from .runtime {
     create_session,
     dispose_session,
     get_focus_node,

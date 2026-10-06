@@ -1,19 +1,19 @@
 """Rendering helpers for the interactive live shell demo."""
 
-import from ui.transcript {
+import from .transcript {
     materialize_visible,
 }
 
-import from ui.demo_live_shell_model { LiveShell }
+import from .demo_live_shell_model { LiveShell }
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutSpec,
     fill_axis,
     fixed_axis,
     grow_axis,
 }
 
-import from ui.renderer {
+import from .renderer {
     render_frame,
     set_node_content,
     set_node_contract,
@@ -22,7 +22,7 @@ import from ui.renderer {
     request_cursor,
 }
 
-import from ui.width {
+import from .width {
     display_width,
     truncate_text,
 }

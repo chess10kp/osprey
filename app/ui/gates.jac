@@ -6,30 +6,30 @@ define acceptance.
 
 import from time { perf_counter }
 
-import from ui.model {
+import from .model {
     MainScreen,
     ordered_child_keys,
 }
 
-import from ui.runtime {
+import from .runtime {
     create_session,
     dispose_session,
 }
 
-import from ui.persistence_probe {
+import from .persistence_probe {
     ui_jids_reachable_from_persistent_root,
 }
 
-import from ui.bindings {
+import from .bindings {
     is_empty,
 }
 
-import from ui.events {
+import from .events {
     InsertText,
     dispatch_event,
 }
 
-import from ui.screen {
+import from .screen {
     build_main_shell,
     configure_main_shell_layout,
     install_shell_contracts,
@@ -39,31 +39,31 @@ import from ui.screen {
     shell_resize,
 }
 
-import from ui.renderer {
+import from .renderer {
     create_renderer,
     render_frame,
     set_node_content,
 }
 
-import from ui.virtual_terminal {
+import from .virtual_terminal {
     VirtualTerminal,
 }
 
-import from ui.markup {
+import from .markup {
     lower_markup,
     default_shell_registry,
     register_tag,
     create_tag_registry,
 }
 
-import from ui.progress_bar {
+import from .progress_bar {
     ProgressBar,
     SetProgress,
     render_progress,
     register_progress_markup,
 }
 
-import from ui.inspect {
+import from .inspect {
     validate_invariants,
 }
 

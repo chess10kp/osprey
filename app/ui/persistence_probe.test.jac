@@ -4,19 +4,19 @@ These checks read Jac's persistent root, so they live on the server-placed
 probe module rather than ui/runtime.test.jac (a native-sealed unit).
 """
 
-import from ui.model {
+import from .model {
     MainScreen,
     Prompt,
     node_id,
 }
 
-import from ui.runtime {
+import from .runtime {
     create_session,
     append_child_session,
     dispose_session,
 }
 
-import from ui.bindings {
+import from .bindings {
     is_empty,
     subscribe,
 }

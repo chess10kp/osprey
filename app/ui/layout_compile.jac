@@ -6,8 +6,8 @@ coordinator only validates scope, allocates variables, and orchestrates
 emission.
 """
 
-import from constraints.solver { Solver }
-import from ui.layout_types {
+import from ..constraints.solver { Solver }
+import from .layout_types {
     LayoutDiagnostic,
     LayoutError,
     LayoutSeverity,
@@ -16,23 +16,23 @@ import from ui.layout_types {
     SizeMode,
     Viewport,
 }
-import from ui.model { UiContainer, UiNode, node_id }
-import from ui.layout_compile_model {
+import from .model { UiContainer, UiNode, node_id }
+import from .layout_compile_model {
     CompileResult,
     NodeEdges,
     PartitionInfo,
     _Entry,
     _Scope,
 }
-import from ui.layout_compile_scope { _collect_scope }
-import from ui.layout_compile_emit {
+import from .layout_compile_scope { _collect_scope }
+import from .layout_compile_emit {
     _emit_invariants,
     _emit_root,
     _req,
 }
-import from ui.layout_compile_flow { _emit_partition }
-import from ui.layout_compile_overlays { _emit_overlay }
-import from ui.layout_compile_relations { _emit_relation }
+import from .layout_compile_flow { _emit_partition }
+import from .layout_compile_overlays { _emit_overlay }
+import from .layout_compile_relations { _emit_relation }
 
 
 def compile_layout(

@@ -5,7 +5,7 @@ and bump a caller-owned graph revision counter. Callers never renumber ranks
 manually; sparse ranks use a 1024 gap with normalization on exhaustion.
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     UiSessionRoot,

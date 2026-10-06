@@ -1,15 +1,15 @@
 """Retained renderer state and frame-result value objects."""
 
-import from ui.model {
+import from .model {
     UiNode,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutState,
     Rect,
 }
 
-import from ui.cells {
+import from .cells {
     CellBuffer,
 }
 

@@ -4,16 +4,16 @@ Companion scope provides markup APIs. screen/runtime imported for equivalence
 checks against Unit 8.
 """
 
-import from ui.model {
+import from .model {
     MainScreen,
     ordered_child_keys,
 }
 
-import from ui.runtime {
+import from .runtime {
     create_session,
 }
 
-import from ui.screen {
+import from .screen {
     build_main_shell,
 }
 

@@ -8,19 +8,19 @@ AblePrompt adds InsertText / Submit / Cancel abilities so the shell can
 dispatch walkers without a closure registry (ability-heavy prototype).
 """
 
-import from ui.model {
+import from .model {
     Prompt,
 }
 
-import from ui.runtime {
+import from .runtime {
     UiSession,
 }
 
-import from ui.width {
+import from .width {
     display_width,
 }
 
-import from ui.events {
+import from .events {
     InsertText,
     Submit,
     Cancel,

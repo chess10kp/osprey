@@ -5,7 +5,7 @@ across typing, streaming, resize, focus, and overlay cycles (OSPUI.md §17–18,
 OSPUI-P0-PLAN Unit 8).
 """
 
-import from ui.model {
+import from .model {
     MainScreen,
     Header,
     TranscriptView,
@@ -16,7 +16,7 @@ import from ui.model {
     node_id,
 }
 
-import from ui.runtime {
+import from .runtime {
     UiSession,
     SessionEventRecord,
     OverlayOpenResult,
@@ -31,11 +31,11 @@ import from ui.runtime {
     register_capability,
 }
 
-import from ui.bindings {
+import from .bindings {
     subscribe,
 }
 
-import from ui.events {
+import from .events {
     SendPrompt,
     InsertText,
     Submit,
@@ -43,13 +43,13 @@ import from ui.events {
     dispatch_event,
 }
 
-import from ui.editor {
+import from .editor {
     editor_insert,
     editor_submit,
     AblePrompt,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     AxisSize,
     SizeMode,
     LayoutSpec,

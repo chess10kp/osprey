@@ -7,7 +7,7 @@ FrameResult.used_full_clear and patch_rects exist so tests can assert
 patch scope.
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -16,7 +16,7 @@ import from ui.model {
     node_id,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     FrameEntry,
     LayoutResult,
     LayoutSpec,
@@ -31,16 +31,16 @@ import from ui.layout_types {
     set_spec,
 }
 
-import from ui.layout {
+import from .layout {
     compute_layout,
 }
 
-import from ui.terminal {
+import from .terminal {
     Terminal,
     synchronized_write,
 }
 
-import from ui.cells {
+import from .cells {
     CellBuffer,
     StyleAttrs,
     StyledCell,
@@ -51,17 +51,17 @@ import from ui.cells {
     diff_buffers_ansi,
 }
 
-import from ui.renderer_types {
+import from .renderer_types {
     DamageRect,
     FrameResult,
     Renderer,
 }
 
-import from ui.renderer_paint {
+import from .renderer_paint {
     _paint_frame_buffer,
 }
 
-import from ui.renderer_damage {
+import from .renderer_damage {
     compute_damage,
     _diff_ansi,
     _merge_damage,

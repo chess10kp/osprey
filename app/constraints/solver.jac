@@ -4,7 +4,7 @@ The public Solver and its historical imported symbols remain here; tableau
 rows, journaling, primal simplex, and dual simplex live in focused modules.
 """
 
-import from constraints.algebra {
+import from .algebra {
     EPSILON,
     Constraint,
     Expression,
@@ -27,13 +27,13 @@ import from constraints.algebra {
     strength_weight,
     term,
 }
-import from constraints.results {
+import from .results {
     ConstraintHandle,
     SolveError,
     SolveResult,
     SolverSnapshot,
 }
-import from constraints.solver_types {
+import from .solver_types {
     SymbolKind,
     MutationJournal,
     Tag,
@@ -43,20 +43,20 @@ import from constraints.solver_types {
     EditInfo,
 }
 
-import from constraints.solver_journal {
+import from .solver_journal {
     _journal_expression_is_finite,
     _journal_begin,
     _journal_rollback,
     _journal_witness_for_key,
     _journal_witness_extra,
 }
-import from constraints.solver_simplex {
+import from .solver_simplex {
     _solver_add_core,
     _solver_rebuild_admitting,
     _solver_replay_all,
     _solver_adopt,
 }
-import from constraints.solver_dual {
+import from .solver_dual {
     _solver_remove_core,
     _solver_dual_optimize,
     _solver_apply_suggestion,

@@ -1,14 +1,14 @@
 """Shared data model for the layout compiler's internal phases."""
 
-import from constraints.algebra { Variable }
-import from constraints.solver { Solver }
-import from ui.layout_types {
+import from ..constraints.algebra { Variable }
+import from ..constraints.solver { Solver }
+import from .layout_types {
     AxisSize,
     LayoutDiagnostic,
     LayoutSpec,
     Size,
 }
-import from ui.model { UiNode }
+import from .model { UiNode }
 
 
 """Axis-phase gate: does this phase emit constraints on the horizontal

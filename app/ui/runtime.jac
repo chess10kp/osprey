@@ -4,7 +4,7 @@ The public ui.runtime seam re-exports session state and foundational lifecycle
 operations from runtime_core, while focus and overlay operations remain here.
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     UiSessionRoot,
@@ -19,20 +19,20 @@ import from ui.model {
     ordered_children,
 }
 
-import from ui.mutation {
+import from .mutation {
     append_child,
     dispose_subtree,
     MutationResult,
 }
 
-import from ui.bindings {
+import from .bindings {
     BindingRegistry,
     clear_bindings,
     find_orphan_bindings,
     is_empty,
 }
 
-import from ui.runtime_core {
+import from .runtime_core {
     RendererState,
     CapabilityRegistry,
     InvalidationRecord,

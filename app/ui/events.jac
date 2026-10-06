@@ -9,7 +9,7 @@ framework default action unless prevented, and surface effects for
 post-propagation host execution.
 """
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -21,7 +21,7 @@ import from ui.model {
     find_node_by_jid,
 }
 
-import from ui.runtime {
+import from .runtime {
     UiSession,
 }
 

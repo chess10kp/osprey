@@ -5,7 +5,7 @@ detection, atomic add with exact rollback, provenance hooks, deterministic
 ordering, and seeded property systems.
 """
 
-import from constraints.algebra {
+import from .algebra {
     Constraint,
     Expression,
     LexWeight,

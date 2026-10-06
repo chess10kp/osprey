@@ -1,21 +1,21 @@
 """Out-of-flow overlay sizing and anchoring templates."""
 
-import from constraints.algebra { Relation, StrengthTier }
-import from ui.layout_types {
+import from ..constraints.algebra { Relation, StrengthTier }
+import from .layout_types {
     LayoutDiagnostic,
     LayoutSpec,
     OverlayAnchor,
     Size,
     SizeMode,
 }
-import from ui.model { UiNode }
-import from ui.layout_compile_model {
+import from .model { UiNode }
+import from .layout_compile_model {
     CompileResult,
     NodeEdges,
     _Entry,
     _wants,
 }
-import from ui.layout_compile_emit {
+import from .layout_compile_emit {
     _emit,
     _emit_sized_axis,
     _expr,

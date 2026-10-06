@@ -1,11 +1,11 @@
 """Transcript mutation helpers for the interactive live shell demo."""
 
-import from ui.transcript {
+import from .transcript {
     TranscriptMessage,
     apply_transcript_revision,
 }
 
-import from ui.demo_live_shell_model { LiveShell }
+import from .demo_live_shell_model { LiveShell }
 
 
 def _format_turn(role: str, body: str) -> str {

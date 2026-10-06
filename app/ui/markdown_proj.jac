@@ -7,11 +7,11 @@ cell blit / transcript spans (OSPUI §16).
 
 import re;
 
-import from ui.cells {
+import from .cells {
     StyleAttrs,
 }
 
-import from ui.width {
+import from .width {
     wrap_text,
     display_width,
 }

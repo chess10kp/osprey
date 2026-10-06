@@ -6,11 +6,11 @@ Does not construct UiEvent walkers (that stays with the product host loop).
 
 import time;
 
-import from ui.terminal {
+import from .terminal {
     Terminal,
 }
 
-import from ui.input {
+import from .input {
     HostEvent,
     InputNormalizer,
     KeyEvent,

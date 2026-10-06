@@ -1,10 +1,10 @@
 """Host loop tick tests (virtual terminal, no TTY)."""
 
-import from ui.virtual_terminal {
+import from .virtual_terminal {
     VirtualTerminal,
 }
 
-import from ui.input {
+import from .input {
     TextEvent,
     KeyEvent,
 }

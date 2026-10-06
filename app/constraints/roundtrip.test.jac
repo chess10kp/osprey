@@ -6,20 +6,20 @@ dedupes, and trades off by strength tier. No UI types (LAYOUT-ENGINE-PLAN §3);
 node identity stays caller-owned base-id ranges.
 """
 
-import from constraints.algebra {
+import from .algebra {
     Constraint,
     Expression,
     StrengthTier,
     Term,
     Variable,
 }
-import from constraints.results {
+import from .results {
     SolveError,
 }
-import from constraints.solver {
+import from .solver {
     Solver,
 }
-import from constraints.layout_relations {
+import from .layout_relations {
     affine_constraint,
     align_bottom,
     height_nonnegative,

@@ -10,7 +10,7 @@ cannot call a demoted function (E5092 hard failure, not a seam note).
 
 import from "libc.so.6" { def isatty(fd: i32) -> i32; }
 
-import from ui.demo_live_shell { run_live_shell_demo }
+import from .demo_live_shell { run_live_shell_demo }
 
 
 with entry {

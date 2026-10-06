@@ -4,11 +4,11 @@ The public module re-exports these declarations together with registry
 lifecycle operations. Keeping the data model independent avoids import cycles.
 """
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     StrengthTier,
     is_finite,
 }
-import from ui.model {
+import from .model {
     UiNode,
     node_id,
 }

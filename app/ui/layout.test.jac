@@ -15,10 +15,10 @@ ui/layout.jac and this module shares its stem.
 # (circular import at collection). Everything else — value types and the
 # registry lifecycle — comes from the leaf module ui.layout_types.
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     StrengthTier,
 }
-import from ui.layout_types {
+import from .layout_types {
     Axis,
     AxisSize,
     LayoutError,
@@ -45,7 +45,7 @@ import from ui.layout_types {
     set_spec,
     validate_spec,
 }
-import from ui.model {
+import from .model {
     ApprovalOverlay,
     Child,
     Header,

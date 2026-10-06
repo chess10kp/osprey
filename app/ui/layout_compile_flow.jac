@@ -1,10 +1,10 @@
 """Continuous flow allocation and recursive partition emission."""
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     Relation,
     StrengthTier,
 }
-import from ui.layout_types {
+import from .layout_types {
     AxisSize,
     LayoutDiagnostic,
     LayoutError,
@@ -12,8 +12,8 @@ import from ui.layout_types {
     Size,
     SizeMode,
 }
-import from ui.model { UiContainer, node_id, ordered_children }
-import from ui.layout_compile_model {
+import from .model { UiContainer, node_id, ordered_children }
+import from .layout_compile_model {
     CompileResult,
     NodeEdges,
     PartitionInfo,
@@ -22,7 +22,7 @@ import from ui.layout_compile_model {
     _FlowChild,
     _wants,
 }
-import from ui.layout_compile_emit {
+import from .layout_compile_emit {
     _axis_end,
     _axis_start,
     _emit,

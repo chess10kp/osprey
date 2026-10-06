@@ -1,6 +1,6 @@
 """Constraint primitives and per-node sizing templates."""
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     Constraint,
     Expression,
     Relation,
@@ -10,8 +10,8 @@ import from constraints.algebra {
     is_finite,
     normalize_expression,
 }
-import from constraints.solver { SolveError }
-import from ui.layout_types {
+import from ..constraints.solver { SolveError }
+import from .layout_types {
     Align,
     AxisSize,
     LayoutDiagnostic,
@@ -24,8 +24,8 @@ import from ui.layout_types {
     SizeMode,
     Viewport,
 }
-import from ui.model { UiNode }
-import from ui.layout_compile_model {
+import from .model { UiNode }
+import from .layout_compile_model {
     CompileResult,
     NodeEdges,
     _Entry,
