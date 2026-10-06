@@ -1,5 +1,5 @@
 [project]
-name = "osprey"
+name = "chess10kp/osprey"
 version = "0.1.0"
 description = "Osprey - OSP terminal UI framework for Jac"
 entry-point = "app.ui.demo_entry"
