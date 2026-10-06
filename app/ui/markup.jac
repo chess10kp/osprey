@@ -7,7 +7,7 @@ no per-frame view, no runtime archetype generation.
 
 
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     MainScreen,
@@ -18,7 +18,7 @@ import from ui.model {
     ApprovalOverlay,
 }
 
-import from ui.mutation {
+import from .mutation {
     append_child,
 }
 

@@ -7,13 +7,13 @@ warning without frame failure, overlay centering, determinism, and the
 D23 contract (intrinsic drift never turns a frame unsatisfiable).
 """
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     StrengthTier,
 }
-import from constraints.solver {
+import from ..constraints.solver {
     Solver,
 }
-import from ui.layout_types {
+import from .layout_types {
     Axis,
     AxisSize,
     LayoutError,
@@ -29,7 +29,7 @@ import from ui.layout_types {
     create_layout_state,
     set_spec,
 }
-import from ui.model {
+import from .model {
     Child,
     Header,
     MainScreen,

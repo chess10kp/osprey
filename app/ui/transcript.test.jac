@@ -3,7 +3,7 @@
 Companion scope provides transcript APIs.
 """
 
-import from ui.model {
+import from .model {
     TranscriptView,
 }
 

@@ -6,7 +6,7 @@ Restoration is tracked so normal exit, exception, and SIGINT paths can be
 asserted without a real process terminal.
 """
 
-import from ui.terminal {
+import from .terminal {
     Terminal,
     ENTER_ALT_SCREEN,
     LEAVE_ALT_SCREEN,

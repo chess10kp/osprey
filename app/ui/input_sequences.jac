@@ -1,6 +1,6 @@
 """Terminal escape-sequence parsing and decoding."""
 
-import from ui.input_events {
+import from .input_events {
     ESC,
     HostEvent,
     TextEvent,

@@ -1,11 +1,11 @@
 """Scope collection and topology validation for layout compilation."""
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutDiagnostic,
     LayoutError,
     LayoutSeverity,
 }
-import from ui.model {
+import from .model {
     Child,
     Layer,
     Overlay,
@@ -15,7 +15,7 @@ import from ui.model {
     node_id,
     ordered_children,
 }
-import from ui.layout_compile_model { _Scope, _ScopedNode }
+import from .layout_compile_model { _Scope, _ScopedNode }
 
 
 def _topology_error(message: str) -> LayoutDiagnostic {

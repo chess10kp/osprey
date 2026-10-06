@@ -7,7 +7,7 @@
 # import from ui.renderer or ui.layout in this file (circular at collection);
 # pull everything else from leaves (ui.layout_types, ui.model).
 
-import from ui.model {
+import from .model {
     MainScreen,
     Prompt,
     ApprovalOverlay,
@@ -16,12 +16,12 @@ import from ui.model {
     node_id,
 }
 
-import from ui.mutation {
+import from .mutation {
     append_child,
     detach,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     AxisSize,
     LayoutSpec,
     LayoutState,
@@ -33,7 +33,7 @@ import from ui.layout_types {
     rect_of,
 }
 
-import from ui.virtual_terminal {
+import from .virtual_terminal {
     VirtualTerminal,
 }
 

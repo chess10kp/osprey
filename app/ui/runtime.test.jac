@@ -1,13 +1,13 @@
 """Behavior tests for UiSession runtime ownership and Gate 1 lifecycle."""
 
-import from ui.model {
+import from .model {
     MainScreen,
     Prompt,
     TranscriptView,
     node_id,
 }
 
-import from ui.bindings {
+import from .bindings {
     is_empty,
     subscribe,
 }

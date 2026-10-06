@@ -3,14 +3,14 @@
 Companion scope provides inspect APIs.
 """
 
-import from ui.model {
+import from .model {
     MainScreen,
     Prompt,
     TranscriptView,
     node_id,
 }
 
-import from ui.runtime {
+import from .runtime {
     append_child_session,
     create_session,
     set_current_screen,
@@ -18,11 +18,11 @@ import from ui.runtime {
     record_invalidation,
 }
 
-import from ui.bindings {
+import from .bindings {
     subscribe,
 }
 
-import from ui.events {
+import from .events {
     InsertText,
 }
 

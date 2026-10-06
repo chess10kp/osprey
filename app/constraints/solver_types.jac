@@ -1,6 +1,6 @@
 """Shared solver rows, symbols, and mutation records."""
 
-import from constraints.algebra {
+import from .algebra {
     EPSILON,
     Constraint,
     Expression,
@@ -23,7 +23,7 @@ import from constraints.algebra {
     strength_weight,
     term,
 }
-import from constraints.results {
+import from .results {
     ConstraintHandle,
     SolveError,
     SolveResult,

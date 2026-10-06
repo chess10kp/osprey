@@ -10,7 +10,7 @@ Raw terminal bytes never become UiEvent walkers. This module:
 Does not import ui.events — walker construction stays with the host loop.
 """
 
-import from ui.input_events {
+import from .input_events {
     ESC,
     BRACKETED_PASTE_START,
     BRACKETED_PASTE_END,
@@ -25,7 +25,7 @@ import from ui.input_events {
     InterruptEvent,
 }
 
-import from ui.input_sequences {
+import from .input_sequences {
     sequence_status,
     extract_sequences,
     decode_sequence,

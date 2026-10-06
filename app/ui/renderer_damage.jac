@@ -1,6 +1,6 @@
 """Layout, damage, cursor, and ANSI diff helpers for the renderer."""
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -8,7 +8,7 @@ import from ui.model {
     node_id,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutResult,
     LayoutState,
     Rect,
@@ -16,23 +16,23 @@ import from ui.layout_types {
     rect_union,
 }
 
-import from ui.layout {
+import from .layout {
     compute_layout,
 }
 
-import from ui.cells {
+import from .cells {
     CellBuffer,
     diff_buffers_ansi,
 }
 
-import from ui.renderer_types {
+import from .renderer_types {
     AnsiDiff,
     CursorPos,
     DamageRect,
     Renderer,
 }
 
-import from ui.renderer_paint {
+import from .renderer_paint {
     _layered_overlays,
 }
 

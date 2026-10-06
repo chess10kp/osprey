@@ -1,6 +1,6 @@
 """Behavior tests for semantic event dispatch, bubbling, and effects."""
 
-import from ui.model {
+import from .model {
     MainScreen,
     Overlay,
     UiContainer,
@@ -8,7 +8,7 @@ import from ui.model {
     node_id,
 }
 
-import from ui.runtime {
+import from .runtime {
     append_child_session,
     create_session,
     dispose_session,

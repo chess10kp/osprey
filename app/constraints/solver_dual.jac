@@ -1,6 +1,6 @@
 """Constraint removal and dual simplex algorithm."""
 
-import from constraints.algebra {
+import from .algebra {
     EPSILON,
     Constraint,
     Expression,
@@ -23,13 +23,13 @@ import from constraints.algebra {
     strength_weight,
     term,
 }
-import from constraints.results {
+import from .results {
     ConstraintHandle,
     SolveError,
     SolveResult,
     SolverSnapshot,
 }
-import from constraints.solver_types {
+import from .solver_types {
     SymbolKind,
     MutationJournal,
     Tag,
@@ -39,13 +39,13 @@ import from constraints.solver_types {
     EditInfo,
 }
 
-import from constraints.solver_journal {
+import from .solver_journal {
     _journal_kind_of,
     _journal_touch_row,
     _journal_touch_objective,
     _journal_pop_row,
 }
-import from constraints.solver_simplex {
+import from .solver_simplex {
     _solver_pivot,
     _solver_optimize_cost,
 }

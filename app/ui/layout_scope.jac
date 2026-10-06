@@ -4,12 +4,12 @@ This module owns scope validation and Layer overlay discovery. It is kept
 separate so the public layout module stays a small, stable pipeline seam.
 """
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutDiagnostic,
     LayoutError,
     LayoutSeverity,
 }
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,

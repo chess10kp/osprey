@@ -1,6 +1,6 @@
 """Cell-buffer painting for the retained renderer."""
 
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -10,12 +10,12 @@ import from ui.model {
     node_id,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     FrameEntry,
     LayoutState,
 }
 
-import from ui.cells {
+import from .cells {
     CellBuffer,
     StyleAttrs,
     create_buffer,
@@ -23,7 +23,7 @@ import from ui.cells {
     buffer_blit_text,
 }
 
-import from ui.renderer_types {
+import from .renderer_types {
     Renderer,
     _OverlayHit,
 }

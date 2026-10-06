@@ -18,13 +18,13 @@ Keys:
   JACPATH=. jac run ui/demo_entry.jac
 """
 
-import from ui.runtime {
+import from .runtime {
     UiSession,
     create_session,
     dispose_session,
 }
 
-import from ui.screen {
+import from .screen {
     ShellScreen,
     build_main_shell,
     install_shell_contracts,
@@ -36,13 +36,13 @@ import from ui.screen {
     shell_resize,
 }
 
-import from ui.editor {
+import from .editor {
     editor_backspace,
     editor_history_prev,
     editor_history_next,
 }
 
-import from ui.transcript {
+import from .transcript {
     TranscriptMessage,
     TranscriptProjection,
     bind_transcript,
@@ -51,14 +51,14 @@ import from ui.transcript {
     set_follow_tail,
 }
 
-import from ui.layout_types {
+import from .layout_types {
     LayoutSpec,
     fill_axis,
     fixed_axis,
     grow_axis,
 }
 
-import from ui.renderer {
+import from .renderer {
     Renderer,
     create_renderer,
     render_frame,
@@ -69,12 +69,12 @@ import from ui.renderer {
     request_cursor,
 }
 
-import from ui.terminal {
+import from .terminal {
     ProcessTerminal,
     read_terminal_size,
 }
 
-import from ui.input {
+import from .input {
     HostEvent,
     InputNormalizer,
     TextEvent,
@@ -83,24 +83,24 @@ import from ui.input {
     coalesce_events,
 }
 
-import from ui.progress_bar {
+import from .progress_bar {
     ProgressBar,
     SetProgress,
 }
 
-import from ui.width {
+import from .width {
     display_width,
     truncate_text,
 }
 
-import from ui.demo_live_shell_model { LiveShell }
+import from .demo_live_shell_model { LiveShell }
 
-import from ui.demo_live_shell_messages {
+import from .demo_live_shell_messages {
     _push_turn,
     _rewrite_turn,
 }
 
-import from ui.demo_live_shell_render {
+import from .demo_live_shell_render {
     _install_layout,
     _render,
 }

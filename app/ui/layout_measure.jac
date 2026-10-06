@@ -23,7 +23,7 @@ wrapped line list. `wrap_text` is intentionally NOT imported here —
 calling it directly would hit E5093 (list[str] return crosses boundary).
 """
 
-import from ui.width {
+import from .width {
     display_width,
     wrap_text_joined,
 }

@@ -5,15 +5,15 @@ ui.layout_types_core; lifecycle operations remain here so existing imports
 continue to work unchanged.
 """
 
-import from constraints.algebra {
+import from ..constraints.algebra {
     StrengthTier,
     is_finite,
 }
-import from ui.model {
+import from .model {
     UiNode,
     node_id,
 }
-import from ui.layout_types_core {
+import from .layout_types_core {
     Rect,
     Size,
     rect_union,
@@ -38,7 +38,7 @@ import from ui.layout_types_core {
     MeasureEntry,
     LayoutState,
 }
-import from ui.layout_measure {
+import from .layout_measure {
     invalidate_measurement_cache,
 }
 

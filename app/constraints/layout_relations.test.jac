@@ -1,6 +1,6 @@
 """Tests for the D22 pure constraint relation vocabulary."""
 
-import from constraints.algebra {
+import from .algebra {
     Constraint,
     Expression,
     Relation,

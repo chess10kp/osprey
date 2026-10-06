@@ -5,15 +5,15 @@ the renderer materializes visible wrapped lines + overscan only. Measurement
 cache key: (message_id, width, content_rev, style_rev).
 """
 
-import from ui.model {
+import from .model {
     TranscriptView,
 }
 
-import from ui.width {
+import from .width {
     wrap_text,
 }
 
-import from ui.markdown_proj {
+import from .markdown_proj {
     looks_like_markdown,
     project_markdown,
     proj_lines_to_span_dicts,

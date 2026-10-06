@@ -1,22 +1,22 @@
 """Editor runtime tests: caret, selection, history, display width."""
 
-import from ui.model {
+import from .model {
     Prompt,
     MainScreen,
 }
 
-import from ui.width {
+import from .width {
     display_width,
 }
 
-import from ui.runtime {
+import from .runtime {
     create_session,
     dispose_session,
     append_child_session,
     set_current_screen,
 }
 
-import from ui.events {
+import from .events {
     InsertText,
     Submit,
     Cancel,

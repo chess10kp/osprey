@@ -12,7 +12,7 @@ stay in sibling modules; those siblings depend on ui.layout_types, never
 back on this module, so the import graph stays acyclic.
 """
 
-import from ui.layout_types {
+import from .layout_types {
     Align,
     Axis,
     AxisSize,
@@ -52,22 +52,22 @@ import from ui.layout_types {
     rect_of,
     _copy_rect,
 }
-import from ui.layout_compile {
+import from .layout_compile {
     CompileResult,
     PartitionInfo,
     compile_layout,
 }
-import from ui.layout_measure {
+import from .layout_measure {
     natural_width,
     wrapped_lines_at,
     invalidate_measurement_cache,
 }
-import from ui.layout_quantize {
+import from .layout_quantize {
     PartitionRequest,
     quantize_partition,
     snap_edge,
 }
-import from ui.model {
+import from .model {
     UiNode,
     UiContainer,
     Screen,
@@ -75,10 +75,10 @@ import from ui.model {
     node_id,
     ordered_children,
 }
-import from ui.width {
+import from .width {
     wrap_text_joined,
 }
-import from ui.layout_scope {
+import from .layout_scope {
     _ScopedNode,
     _Scope,
     _collect_scope,

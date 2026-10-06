@@ -1,6 +1,6 @@
 """Tableau bookkeeping and exact rollback journal operations."""
 
-import from constraints.algebra {
+import from .algebra {
     EPSILON,
     Constraint,
     Expression,
@@ -23,13 +23,13 @@ import from constraints.algebra {
     strength_weight,
     term,
 }
-import from constraints.results {
+import from .results {
     ConstraintHandle,
     SolveError,
     SolveResult,
     SolverSnapshot,
 }
-import from constraints.solver_types {
+import from .solver_types {
     SymbolKind,
     MutationJournal,
     Tag,
