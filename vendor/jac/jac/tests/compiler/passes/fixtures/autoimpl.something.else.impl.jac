@@ -1,3 +1,0 @@
-impl bar{
-    print("bar");
-}

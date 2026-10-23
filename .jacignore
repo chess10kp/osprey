@@ -1,7 +1,0 @@
-# Not part of the osprey framework source tree.
-vendor/
-reference/
-dist/
-node_modules/
-*.test.jac
-test_*

@@ -1,3 +1,0 @@
-impl foo{
-    print("foo");
-}

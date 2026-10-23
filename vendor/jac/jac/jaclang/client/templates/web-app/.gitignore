@@ -1,9 +1,0 @@
-# Jac build artifacts
-.jac/
-
-# Dependencies
-node_modules/
-
-# IDE
-.vscode/
-.idea/

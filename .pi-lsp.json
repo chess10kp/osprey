@@ -1,9 +1,0 @@
-{
-  "autoStart": ["jac"],
-  "servers": {
-    "jac": {
-      "command": "jac",
-      "args": ["lsp"]
-    }
-  }
-}
